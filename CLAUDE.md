@@ -78,9 +78,21 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     ne diffèrent que par la méthode LSP appelée (`textDocument/definition` vs
     `textDocument/typeDefinition`), via la classe intermédiaire
     `GotoPositionCommand`. Pas de `textDocument/didOpen` envoyé avant la requête
-    (repose sur le modèle déjà construit par le dernier `open_project`/`build()`)
-    — à revalider en conditions réelles, notamment sur un projet de la taille de
-    PlantUML.
+    (repose sur le modèle déjà construit par le dernier `open_project`/`build()`).
+
+    **Testé de bout en bout, clide sur lui-même** (clone GitHub frais de
+    `plantuml/clide`, jdtls extrait, `ant run`) : `goto_definition` sur une
+    variable renvoie sa déclaration locale (ex. `command` dans `Main.java` →
+    ligne de `final Command command = registry.find(keyword);`) ;
+    `goto_type_definition` sur ce même symbole renvoie directement la classe de
+    son type déclaré (`public abstract class Command {`), sans repasser par la
+    déclaration locale. Confirmé aussi sur `context`/`ClideContext`. **Confirmé
+    au passage : aucun `textDocument/didOpen` préalable n'est nécessaire**, la
+    requête aboutit directement sur le modèle du dernier `java/buildWorkspace` —
+    l'incertitude notée plus haut est levée (au moins sur un petit projet comme
+    clide ; à revalider sur un projet de la taille de PlantUML). Cas d'erreur
+    (symbole absent de la ligne donnée) : message clair,
+    `Symbol 'foobar' not found on line 55 of ...`.
 
 ### Syntaxe des commandes : un token par ligne
 

@@ -153,12 +153,17 @@ l'absence de `.clide/` (cas de clide lui-même) ne casse rien.
 
 - **`textDocument/definition`** / **`typeDefinition`** — où est réellement
   définie une méthode, une classe, une variable (pas un grep qui tombe sur un
-  usage). **Fait** : commandes `goto_definition`/`goto_type_definition` (voir
-  `CLAUDE.md`). Position donnée en ligne (1-based) + texte du symbole cherché
-  comme mot entier sur cette ligne, plutôt qu'une colonne brute — clide déduit
-  la colonne lui-même. Pas de `didOpen` préalable, requête envoyée directement
-  sur le modèle du dernier build ; reste à valider en conditions réelles
-  (notamment à l'échelle de PlantUML).
+  usage). **Fait, testé de bout en bout** : commandes
+  `goto_definition`/`goto_type_definition` (voir `CLAUDE.md`). Position donnée
+  en ligne (1-based) + texte du symbole cherché comme mot entier sur cette
+  ligne, plutôt qu'une colonne brute — clide déduit la colonne lui-même. Testé
+  sur clide lui-même (clone GitHub frais + jdtls extrait + `ant run`) :
+  `goto_definition` sur `command`/`context` dans `Main.java` renvoie bien leur
+  déclaration locale, `goto_type_definition` sur les mêmes symboles saute
+  directement à `Command`/`ClideContext`. **Pas de `didOpen` préalable
+  nécessaire** — confirmé, la requête aboutit directement sur le modèle du
+  dernier `java/buildWorkspace` (reste à revalider à l'échelle de PlantUML,
+  mais rien n'indique que ça devrait se comporter différemment).
 - **`textDocument/implementation`** — quelles classes implémentent une
   interface donnée.
 - **`textDocument/references`** — qui utilise ce symbole, dans tout le
