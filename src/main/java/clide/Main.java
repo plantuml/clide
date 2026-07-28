@@ -41,8 +41,9 @@ public class Main {
 				System.out.println("?SYNTAX ERROR");
 				continue;
 			}
+			System.out.println("> Get " + keyword + " expecting now " + command.paramSize() + " parameter(s)");
 
-			final String[] params = readParams(reader, command.paramSize());
+			final String[] params = readParams(reader, command.getDescriptionParam());
 			if (params == null) {
 				System.out.println("?SYNTAX ERROR: missing parameter(s) for " + keyword);
 				break; // stdin ended mid-command, nothing more to read
@@ -62,12 +63,14 @@ public class Main {
 	 * Reads the next 'count' lines as parameters, one per line. Returns null if
 	 * input ends before all of them are read.
 	 */
-	private static String[] readParams(final BufferedReader reader, final int count) throws IOException {
-		final String[] params = new String[count];
-		for (int i = 0; i < count; i++) {
-			final String paramLine = reader.readLine();
+	private static String[] readParams(final BufferedReader reader, final String[] comments) throws IOException {
+		final int size = comments.length;
+		final String[] params = new String[size];
+		for (int i = 0; i < size; i++) {
+			System.out.println("> " + comments[i] + " ?");
+			String paramLine = reader.readLine();
 			if (paramLine == null)
-				return null;
+				paramLine = "";
 
 			params[i] = paramLine.trim();
 		}
