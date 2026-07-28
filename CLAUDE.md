@@ -63,6 +63,24 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     `chemin_initial`, ne garde que les fichiers dont le chemin (normalisé en
     `/`, donc portable Windows/Linux) matche `regex_chemin`, puis grep
     `regex_cherché` ligne par ligne dans ces fichiers.
+  - `goto_definition <chemin fichier> <ligne> <symbole>` → où est réellement
+    définie la déclaration du symbole (pas juste un usage). `goto_type_definition`
+    même signature → où est définie la classe/interface du type déclaré du
+    symbole (pas la déclaration du symbole lui-même, et pas son type
+    d'exécution : le LSP ne connaît que le type statique déclaré). La ligne est
+    1-based (comme affichée en lisant le fichier) ; le symbole est cherché comme
+    mot entier sur cette ligne (`\bsymbole\b`), clide en déduit la colonne — pas
+    de comptage de caractères à faire. Les deux commandes affichent toutes les
+    locations renvoyées (`chemin/relatif.java:ligne: contenu de la ligne`), ou
+    `"<no definition found>"` si vide. Nécessitent un `open_project` préalable
+    (utilisent le projet courant). Logique partagée dans
+    `JdtlsSession.goToPosition` ; `GotoDefinitionCommand`/`GotoTypeDefinitionCommand`
+    ne diffèrent que par la méthode LSP appelée (`textDocument/definition` vs
+    `textDocument/typeDefinition`), via la classe intermédiaire
+    `GotoPositionCommand`. Pas de `textDocument/didOpen` envoyé avant la requête
+    (repose sur le modèle déjà construit par le dernier `open_project`/`build()`)
+    — à revalider en conditions réelles, notamment sur un projet de la taille de
+    PlantUML.
 
 ### Syntaxe des commandes : un token par ligne
 
@@ -113,7 +131,10 @@ correspondante. Tout vit dans `clide.core` :
   mot-clé → `Command` à partir de la liste fixe déclarée dans `Main`.
 - Implémentations concrètes : `HelpCommand`, `ExitCommand`,
   `OpenProjectCommand`, `PrintDiagnosticsCommand`, `ResearchRegex`
-  (`search_regex`).
+  (`search_regex`), `GotoDefinitionCommand`, `GotoTypeDefinitionCommand`
+  (toutes deux via la classe intermédiaire `GotoPositionCommand`, seule
+  exception au principe « une classe = une commande », justifiée par une
+  logique de dispatch strictement identique entre les deux — voir plus bas).
 
 Ajouter une commande = ajouter une classe `clide.core` qui étend `Command`
 et l'enregistrer dans `Main.commands` ; aucune autre modification de `Main`
@@ -208,8 +229,9 @@ persistant d'une session à l'autre.
   nécessite pas de téléchargement de dépendances).
 - Commande de lancement d'un test unique.
 - Requêtes sémantiques supplémentaires via `JdtlsSession`/`LspClient` :
-  `textDocument/definition`, `references`, `callHierarchy`, `typeHierarchy`,
-  etc. (voir `JDTLS.md`, section 2).
+  `references`, `implementation`, `callHierarchy`, `typeHierarchy`, etc.
+  (`definition`/`typeDefinition` faits — voir `goto_definition`/
+  `goto_type_definition` ci-dessus ; voir `JDTLS.md`, section 2).
 - Attendre réellement la fin d'indexation (`language/status` →
   `Started`/`ServiceReady`) plutôt que le délai fixe actuel dans
   `JdtlsSession.waitForServiceReady` — suffisant sur un petit projet comme

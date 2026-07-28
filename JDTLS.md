@@ -153,7 +153,12 @@ l'absence de `.clide/` (cas de clide lui-même) ne casse rien.
 
 - **`textDocument/definition`** / **`typeDefinition`** — où est réellement
   définie une méthode, une classe, une variable (pas un grep qui tombe sur un
-  usage).
+  usage). **Fait** : commandes `goto_definition`/`goto_type_definition` (voir
+  `CLAUDE.md`). Position donnée en ligne (1-based) + texte du symbole cherché
+  comme mot entier sur cette ligne, plutôt qu'une colonne brute — clide déduit
+  la colonne lui-même. Pas de `didOpen` préalable, requête envoyée directement
+  sur le modèle du dernier build ; reste à valider en conditions réelles
+  (notamment à l'échelle de PlantUML).
 - **`textDocument/implementation`** — quelles classes implémentent une
   interface donnée.
 - **`textDocument/references`** — qui utilise ce symbole, dans tout le

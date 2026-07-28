@@ -6,6 +6,8 @@ import java.io.InputStreamReader;
 import java.util.List;
 
 import clide.command.ExitCommand;
+import clide.command.GotoDefinitionCommand;
+import clide.command.GotoTypeDefinitionCommand;
 import clide.command.HelpCommand;
 import clide.command.OpenProjectCommand;
 import clide.command.PrintDiagnosticsCommand;
@@ -21,7 +23,8 @@ public class Main {
 	public static final String VERSION = "0.0.1";
 
 	public static final List<Command> commands = List.of(new HelpCommand(), new ExitCommand(), new OpenProjectCommand(),
-			new PrintDiagnosticsCommand(), new ResearchRegexCommand());
+			new PrintDiagnosticsCommand(), new ResearchRegexCommand(), new GotoDefinitionCommand(),
+			new GotoTypeDefinitionCommand());
 
 	public static void main(final String[] args) throws IOException {
 		System.out.println("Welcome to clide " + VERSION);

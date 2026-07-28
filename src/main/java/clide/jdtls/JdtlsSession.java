@@ -2,9 +2,11 @@ package clide.jdtls;
 
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,6 +14,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -191,6 +195,120 @@ public class JdtlsSession {
 		// Diagnostics for files with problems arrive as notifications around
 		// the same time as the response - give them a moment to land.
 		Thread.sleep(2000);
+	}
+
+	/**
+	 * Resolves symbolText as a whole word on the given (1-based) line of file, then
+	 * sends lspMethod ("textDocument/definition" or "textDocument/typeDefinition")
+	 * at that position against this session. Shared by GotoDefinitionCommand and
+	 * GotoTypeDefinitionCommand - only the LSP method name differs between the two.
+	 *
+	 * No textDocument/didOpen is sent first: this relies on jdtls already having
+	 * the file in its compiled model from the last build() (see JDTLS.md, section
+	 * 0bis) rather than on editor-style open/close tracking. To be revisited if
+	 * that turns out not to be enough in practice.
+	 *
+	 * Returns one formatted "path:line: line content" entry per location in the
+	 * response, in server order; an empty list if the response was empty/null.
+	 */
+	public List<String> goToPosition(final String lspMethod, final Path file, final int oneBasedLine,
+			final String symbolText) throws IOException, InterruptedException, LspClient.TimeoutException {
+		if (Files.isRegularFile(file) == false)
+			throw new IOException("Not a file: " + file);
+
+		final List<String> fileLines = Files.readAllLines(file, StandardCharsets.UTF_8);
+		if (oneBasedLine < 1 || oneBasedLine > fileLines.size())
+			throw new IOException(
+					"Line " + oneBasedLine + " out of range (file has " + fileLines.size() + " line(s)): " + file);
+
+		final int column = findWholeWordColumn(fileLines.get(oneBasedLine - 1), symbolText);
+		if (column < 0)
+			throw new IOException("Symbol '" + symbolText + "' not found on line " + oneBasedLine + " of " + file);
+
+		final Map<String, Object> textDocument = new LinkedHashMap<>();
+		textDocument.put("uri", file.toUri().toString());
+		final Map<String, Object> position = new LinkedHashMap<>();
+		position.put("line", oneBasedLine - 1);
+		position.put("character", column);
+		final Map<String, Object> params = new LinkedHashMap<>();
+		params.put("textDocument", textDocument);
+		params.put("position", position);
+
+		final Map<String, Object> response = client.request(lspMethod, params, 30);
+		if (response.containsKey("error"))
+			throw new IOException(lspMethod + " failed: " + response.get("error"));
+
+		return formatLocations(response.get("result"));
+	}
+
+	/** Column (0-based) of the first whole-word match of symbol on line, or -1. */
+	private int findWholeWordColumn(final String line, final String symbol) {
+		final Matcher matcher = Pattern.compile("\\b" + Pattern.quote(symbol) + "\\b").matcher(line);
+		return matcher.find() ? matcher.start() : -1;
+	}
+
+	/**
+	 * Accepts either a single Location, a Location[], or null/absent - the LSP
+	 * response shapes allowed for definition/typeDefinition.
+	 */
+	@SuppressWarnings("unchecked")
+	private List<String> formatLocations(final Object result) {
+		final List<Object> rawLocations;
+		if (result instanceof List)
+			rawLocations = (List<Object>) result;
+		else if (result instanceof Map)
+			rawLocations = List.of(result);
+		else
+			rawLocations = List.of();
+
+		final List<String> formatted = new ArrayList<>();
+		for (final Object item : rawLocations)
+			if (item instanceof Map)
+				formatted.add(formatLocation((Map<String, Object>) item));
+
+		return formatted;
+	}
+
+	/**
+	 * Also understands LocationLink (targetUri/targetSelectionRange) in case a
+	 * future capabilities change makes jdtls prefer that shape over plain Location
+	 * (uri/range) - harmless either way since only one shape is ever populated.
+	 */
+	@SuppressWarnings("unchecked")
+	private String formatLocation(final Map<String, Object> location) {
+		final String uri = location.get("uri") != null ? (String) location.get("uri")
+				: (String) location.get("targetUri");
+		final Map<String, Object> range = location.get("range") != null ? (Map<String, Object>) location.get("range")
+				: (Map<String, Object>) location.get("targetSelectionRange");
+
+		long line = -1;
+		if (range != null) {
+			final Map<String, Object> start = (Map<String, Object>) range.get("start");
+			if (start != null && start.get("line") instanceof Number)
+				line = ((Number) start.get("line")).longValue() + 1;
+
+		}
+
+		final String locationLabel = shortName(uri) + ":" + line;
+		final String lineText = readLineSafely(uri, line);
+		return lineText == null ? locationLabel : locationLabel + ": " + lineText;
+	}
+
+	/** Best-effort: null on any failure (unreadable file, malformed URI, ...). */
+	private String readLineSafely(final String uri, final long oneBasedLine) {
+		if (uri == null || oneBasedLine < 1)
+			return null;
+
+		try {
+			final Path path = Paths.get(new URI(uri));
+			final List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+			if (oneBasedLine > lines.size())
+				return null;
+
+			return lines.get((int) oneBasedLine - 1).strip();
+		} catch (final Exception e) {
+			return null;
+		}
 	}
 
 	/**
