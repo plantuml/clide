@@ -7,6 +7,7 @@ import java.util.List;
 
 import clide.command.ExitCommand;
 import clide.command.GotoDefinitionCommand;
+import clide.command.GotoImplementationCommand;
 import clide.command.GotoTypeDefinitionCommand;
 import clide.command.HelpCommand;
 import clide.command.OpenProjectCommand;
@@ -24,7 +25,7 @@ public class Main {
 
 	public static final List<Command> commands = List.of(new HelpCommand(), new ExitCommand(), new OpenProjectCommand(),
 			new PrintDiagnosticsCommand(), new ResearchRegexCommand(), new GotoDefinitionCommand(),
-			new GotoTypeDefinitionCommand());
+			new GotoTypeDefinitionCommand(), new GotoImplementationCommand());
 
 	public static void main(final String[] args) throws IOException {
 		System.out.println("Welcome to clide " + VERSION);

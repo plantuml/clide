@@ -165,7 +165,13 @@ l'absence de `.clide/` (cas de clide lui-même) ne casse rien.
   dernier `java/buildWorkspace` (reste à revalider à l'échelle de PlantUML,
   mais rien n'indique que ça devrait se comporter différemment).
 - **`textDocument/implementation`** — quelles classes implémentent une
-  interface donnée.
+  interface donnée. **Fait, testé de bout en bout** : commande
+  `goto_implementation` (voir `CLAUDE.md`), troisième sous-classe de
+  `GotoPositionCommand` sans aucune logique nouvelle (même position par
+  ligne+mot entier que `goto_definition`/`goto_type_definition`). Testé sur
+  clide lui-même : `goto_implementation` sur la méthode abstraite
+  `executeCommand` de `Command.java` renvoie exactement les 6 implémentations
+  concrètes existantes, sans bruit.
 - **`textDocument/references`** — qui utilise ce symbole, dans tout le
   projet.
 - **`textDocument/prepareCallHierarchy`** +

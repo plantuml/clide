@@ -93,6 +93,21 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     clide ; à revalider sur un projet de la taille de PlantUML). Cas d'erreur
     (symbole absent de la ligne donnée) : message clair,
     `Symbol 'foobar' not found on line 55 of ...`.
+  - `goto_implementation <chemin fichier> <ligne> <symbole>` → mêmes
+    paramètres et même comportement que `goto_definition`/`goto_type_definition`
+    (troisième sous-classe de `GotoPositionCommand`, aucune logique
+    supplémentaire) mais interroge `textDocument/implementation` : quelles
+    classes/méthodes implémentent réellement le symbole visé — typiquement une
+    méthode abstraite ou d'interface. C'est la question de polymorphisme posée
+    dès l'origine du projet.
+
+    **Testé de bout en bout, clide sur lui-même** : `goto_implementation` sur
+    `executeCommand` (méthode abstraite de `Command.java`) renvoie exactement
+    les 6 implémentations concrètes (`ExitCommand`, `GotoPositionCommand` —
+    partagée par les trois commandes `goto_*`, listée une seule fois, pas
+    trois —, `HelpCommand`, `OpenProjectCommand`, `PrintDiagnosticsCommand`,
+    `ResearchRegexCommand`), sans bruit (ni la déclaration abstraite, ni les
+    sites d'appel `command.executeCommand(...)` qu'un grep aurait remontés).
 
 ### Syntaxe des commandes : un token par ligne
 
@@ -143,10 +158,11 @@ correspondante. Tout vit dans `clide.core` :
   mot-clé → `Command` à partir de la liste fixe déclarée dans `Main`.
 - Implémentations concrètes : `HelpCommand`, `ExitCommand`,
   `OpenProjectCommand`, `PrintDiagnosticsCommand`, `ResearchRegex`
-  (`search_regex`), `GotoDefinitionCommand`, `GotoTypeDefinitionCommand`
-  (toutes deux via la classe intermédiaire `GotoPositionCommand`, seule
-  exception au principe « une classe = une commande », justifiée par une
-  logique de dispatch strictement identique entre les deux — voir plus bas).
+  (`search_regex`), `GotoDefinitionCommand`, `GotoTypeDefinitionCommand`,
+  `GotoImplementationCommand` (les trois via la classe intermédiaire
+  `GotoPositionCommand`, seule exception au principe « une classe = une
+  commande », justifiée par une logique de dispatch strictement identique
+  entre les trois — voir plus bas).
 
 Ajouter une commande = ajouter une classe `clide.core` qui étend `Command`
 et l'enregistrer dans `Main.commands` ; aucune autre modification de `Main`
@@ -241,9 +257,10 @@ persistant d'une session à l'autre.
   nécessite pas de téléchargement de dépendances).
 - Commande de lancement d'un test unique.
 - Requêtes sémantiques supplémentaires via `JdtlsSession`/`LspClient` :
-  `references`, `implementation`, `callHierarchy`, `typeHierarchy`, etc.
-  (`definition`/`typeDefinition` faits — voir `goto_definition`/
-  `goto_type_definition` ci-dessus ; voir `JDTLS.md`, section 2).
+  `references`, `callHierarchy`, `typeHierarchy`, etc. (`definition`/
+  `typeDefinition`/`implementation` faits — voir `goto_definition`/
+  `goto_type_definition`/`goto_implementation` ci-dessus ; voir `JDTLS.md`,
+  section 2).
 - Attendre réellement la fin d'indexation (`language/status` →
   `Started`/`ServiceReady`) plutôt que le délai fixe actuel dans
   `JdtlsSession.waitForServiceReady` — suffisant sur un petit projet comme
