@@ -1,4 +1,4 @@
-package clide;
+package clide.jdtls;
 
 import java.io.IOException;
 import java.nio.file.DirectoryStream;

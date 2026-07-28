@@ -1,7 +1,10 @@
-package clide.core;
+package clide.command;
 
 import clide.annotation.Help;
 import clide.annotation.Keyword;
+import clide.core.ClideContext;
+import clide.core.Command;
+import clide.core.CommandResult;
 
 /** Lists every registered command with its parameters and description. */
 public class HelpCommand extends Command {

@@ -1,4 +1,4 @@
-package clide.core;
+package clide.command;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -7,17 +7,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import clide.JdtlsLauncher;
-import clide.JdtlsSession;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Param;
+import clide.core.ClideContext;
+import clide.core.Command;
+import clide.core.CommandResult;
+import clide.jdtls.JdtlsLauncher;
+import clide.jdtls.JdtlsSession;
 
 /**
  * Opens (or re-focuses) a Java project: starts a dedicated jdtls if none is
  * running yet for that path (one session per project, several can be open at
- * once), otherwise reuses the existing one, triggers a full build and
- * reports the resulting diagnostics. Becomes the "current" project for
+ * once), otherwise reuses the existing one, triggers a full build and reports
+ * the resulting diagnostics. Becomes the "current" project for
  * print_diagnostics.
  */
 public class OpenProjectCommand extends Command {

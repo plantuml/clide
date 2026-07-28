@@ -1,4 +1,4 @@
-package clide;
+package clide.jdtls;
 
 import java.io.IOException;
 import java.io.PrintStream;
@@ -32,7 +32,10 @@ public class JdtlsSession {
 	private static final List<String> CONVENTIONAL_SOURCE_FOLDERS = List.of("src/main/java", "src/main/resources",
 			"src/test/java", "src/test/resources");
 
-	/** Per-project jar dependency cache - see JDTLS.md. Populated by hand (or by a future clide command); clide only reads it. */
+	/**
+	 * Per-project jar dependency cache - see JDTLS.md. Populated by hand (or by a
+	 * future clide command); clide only reads it.
+	 */
 	private static final String JARS_DIR = ".clide";
 
 	private final JdtlsLauncher launcher;
@@ -77,17 +80,17 @@ public class JdtlsSession {
 	}
 
 	/**
-	 * Checks whether .project and .classpath are present at the project root.
-	 * Each one is created independently (with defaults "that work") if missing -
-	 * this is the case when clide opens a checkout that was never set up as an
-	 * Eclipse project (e.g. a fresh PlantUML clone without ./gradlew eclipse run
-	 * yet). Source folders are guessed heuristically by checking which of the
+	 * Checks whether .project and .classpath are present at the project root. Each
+	 * one is created independently (with defaults "that work") if missing - this is
+	 * the case when clide opens a checkout that was never set up as an Eclipse
+	 * project (e.g. a fresh PlantUML clone without ./gradlew eclipse run yet).
+	 * Source folders are guessed heuristically by checking which of the
 	 * conventional Maven/Gradle layout directories actually exist on disk.
 	 *
-	 * Deliberately does NOT add a Gradle classpath container: without a real
-	 * Gradle import (disabled - see initializeParams()), such a container never
-	 * resolves anyway, so external dependencies stay unresolved either way -
-	 * this at least gets the project recognized and its own source compiled.
+	 * Deliberately does NOT add a Gradle classpath container: without a real Gradle
+	 * import (disabled - see initializeParams()), such a container never resolves
+	 * anyway, so external dependencies stay unresolved either way - this at least
+	 * gets the project recognized and its own source compiled.
 	 */
 	private void ensureDotFilesPresent() throws IOException {
 		final Path projectFile = projectRoot.resolve(".project");
@@ -158,10 +161,10 @@ public class JdtlsSession {
 	/**
 	 * Jars found in <project>/.clide (flat, non-recursive) - a per-project cache
 	 * populated ahead of time (e.g. with the JUnit/AssertJ/etc. jars a project's
-	 * tests need), since clide's sandbox cannot reach Maven Central to resolve
-	 * them itself. Only used here, when clide generates .classpath from scratch
-	 * (see ensureDotFilesPresent doc) - a pre-existing, hand-maintained
-	 * .classpath is never modified.
+	 * tests need), since clide's sandbox cannot reach Maven Central to resolve them
+	 * itself. Only used here, when clide generates .classpath from scratch (see
+	 * ensureDotFilesPresent doc) - a pre-existing, hand-maintained .classpath is
+	 * never modified.
 	 */
 	private List<String> detectJarLibs() {
 		final Path jarsDir = projectRoot.resolve(JARS_DIR);
@@ -190,7 +193,12 @@ public class JdtlsSession {
 		Thread.sleep(2000);
 	}
 
-	/** Prints a summary of the diagnostics collected by the last build(). If printOnlyError is true, only error-level diagnostics are listed in detail (warnings/info are still counted in the summary line, just not printed one by one). */
+	/**
+	 * Prints a summary of the diagnostics collected by the last build(). If
+	 * printOnlyError is true, only error-level diagnostics are listed in detail
+	 * (warnings/info are still counted in the summary line, just not printed one by
+	 * one).
+	 */
 	public void reportDiagnostics(final PrintStream out, boolean printOnlyError) {
 		if (diagnosticsByUri.isEmpty()) {
 			out.println("jdtls: no diagnostics (project not recognized, or nothing to report)");

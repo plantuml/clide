@@ -8,7 +8,7 @@ import java.lang.annotation.Target;
 
 @Repeatable(Params.class)
 @Retention(RetentionPolicy.RUNTIME)
-@Target({ElementType.CONSTRUCTOR})
+@Target({ ElementType.CONSTRUCTOR })
 public @interface Param {
-    String value();
+	String value();
 }

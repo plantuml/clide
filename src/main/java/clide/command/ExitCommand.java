@@ -1,7 +1,10 @@
-package clide.core;
+package clide.command;
 
 import clide.annotation.Help;
 import clide.annotation.Keyword;
+import clide.core.ClideContext;
+import clide.core.Command;
+import clide.core.CommandResult;
 
 /** Stops every open jdtls session and tells the shell to stop reading input. */
 public class ExitCommand extends Command {

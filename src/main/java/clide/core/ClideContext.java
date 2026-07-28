@@ -5,13 +5,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import clide.JdtlsSession;
+import clide.jdtls.JdtlsSession;
 
 /**
- * Mutable state shared across command executions within a single clide run:
- * one jdtls session per opened project, which one is "current" (the target
- * of print_diagnostics), the list of registered commands (for help), and
- * whether the shell should stop reading further input.
+ * Mutable state shared across command executions within a single clide run: one
+ * jdtls session per opened project, which one is "current" (the target of
+ * print_diagnostics), the list of registered commands (for help), and whether
+ * the shell should stop reading further input.
  */
 public class ClideContext {
 
@@ -40,7 +40,10 @@ public class ClideContext {
 		currentSession = session;
 	}
 
-	/** Stops every jdtls session still tracked, then forgets them. Safe to call more than once. */
+	/**
+	 * Stops every jdtls session still tracked, then forgets them. Safe to call more
+	 * than once.
+	 */
 	public void stopAllSessions() {
 		for (final JdtlsSession session : sessions.values())
 			session.stop();

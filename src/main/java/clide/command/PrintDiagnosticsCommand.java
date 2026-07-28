@@ -1,15 +1,21 @@
-package clide.core;
+package clide.command;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 
-import clide.JdtlsSession;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Param;
+import clide.core.ClideContext;
+import clide.core.Command;
+import clide.core.CommandResult;
+import clide.jdtls.JdtlsSession;
 
-/** Reports the diagnostics collected by the last build() of the current project (see open_project). */
+/**
+ * Reports the diagnostics collected by the last build() of the current project
+ * (see open_project).
+ */
 public class PrintDiagnosticsCommand extends Command {
 
 	@Keyword("print_diagnostics")

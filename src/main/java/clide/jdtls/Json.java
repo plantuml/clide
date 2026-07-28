@@ -1,4 +1,4 @@
-package clide;
+package clide.jdtls;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -6,8 +6,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Minimal JSON reader/writer, just enough to speak JSON-RPC with jdtls.
- * Not a general-purpose library: no streaming, no custom types, no comments.
+ * Minimal JSON reader/writer, just enough to speak JSON-RPC with jdtls. Not a
+ * general-purpose library: no streaming, no custom types, no comments.
  */
 public final class Json {
 
@@ -71,26 +71,26 @@ public final class Json {
 		for (int i = 0; i < s.length(); i++) {
 			final char c = s.charAt(i);
 			switch (c) {
-				case '"':
-					out.append("\\\"");
-					break;
-				case '\\':
-					out.append("\\\\");
-					break;
-				case '\n':
-					out.append("\\n");
-					break;
-				case '\r':
-					out.append("\\r");
-					break;
-				case '\t':
-					out.append("\\t");
-					break;
-				default:
-					if (c < 0x20)
-						out.append(String.format("\\u%04x", (int) c));
-					else
-						out.append(c);
+			case '"':
+				out.append("\\\"");
+				break;
+			case '\\':
+				out.append("\\\\");
+				break;
+			case '\n':
+				out.append("\\n");
+				break;
+			case '\r':
+				out.append("\\r");
+				break;
+			case '\t':
+				out.append("\\t");
+				break;
+			default:
+				if (c < 0x20)
+					out.append(String.format("\\u%04x", (int) c));
+				else
+					out.append(c);
 			}
 		}
 		out.append('"');
@@ -229,37 +229,37 @@ public final class Json {
 				if (c == '\\') {
 					final char escaped = text.charAt(pos++);
 					switch (escaped) {
-						case '"':
-							out.append('"');
-							break;
-						case '\\':
-							out.append('\\');
-							break;
-						case '/':
-							out.append('/');
-							break;
-						case 'n':
-							out.append('\n');
-							break;
-						case 'r':
-							out.append('\r');
-							break;
-						case 't':
-							out.append('\t');
-							break;
-						case 'b':
-							out.append('\b');
-							break;
-						case 'f':
-							out.append('\f');
-							break;
-						case 'u':
-							final String hex = text.substring(pos, pos + 4);
-							pos += 4;
-							out.append((char) Integer.parseInt(hex, 16));
-							break;
-						default:
-							throw new IllegalArgumentException("Unknown escape sequence \\" + escaped);
+					case '"':
+						out.append('"');
+						break;
+					case '\\':
+						out.append('\\');
+						break;
+					case '/':
+						out.append('/');
+						break;
+					case 'n':
+						out.append('\n');
+						break;
+					case 'r':
+						out.append('\r');
+						break;
+					case 't':
+						out.append('\t');
+						break;
+					case 'b':
+						out.append('\b');
+						break;
+					case 'f':
+						out.append('\f');
+						break;
+					case 'u':
+						final String hex = text.substring(pos, pos + 4);
+						pos += 4;
+						out.append((char) Integer.parseInt(hex, 16));
+						break;
+					default:
+						throw new IllegalArgumentException("Unknown escape sequence \\" + escaped);
 					}
 				} else
 					out.append(c);

@@ -1,4 +1,4 @@
-package clide.core;
+package clide.command;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -13,23 +13,26 @@ import java.util.stream.Stream;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Param;
+import clide.core.ClideContext;
+import clide.core.Command;
+import clide.core.CommandResult;
 
-public class ResearchRegex extends Command {
+public class ResearchRegexCommand extends Command {
 
 	@Keyword("search_regex")
 	@Help("Searches <initial path> for lines matching <content regex>, in files whose path matches <path regex>.")
 	@Param("Initial path")
 	@Param("Path regex")
 	@Param("Content regex")
-	public ResearchRegex() {
+	public ResearchRegexCommand() {
 		// Constructeur
 	}
 
 	/**
 	 * Walks the initial path, keeps only files whose (forward-slash normalized)
 	 * path matches the path regex, then greps the content regex line by line in
-	 * those files. Path separators are normalized to '/' before matching the
-	 * path regex so the same regex works whether clide runs on Windows or Linux.
+	 * those files. Path separators are normalized to '/' before matching the path
+	 * regex so the same regex works whether clide runs on Windows or Linux.
 	 */
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {

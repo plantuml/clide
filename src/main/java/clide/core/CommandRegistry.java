@@ -4,7 +4,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Looks up a Command by its @Keyword, built once at startup from a fixed list of commands. */
+/**
+ * Looks up a Command by its @Keyword, built once at startup from a fixed list
+ * of commands.
+ */
 public class CommandRegistry {
 
 	private final Map<String, Command> byKeyword = new LinkedHashMap<>();
@@ -23,7 +26,9 @@ public class CommandRegistry {
 		}
 	}
 
-	/** Returns the command registered for this keyword, or null if there is none. */
+	/**
+	 * Returns the command registered for this keyword, or null if there is none.
+	 */
 	public Command find(final String keyword) {
 		return byKeyword.get(keyword);
 	}

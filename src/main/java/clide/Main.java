@@ -5,23 +5,23 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.List;
 
+import clide.command.ExitCommand;
+import clide.command.HelpCommand;
+import clide.command.OpenProjectCommand;
+import clide.command.PrintDiagnosticsCommand;
+import clide.command.ResearchRegexCommand;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandRegistry;
 import clide.core.CommandResult;
 import clide.core.CommandStatus;
-import clide.core.ExitCommand;
-import clide.core.HelpCommand;
-import clide.core.OpenProjectCommand;
-import clide.core.PrintDiagnosticsCommand;
-import clide.core.ResearchRegex;
 
 public class Main {
 
 	public static final String VERSION = "0.0.1";
 
 	public static final List<Command> commands = List.of(new HelpCommand(), new ExitCommand(), new OpenProjectCommand(),
-			new PrintDiagnosticsCommand(), new ResearchRegex());
+			new PrintDiagnosticsCommand(), new ResearchRegexCommand());
 
 	public static void main(final String[] args) throws IOException {
 		System.out.println("Welcome to clide " + VERSION);

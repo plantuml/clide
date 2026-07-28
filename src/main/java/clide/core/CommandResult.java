@@ -1,8 +1,8 @@
 package clide.core;
 
 /**
- * Outcome of a single command execution: a status plus the text to print
- * (never null, may be empty when there is nothing to say).
+ * Outcome of a single command execution: a status plus the text to print (never
+ * null, may be empty when there is nothing to say).
  */
 public record CommandResult(CommandStatus status, String message) {
 
