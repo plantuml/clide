@@ -14,7 +14,7 @@ public class PrintDiagnosticsCommand extends Command {
 
 	@Keyword("print_diagnostics")
 	@Help("Reports diagnostics from the current project's last build: <all> lists everything, <errors> only errors.")
-	@Param("all | errors")
+	@Param("Filter: all or errors")
 	public PrintDiagnosticsCommand() {
 		// Constructeur
 	}

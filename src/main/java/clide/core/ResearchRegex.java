@@ -16,11 +16,11 @@ import clide.annotation.Param;
 
 public class ResearchRegex extends Command {
 
-	@Help("Usage: search_regex <initial_path> <regex_path> <regex_searched>")
 	@Keyword("search_regex")
+	@Help("Searches <initial path> for lines matching <content regex>, in files whose path matches <path regex>.")
 	@Param("Initial path")
-	@Param("Regex for the path")
-	@Param("Searched String")
+	@Param("Path regex")
+	@Param("Content regex")
 	public ResearchRegex() {
 		// Constructeur
 	}

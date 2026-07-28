@@ -13,6 +13,22 @@ import clide.annotation.Param;
  * constructor - it is never invoked, only inspected - so a command stays a
  * plain, stateless, no-arg-constructible class while still describing
  * itself.
+ *
+ * Convention followed by every command, so help output and the interactive
+ * prompts (see Main.readParams, which prints each @Param value verbatim as
+ * "> <value> ?") stay consistent as commands are added:
+ * <ul>
+ * <li>Annotation order on the constructor: @Keyword, then @Help, then one
+ * @Param per expected parameter, in declaration order.</li>
+ * <li>@Help is one verb-first sentence ending with a period. A free-text
+ * parameter is referenced as &lt;label&gt;, label being its @Param value in
+ * lower case (@Param("Project path") to "&lt;project path&gt;"). A parameter
+ * restricted to a fixed set of literal values instead spells out each one in
+ * its own &lt;literal&gt;, e.g. "&lt;all&gt; ..., &lt;errors&gt; ...".</li>
+ * <li>@Param is a short, sentence-case label (capitalize only the first
+ * word). Literal values the user must type verbatim (e.g. "errors") stay
+ * lower case even inside an otherwise capitalized label.</li>
+ * </ul>
  */
 public abstract class Command {
 

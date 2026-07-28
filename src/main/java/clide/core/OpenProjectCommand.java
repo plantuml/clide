@@ -23,7 +23,7 @@ import clide.annotation.Param;
 public class OpenProjectCommand extends Command {
 
 	@Keyword("open_project")
-	@Help("Opens a Java project at <path>: starts/reuses its jdtls session, builds it, reports diagnostics.")
+	@Help("Opens a Java project at <project path>: starts/reuses its jdtls session, builds it, reports diagnostics.")
 	@Param("Project path")
 	public OpenProjectCommand() {
 		// Constructeur
