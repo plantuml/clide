@@ -142,9 +142,20 @@ def tar_to_zopfli_zip(tar_path: Path, zip_path: Path, iterations: int) -> None:
     Les fichiers "normaux" (scripts, configuration, ...) sont compressés
     avec zopfli directement dans le zip final. Les archives imbriquées
     (.jar, .zip, .war) sont d'abord recompressées entrée par entrée avec
-    zopfli (voir `zopfli_recompress_nested_zip`), puis stockées telles
-    quelles (STORED) dans le zip final : les redéflater une seconde fois de
-    l'extérieur, en tant que blob déjà compressé, n'apporterait rien."""
+    zopfli (voir `zopfli_recompress_nested_zip`), PUIS le blob résultant est
+    lui-même compressé (zopfli) une seconde fois dans le zip final.
+
+    Attention, ça semble contre-intuitif ("recompresser un fichier déjà
+    compressé ne sert à rien") mais c'est faux ici : le format zip/jar
+    stocke les noms de fichiers en clair, en double (une fois dans chaque
+    en-tête local, une fois dans le répertoire central), plus des signatures
+    et champs de longueur fixe -- rien de tout ça n'est compressé par le jar
+    lui-même (seul le contenu de chaque entrée l'est). Avec des centaines,
+    voire des milliers de petites entrées par jar, cette métadonnée non
+    compressée pèse lourd, et une seconde passe de compression sur le jar
+    entier la rattrape. Vérifié empiriquement : stocker le blob tel quel
+    (STORED) ne gagnait presque rien par rapport au tar.gz d'origine ; le
+    recompresser une seconde fois ici permet de repasser sous cette taille."""
     with tempfile.TemporaryDirectory(prefix="jdtls_extract_") as tmp_str:
         tmp_dir = Path(tmp_str)
 
@@ -178,19 +189,19 @@ def tar_to_zopfli_zip(tar_path: Path, zip_path: Path, iterations: int) -> None:
                 )
                 if is_nested_zip:
                     # `compressed_before` = taille du fichier .jar/.zip/.war original sur
-                    # disque (tel quel, en-têtes zip inclus) ; `new_size` = taille du
-                    # fichier recompressé (aussi en-têtes zip inclus) : les deux
-                    # incluent le même type de coût de conteneur, donc comparables
-                    # directement. `uncompressed` = somme des tailles décompressées
-                    # des entrées (le contenu réel, sans aucun conteneur).
+                    # disque (tel quel, en-têtes zip inclus) ; `new_size` = taille
+                    # réellement écrite dans le zip final pour cette entrée (après
+                    # recompression interne + recompression du blob résultant) ;
+                    # `uncompressed` = somme des tailles décompressées des entrées
+                    # (le contenu réel, sans aucun conteneur).
                     compressed_before = original_size
                     data, uncompressed = zopfli_recompress_nested_zip(file_path, iterations)
-                    new_size = len(data)
                     info = zipfile.ZipInfo(filename=arcname)
                     info.date_time = time.localtime(file_path.stat().st_mtime)[:6]
                     info.external_attr = (file_path.stat().st_mode & 0xFFFF) << 16
-                    info.compress_type = zipfile.ZIP_STORED
+                    info.compress_type = zipfile.ZIP_DEFLATED
                     zf.writestr(info, data)
+                    new_size = zf.getinfo(arcname).compress_size
 
                     nested_count += 1
                     cumulative_compressed_before += compressed_before
