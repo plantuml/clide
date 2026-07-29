@@ -199,9 +199,12 @@ public class JdtlsSession {
 
 	/**
 	 * Resolves symbolText as a whole word on the given (1-based) line of file, then
-	 * sends lspMethod ("textDocument/definition" or "textDocument/typeDefinition")
-	 * at that position against this session. Shared by GotoDefinitionCommand and
-	 * GotoTypeDefinitionCommand - only the LSP method name differs between the two.
+	 * sends lspMethod ("textDocument/definition", "textDocument/typeDefinition", or
+	 * "textDocument/implementation") at that position against this session. Shared
+	 * by GotoDefinitionCommand, GotoTypeDefinitionCommand and
+	 * GotoImplementationCommand - only the LSP method name differs between them.
+	 * See the other overload for requests that also need an LSP request-level
+	 * "context" object (currently only textDocument/references does).
 	 *
 	 * No textDocument/didOpen is sent first: this relies on jdtls already having
 	 * the file in its compiled model from the last build() (see JDTLS.md, section
@@ -213,9 +216,25 @@ public class JdtlsSession {
 	 */
 	public List<String> goToPosition(final String lspMethod, final Path file, final int oneBasedLine,
 			final String symbolText) throws IOException, InterruptedException, LspClient.TimeoutException {
+		return goToPosition(lspMethod, file, oneBasedLine, symbolText, null);
+	}
+
+	/**
+	 * Same as the other overload, with an extra LSP request-level "context" object
+	 * merged into the request params when non-null. Added for
+	 * GotoReferencesCommand: textDocument/references is the one goto_* request
+	 * that needs one ({"includeDeclaration": false} - only real usages matter,
+	 * not the declaration itself, which is this command's own input already); the
+	 * other three goto_* commands keep going through the 4-arg overload above,
+	 * which passes null here.
+	 */
+	public List<String> goToPosition(final String lspMethod, final Path file, final int oneBasedLine,
+			final String symbolText, final Map<String, Object> context)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final int column = wholeWordColumn(file, oneBasedLine, symbolText);
 
-		final Map<String, Object> response = client.request(lspMethod, positionParams(file, oneBasedLine, column), 30);
+		final Map<String, Object> response = client.request(lspMethod,
+				positionParams(file, oneBasedLine, column, context), 30);
 		if (response.containsKey("error"))
 			throw new IOException(lspMethod + " failed: " + response.get("error"));
 
@@ -306,6 +325,16 @@ public class JdtlsSession {
 
 	/** textDocument/position request params, for a position already resolved by wholeWordColumn(). */
 	private Map<String, Object> positionParams(final Path file, final int oneBasedLine, final int column) {
+		return positionParams(file, oneBasedLine, column, null);
+	}
+
+	/**
+	 * Same as the other overload, with an extra "context" entry added to the
+	 * request params when non-null - see the context-taking goToPosition()
+	 * overload.
+	 */
+	private Map<String, Object> positionParams(final Path file, final int oneBasedLine, final int column,
+			final Map<String, Object> context) {
 		final Map<String, Object> textDocument = new LinkedHashMap<>();
 		textDocument.put("uri", file.toUri().toString());
 		final Map<String, Object> position = new LinkedHashMap<>();
@@ -314,6 +343,8 @@ public class JdtlsSession {
 		final Map<String, Object> params = new LinkedHashMap<>();
 		params.put("textDocument", textDocument);
 		params.put("position", position);
+		if (context != null)
+			params.put("context", context);
 		return params;
 	}
 

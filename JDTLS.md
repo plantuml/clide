@@ -166,14 +166,21 @@ l'absence de `.clide/` (cas de clide lui-même) ne casse rien.
   mais rien n'indique que ça devrait se comporter différemment).
 - **`textDocument/implementation`** — quelles classes implémentent une
   interface donnée. **Fait, testé de bout en bout** : commande
-  `goto_implementation` (voir `CLAUDE.md`), troisième sous-classe de
-  `GotoPositionCommand` sans aucune logique nouvelle (même position par
-  ligne+mot entier que `goto_definition`/`goto_type_definition`). Testé sur
-  clide lui-même : `goto_implementation` sur la méthode abstraite
-  `executeCommand` de `Command.java` renvoie exactement les 6 implémentations
-  concrètes existantes, sans bruit.
+  `goto_implementation` (voir `CLAUDE.md`), une des sous-classes de
+  `GotoPositionCommand` sans logique nouvelle (même position par ligne+mot
+  entier que `goto_definition`/`goto_type_definition`). Testé sur clide
+  lui-même : `goto_implementation` sur la méthode abstraite `executeCommand`
+  de `Command.java` renvoie exactement les implémentations concrètes
+  existantes (10 au moment du dernier test, le nombre évolue avec les
+  commandes), sans bruit.
 - **`textDocument/references`** — qui utilise ce symbole, dans tout le
-  projet.
+  projet. **Fait, testé de bout en bout** : commande `goto_references` (voir
+  `CLAUDE.md`), quatrième sous-classe de `GotoPositionCommand` — la seule des
+  quatre à envoyer un `context` (`{"includeDeclaration": false}`) en plus de
+  la position, d'où l'ajout d'une surcharge à `JdtlsSession.goToPosition`
+  plutôt qu'une méthode séparée. Testé sur clide lui-même : sur
+  `getCurrentSession` (déclarée dans `ClideContext.java`), renvoie
+  exactement ses 6 sites d'appel réels, sans la déclaration elle-même.
 - **`textDocument/prepareCallHierarchy`** +
   **`callHierarchy/incomingCalls`** / **`outgoingCalls`** — qui appelle cette
   méthode / qu'est-ce qu'elle appelle. C'est le besoin exprimé dès le début

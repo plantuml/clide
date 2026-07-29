@@ -143,13 +143,39 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     méthode abstraite ou d'interface. C'est la question de polymorphisme posée
     dès l'origine du projet.
 
-    **Testé de bout en bout, clide sur lui-même** : `goto_implementation` sur
-    `executeCommand` (méthode abstraite de `Command.java`) renvoie exactement
-    les 6 implémentations concrètes (`ExitCommand`, `GotoPositionCommand` —
-    partagée par les trois commandes `goto_*`, listée une seule fois, pas
-    trois —, `HelpCommand`, `OpenProjectCommand`, `PrintDiagnosticsCommand`,
-    `ResearchRegexCommand`), sans bruit (ni la déclaration abstraite, ni les
-    sites d'appel `command.executeCommand(...)` qu'un grep aurait remontés).
+    **Testé de bout en bout, clide sur lui-même** (re-testé après l'ajout de
+    `hover`/`list_members`/`goto_references` — la liste évolue avec le nombre
+    de commandes) : `goto_implementation` sur `executeCommand` (méthode
+    abstraite de `Command.java`) renvoie exactement les 10 implémentations
+    concrètes existantes (`DisconnectCommand` — partagée par `exit`/`quit` —,
+    `FindSymbolCommand`, `GotoPositionCommand` — partagée par les quatre
+    commandes `goto_*`, listée une seule fois, pas quatre —, `HelpAiCommand`,
+    `HelpCommand`, `HoverCommand`, `ListMembersCommand`,
+    `PrintDiagnosticsCommand`, `ResearchRegexCommand`, `TerminateCommand`),
+    sans bruit (ni la déclaration abstraite, ni les sites d'appel
+    `command.executeCommand(...)` qu'un grep aurait remontés).
+  - `goto_references <chemin fichier> <ligne> <symbole>` → mêmes paramètres
+    que les trois autres `goto_*` (quatrième sous-classe de
+    `GotoPositionCommand`), mais interroge `textDocument/references` :
+    partout où `symbole` est réellement utilisé dans le projet — l'inverse de
+    `goto_implementation` (qui part d'une interface/méthode abstraite vers
+    ses implémentations concrètes ; `goto_references` part de n'importe quel
+    symbole vers tous ses usages réels). Envoie `includeDeclaration: false`
+    dans le `context` de la requête LSP : la déclaration est déjà connue
+    (c'est l'entrée de la commande), seuls les vrais usages comptent — avec
+    `includeDeclaration: true`, une méthode jamais appelée remonterait quand
+    même 1 résultat (sa propre déclaration), ce qui fausserait justement la
+    réponse à « cette méthode est-elle vraiment appelée quelque part ? ».
+    `JdtlsSession.goToPosition` a été élargi (nouvelle surcharge à 5
+    paramètres) pour accepter ce `context` optionnel, plutôt que de dupliquer
+    la logique dans une méthode séparée comme `hover`/`listMembers` — les
+    trois autres `goto_*` continuent de passer par la surcharge à 4
+    paramètres (`context` implicitement `null`).
+
+    **Testé de bout en bout, clide sur lui-même** : `goto_references` sur
+    `getCurrentSession` (déclarée ligne 40 de `ClideContext.java`) renvoie
+    exactement ses 6 sites d'appel réels, sans la déclaration elle-même —
+    confirme que `includeDeclaration: false` fonctionne comme prévu.
   - `hover <chemin fichier> <ligne> <symbole>` → signature/Javadoc que jdtls
     connaît pour ce symbole précis, à cet endroit précis (pas un autre
     emplacement comme `goto_*` — `hover` explique le symbole où il se trouve).

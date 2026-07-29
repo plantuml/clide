@@ -10,6 +10,7 @@ import clide.command.ExitCommand;
 import clide.command.FindSymbolCommand;
 import clide.command.GotoDefinitionCommand;
 import clide.command.GotoImplementationCommand;
+import clide.command.GotoReferencesCommand;
 import clide.command.GotoTypeDefinitionCommand;
 import clide.command.HelpAiCommand;
 import clide.command.HelpCommand;
@@ -37,7 +38,7 @@ public class Main {
 	public static final List<Command> commands = List.of(new HelpCommand(), new HelpAiCommand(), new ExitCommand(),
 			new QuitCommand(), new TerminateCommand(), new PrintDiagnosticsCommand(), new ResearchRegexCommand(),
 			new FindSymbolCommand(), new HoverCommand(), new ListMembersCommand(), new GotoDefinitionCommand(),
-			new GotoTypeDefinitionCommand(), new GotoImplementationCommand());
+			new GotoTypeDefinitionCommand(), new GotoImplementationCommand(), new GotoReferencesCommand());
 
 	public static void main(final String[] args) throws IOException, InterruptedException {
 		final Path projectRoot = parseProjectRoot(args);
