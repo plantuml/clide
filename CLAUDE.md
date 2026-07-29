@@ -103,8 +103,12 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     volontairement, pour pouvoir recopier tel quel le fichier/la ligne d'un
     résultat dans un `goto_definition`/`goto_implementation` juste après.
     Nécessite un `open_project` préalable, même message d'erreur que `goto_*`
-    sinon. Pas encore testé de bout en bout (nécessite un vrai jdtls + projet,
-    indisponible dans la sandbox Claude).
+    sinon.
+
+    **Testé de bout en bout** (clone GitHub frais de `plantuml/clide`, jdtls
+    extrait, self-test — `clide` sur lui-même) : `find_symbol JdtlsSession`
+    renvoie bien `[class] src/main/java/clide/jdtls/JdtlsSession.java:34: public
+    class JdtlsSession {`.
   - `goto_definition <chemin fichier> <ligne> <symbole>` → où est réellement
     définie la déclaration du symbole (pas juste un usage). `goto_type_definition`
     même signature → où est définie la classe/interface du type déclaré du
@@ -179,11 +183,13 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     faites), en listant directement tous les membres d'un coup plutôt qu'un à
     la fois.
 
-    **Pas encore testé de bout en bout** (nécessite un vrai jdtls + projet,
-    indisponible dans la sandbox Claude) — seule la logique de formatage
-    interne (`formatHover`/`hoverText`, `findTypeNode`/`formatMember`) a été
-    vérifiée par réflexion contre des réponses JSON synthétiques, comme pour
-    `find_symbol`.
+    **Testé de bout en bout** (clone GitHub frais de `plantuml/clide`, jdtls
+    extrait, self-test) : `hover` sur `Command` (déclaré ligne 37 de
+    `Command.java`) renvoie bien le Javadoc de la classe (Markdown, avec le
+    lien `Source: [clide](file:///.../Command.java#37)` que jdtls ajoute
+    lui-même) ; `list_members` sur ce même `Command` renvoie exactement ses 8
+    méthodes déclarées, dans l'ordre du fichier, aucun faux positif/négatif
+    (la classe n'a aucun champ — cohérent avec le résultat).
 
 ### Syntaxe des commandes : un token par ligne
 

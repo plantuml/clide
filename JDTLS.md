@@ -189,25 +189,26 @@ l'absence de `.clide/` (cas de clide lui-même) ne casse rien.
   pour répondre au besoin exprimé ("lister les méthodes d'un type" sans
   grepper les appels à la main). Nécessite `hierarchicalDocumentSymbolSupport`
   déclaré côté client dans `initialize` (fait), sinon jdtls renvoie un
-  `SymbolInformation[]` plat sans `children`. Pas encore testé de bout en bout
-  (nécessite un vrai jdtls + projet, indisponible dans la sandbox Claude) ;
-  logique de recherche/formatage vérifiée par réflexion sur un arbre
-  `DocumentSymbol` synthétique.
+  `SymbolInformation[]` plat sans `children`. **Testé de bout en bout**
+  (clone GitHub frais de `plantuml/clide`, jdtls extrait, self-test) : sur
+  `Command` (classe abstraite sans champ), renvoie exactement ses 8 méthodes
+  déclarées, dans l'ordre du fichier.
 - **`workspace/symbol`** — recherche d'un symbole par nom dans tout le
   projet, sans connaître le fichier. **Fait** : commande `find_symbol` (voir
   `CLAUDE.md`), `JdtlsSession.findSymbol`. Aucun filtrage côté clide sur les
   résultats — le matching (flou/camelCase en pratique) reste entièrement celui
-  de jdtls. Pas encore testé de bout en bout (nécessite un vrai jdtls + projet,
-  indisponible dans la sandbox Claude).
+  de jdtls. **Testé de bout en bout** (même self-test) : `find_symbol
+  JdtlsSession` renvoie `[class] .../JdtlsSession.java:34: ...`.
 - **`textDocument/hover`** — signature/Javadoc d'un symbole, utile pour
   comprendre une API sans ouvrir le fichier source. **Fait** : commande
   `hover` (voir `CLAUDE.md`), `JdtlsSession.hover`. Gère les trois formes
   possibles de `Hover.contents` (`String`, `MarkupContent`/`MarkedString` en
   `{"value": ...}`, ou une liste mélangeant les deux) — jdtls choisit la
-  forme, clide ne l'impose pas. Pas encore testé de bout en bout (nécessite un
-  vrai jdtls + projet, indisponible dans la sandbox Claude) ; formatage
-  vérifié par réflexion sur des réponses `Hover` synthétiques couvrant les
-  trois formes.
+  forme, clide ne l'impose pas. **Testé de bout en bout** (même self-test) :
+  jdtls renvoie ici un `MarkupContent` (Markdown), avec le Javadoc de la
+  classe et un lien `Source: [...]` généré par jdtls, rendu correctement.
+  Les deux autres formes (`String` seule, liste mélangée) restent seulement
+  vérifiées par réflexion (voir plus haut) — pas encore vues en vrai.
 
 ## 3. Modifications outillées (utile, mais secondaire)
 
