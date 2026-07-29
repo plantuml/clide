@@ -13,8 +13,8 @@ import clide.core.CommandResult;
 import clide.jdtls.JdtlsSession;
 
 /**
- * Reports the diagnostics collected by the last build() of the current project
- * (see open_project).
+ * Reports the diagnostics collected by the last build() of the project this
+ * daemon owns (built automatically at daemon startup - see CLAUDE.md).
  */
 public class PrintDiagnosticsCommand extends Command {
 
@@ -28,8 +28,6 @@ public class PrintDiagnosticsCommand extends Command {
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final JdtlsSession session = context.getCurrentSession();
-		if (session == null)
-			return CommandResult.error("No project open — use open_project first");
 
 		final boolean errorsOnly = params[0].equals("errors");
 		final ByteArrayOutputStream buffer = new ByteArrayOutputStream();

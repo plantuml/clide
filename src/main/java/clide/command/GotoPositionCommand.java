@@ -28,8 +28,6 @@ public abstract class GotoPositionCommand extends Command {
 	@Override
 	public final CommandResult executeCommand(final ClideContext context, final String... params) {
 		final JdtlsSession session = context.getCurrentSession();
-		if (session == null)
-			return CommandResult.error("No project open — use open_project first");
 
 		final String pathArgument = params[0];
 		if (pathArgument.isEmpty())

@@ -82,10 +82,10 @@ compréhension du projet) fonctionne, avant de s'attaquer à PlantUML — où le
 même problème d'import se posera, en plus sérieux vu le nombre de
 dépendances réelles à résoudre.
 
-## 0bis. Passage à l'échelle : `open_project` et PlantUML
+## 0bis. Passage à l'échelle : plusieurs projets en parallèle, et PlantUML
 
-`clide` gère maintenant plusieurs projets (commande `open_project <chemin>`,
-une session/un jdtls par projet). Testé sur un clone frais de PlantUML
+`clide` gère plusieurs projets en parallèle (un daemon, une session/un
+jdtls, par projet — voir CLAUDE.md). Testé sur un clone frais de PlantUML
 (`git clone --depth 1`, 3600 fichiers `.java`) :
 
 - **Découverte de passage à l'échelle** : la première implémentation ouvrait
@@ -99,13 +99,13 @@ une session/un jdtls par projet). Testé sur un clone frais de PlantUML
   publie les diagnostics de tout le projet directement. Testé sur clide avec
   une erreur volontaire : réponse en 0,7 s, diagnostic correct. `JdtlsSession`
   utilise désormais uniquement cette approche.
-- **Sur PlantUML tel quel** (sans `.classpath`/`.project`) : `open_project`
-  reste rapide (pas de blocage, même à cette taille), mais `java.project.getAll`
+- **Sur PlantUML tel quel** (sans `.classpath`/`.project`) : le daemon
+  démarre et build vite (pas de blocage, même à cette taille), mais `java.project.getAll`
   renvoie `[]` et `java/buildWorkspace` ne rapporte aucun diagnostic — exactement
   le même problème qu'au jalon 0 sur clide avant d'avoir un `.classpath`.
   **PlantUML a besoin du même traitement que clide** : `./gradlew eclipse`
   chez Arnaud, puis commit de `.project`/`.classpath`/`.settings`, pour que
-  `open_project c:\github\plantuml` devienne vraiment utile.
+  `clide c:\github\plantuml` devienne vraiment utile.
 
 ## 0ter. Dépendances externes : le cache `.clide/*.jar` par projet
 

@@ -43,6 +43,11 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
 (Gradle 9.3.1) :
 
 - `clide` démarre et lit des commandes textuelles sur l'entrée standard.
+- Le jdtls du projet est démarré et buildé automatiquement dès le premier
+  `clide <chemin>` sur ce projet (le process qui gère ça — un par projet —
+  tourne en arrière-plan et reste up pour les lancements suivants) : il n'y a
+  pas de commande séparée à taper pour l'ouvrir, ni de notion de « projet
+  courant » à changer.
 - Commandes implémentées :
   - `help` → liste toutes les commandes enregistrées (mot-clé, paramètres,
     description), généré depuis leurs annotations — voir plus bas. Affiché
@@ -71,17 +76,10 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     format de compromis unique.
   - `exit` → quitte proprement (arrête tous les jdtls ouverts, via un
     shutdown LSP propre avant de tuer chaque processus).
-  - `open_project <chemin>` → ouvre un projet Java à ce chemin : démarre un
-    jdtls dédié si besoin (une session par projet, plusieurs projets peuvent
-    être ouverts en parallèle), fait le handshake LSP complet
-    (`initialize`/`initialized`, import Gradle/Maven désactivé — voir
-    `JDTLS.md`), déclenche un build complet (`java/buildWorkspace`) et
-    affiche un résumé des diagnostics de compilation (erreurs/warnings, avec
-    fichier + ligne + message). Rappeler `open_project` sur un chemin déjà
-    ouvert réutilise la session (pas de nouveau handshake) et relance juste
-    le build. Devient le projet « courant » pour `print_diagnostics`.
   - `print_diagnostics <all|errors>` → réaffiche les diagnostics du dernier
-    build du projet courant (`all` : tout, `errors` : erreurs uniquement).
+    build du projet (`all` : tout, `errors` : erreurs uniquement) — le build
+    dont il s'agit est celui fait automatiquement au démarrage du daemon (ou
+    relancé au besoin, voir plus bas).
   - `search_regex <chemin_initial> <regex_chemin> <regex_cherché>` → parcourt
     `chemin_initial`, ne garde que les fichiers dont le chemin (normalisé en
     `/`, donc portable Windows/Linux) matche `regex_chemin`, puis grep
@@ -102,8 +100,6 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     format `chemin/relatif.java:ligne: contenu de la ligne` que `goto_*` —
     volontairement, pour pouvoir recopier tel quel le fichier/la ligne d'un
     résultat dans un `goto_definition`/`goto_implementation` juste après.
-    Nécessite un `open_project` préalable, même message d'erreur que `goto_*`
-    sinon.
 
     **Testé de bout en bout** (clone GitHub frais de `plantuml/clide`, jdtls
     extrait, self-test — `clide` sur lui-même) : `find_symbol JdtlsSession`
@@ -118,13 +114,13 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     mot entier sur cette ligne (`\bsymbole\b`), clide en déduit la colonne — pas
     de comptage de caractères à faire. Les deux commandes affichent toutes les
     locations renvoyées (`chemin/relatif.java:ligne: contenu de la ligne`), ou
-    `"<no definition found>"` si vide. Nécessitent un `open_project` préalable
-    (utilisent le projet courant). Logique partagée dans
+    `"<no definition found>"` si vide. Logique partagée dans
     `JdtlsSession.goToPosition` ; `GotoDefinitionCommand`/`GotoTypeDefinitionCommand`
     ne diffèrent que par la méthode LSP appelée (`textDocument/definition` vs
     `textDocument/typeDefinition`), via la classe intermédiaire
     `GotoPositionCommand`. Pas de `textDocument/didOpen` envoyé avant la requête
-    (repose sur le modèle déjà construit par le dernier `open_project`/`build()`).
+    (repose sur le modèle déjà construit par le dernier `build()`, fait
+    automatiquement au démarrage du daemon).
 
     **Testé de bout en bout, clide sur lui-même** (clone GitHub frais de
     `plantuml/clide`, jdtls extrait, `ant run`) : `goto_definition` sur une
@@ -201,15 +197,15 @@ des espaces.
 
 Au lieu de :
 ```
-open_project /path/to/project
+find_symbol JdtlsSession
 search_regex /src \*.java foo\w+
 print_diagnostics all
 ```
 
 on écrit :
 ```
-open_project
-/path/to/project
+find_symbol
+JdtlsSession
 search_regex
 /src
 \*.java
@@ -293,10 +289,11 @@ lance `java -jar ... -data <dossier temporaire>`.
   `JDTLS.md`), `initialized`, puis `java/buildWorkspace` (build complet du
   projet — voir plus bas pourquoi, plutôt que d'ouvrir chaque fichier),
   collecte des diagnostics publiés, et affichage d'un résumé. Le `stop()`
-  tente un `shutdown`/`exit` LSP propre avant d'arrêter le processus.
-  `Main.java` garde une session par projet ouvert (`Map<Path,
-  JdtlsSession>`), pour pouvoir travailler sur plusieurs projets à la fois
-  (ex. clide et PlantUML en parallèle).
+  tente un `shutdown`/`exit` LSP propre avant d'arrêter le processus. Chaque
+  projet a son propre process daemon (un `JdtlsSession` chacun, son propre
+  `.clide.lock` à sa racine) : plusieurs projets peuvent tourner en parallèle
+  (ex. clide et PlantUML en même temps) sans se gêner, chacun dans son
+  daemon.
 
 **Découverte de passage à l'échelle** : ouvrir chaque fichier individuellement
 (`textDocument/didOpen`) fonctionne bien sur un petit projet comme clide,
@@ -308,15 +305,15 @@ diagnostics pour tout le projet en moins d'une seconde (testé sur clide :
 
 Testé de bout en bout dans la sandbox Claude : compilation propre (0
 diagnostic), erreur volontaire détectée à la bonne ligne puis disparaissant
-une fois corrigée, réutilisation de la session sur un second appel à
-`open_project` sur le même chemin, et arrêt propre du sous-processus sur
-`exit`.
+une fois corrigée, réutilisation de la session entre deux lancements
+successifs de `clide <chemin>` sur le même projet (le daemon reste up, pas
+de nouveau handshake), et arrêt propre du sous-processus sur `exit`.
 
-**Test sur PlantUML (clone frais, `git clone --depth 1`)** : `open_project`
-fonctionne techniquement (rapide, pas de blocage), mais rapporte « projet non
+**Test sur PlantUML (clone frais, `git clone --depth 1`)** : le daemon
+démarre et build techniquement (rapide, pas de blocage), mais rapporte « projet non
 reconnu » — PlantUML n'a pas encore de `.classpath`/`.project` commité
 comme clide. Même traitement nécessaire là-bas (`./gradlew eclipse` +
-commit) avant que `open_project` y soit vraiment utile.
+commit) avant que `clide` y soit vraiment utile.
 
 ## Contrainte réseau importante
 
