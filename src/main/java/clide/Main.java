@@ -1,94 +1,72 @@
 package clide;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 import clide.command.ExitCommand;
+import clide.command.FindSymbolCommand;
 import clide.command.GotoDefinitionCommand;
 import clide.command.GotoImplementationCommand;
 import clide.command.GotoTypeDefinitionCommand;
+import clide.command.HelpAiCommand;
 import clide.command.HelpCommand;
-import clide.command.OpenProjectCommand;
+import clide.command.HoverCommand;
+import clide.command.ListMembersCommand;
 import clide.command.PrintDiagnosticsCommand;
+import clide.command.QuitCommand;
 import clide.command.ResearchRegexCommand;
-import clide.core.ClideContext;
+import clide.command.TerminateCommand;
 import clide.core.Command;
-import clide.core.CommandRegistry;
-import clide.core.CommandResult;
-import clide.core.CommandStatus;
+import clide.daemon.ClideClient;
 
+/**
+ * Entry point for clide's client role: "clide &lt;project path&gt;" connects
+ * to the daemon already running for that project if there is one, otherwise
+ * starts one in the background first - see ClideClient. jdtls itself is only
+ * ever started/built once per project this way, not on every clide run - see
+ * ClideDaemon, which is the daemon's own separate entry point (an internal
+ * re-exec ClideClient spawns; not meant to be typed by hand).
+ */
 public class Main {
 
 	public static final String VERSION = "0.0.1";
 
-	public static final List<Command> commands = List.of(new HelpCommand(), new ExitCommand(), new OpenProjectCommand(),
-			new PrintDiagnosticsCommand(), new ResearchRegexCommand(), new GotoDefinitionCommand(),
+	public static final List<Command> commands = List.of(new HelpCommand(), new HelpAiCommand(), new ExitCommand(),
+			new QuitCommand(), new TerminateCommand(), new PrintDiagnosticsCommand(), new ResearchRegexCommand(),
+			new FindSymbolCommand(), new HoverCommand(), new ListMembersCommand(), new GotoDefinitionCommand(),
 			new GotoTypeDefinitionCommand(), new GotoImplementationCommand());
 
-	public static void main(final String[] args) throws IOException {
-		System.out.println("Welcome to clide " + VERSION);
+	public static void main(final String[] args) throws IOException, InterruptedException {
+		final Path projectRoot = parseProjectRoot(args);
+		if (projectRoot == null)
+			return;
 
-		final CommandRegistry registry = new CommandRegistry(commands);
-		final ClideContext context = new ClideContext(commands);
-
-		final BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-		String line;
-		while ((line = reader.readLine()) != null) {
-			final String keyword = line.trim();
-			if (keyword.isEmpty())
-				continue;
-
-			final Command command = registry.find(keyword);
-			if (command == null) {
-				System.out.println("?SYNTAX ERROR");
-				continue;
-			}
-			System.out.println("> Get " + keyword + " expecting now " + command.paramSize() + " parameter(s)");
-
-			final String[] params = readParams(reader, command.getDescriptionParam());
-			if (params == null) {
-				System.out.println("?SYNTAX ERROR: missing parameter(s) for " + keyword);
-				break; // stdin ended mid-command, nothing more to read
-			}
-
-			printResult(command.executeCommand(context, params));
-			if (context.isExitRequested())
-				break;
-
-		}
-
-		context.stopAllSessions(); // covers stdin closing without an explicit "exit"
-
+		new ClideClient(projectRoot).run();
 	}
 
 	/**
-	 * Reads the next 'count' lines as parameters, one per line. Returns null if
-	 * input ends before all of them are read.
+	 * Parses and validates the single "clide &lt;project path&gt;" argument
+	 * shared by both of clide's entry points - this class (the client) and
+	 * ClideDaemon.main() (the daemon, re-exec'd by ClideClient - see
+	 * ClideClient.startDetachedDaemon()). Prints a usage/error message and
+	 * returns null if args is invalid; never throws.
 	 */
-	private static String[] readParams(final BufferedReader reader, final String[] comments) throws IOException {
-		final int size = comments.length;
-		final String[] params = new String[size];
-		for (int i = 0; i < size; i++) {
-			System.out.println("> " + comments[i] + " ?");
-			String paramLine = reader.readLine();
-			if (paramLine == null)
-				paramLine = "";
-
-			params[i] = paramLine.trim();
+	public static Path parseProjectRoot(final String[] args) {
+		if (args.length != 1) {
+			System.out.println("Usage: clide <project path>");
+			return null;
 		}
-		return params;
-	}
 
-	private static void printResult(final CommandResult result) {
-		if (result.message().isEmpty())
-			return;
+		final Path projectRoot = Paths.get(args[0]).toAbsolutePath().normalize();
+		if (Files.isDirectory(projectRoot) == false) {
+			System.out.println("Not a directory: " + projectRoot);
+			return null;
+		}
 
-		if (result.status() == CommandStatus.ERROR)
-			System.out.println("Error: " + result.message());
-		else
-			System.out.println(result.message());
+		return projectRoot;
 	}
 
 }

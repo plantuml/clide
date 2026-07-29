@@ -18,7 +18,7 @@ import clide.annotation.Param;
  * <value> ?") stay consistent as commands are added:
  * <ul>
  * <li>Annotation order on the constructor: @Keyword, then @Help, then one
- * 
+ *
  * @Param per expected parameter, in declaration order.</li>
  *        <li>@Help is one verb-first sentence ending with a period. A free-text
  *        parameter is referenced as &lt;label&gt;, label being its @Param value
@@ -30,15 +30,30 @@ import clide.annotation.Param;
  *        word). Literal values the user must type verbatim (e.g. "errors") stay
  *        lower case even inside an otherwise capitalized label.</li>
  *        </ul>
+ *
+ * Comparable by @Keyword, alphabetically - lets callers (e.g. HelpCommand)
+ * list commands via Collections.sort() instead of sorting by hand.
  */
-public abstract class Command {
+public abstract class Command implements Comparable<Command> {
 
 	/**
-	 * Runs this command. context carries state shared across commands (open
-	 * sessions, current project, exit flag). params.length always equals
-	 * paramSize().
+	 * Runs this command. context carries state shared across commands (the jdtls
+	 * session, whether this connection/the daemon should stop). params.length
+	 * always equals paramSize().
 	 */
 	public abstract CommandResult executeCommand(ClideContext context, String... params);
+
+	/**
+	 * Whether this command needs the project's jdtls session to be running.
+	 * Defaults to true; commands that never touch jdtls (help, exit/quit/
+	 * terminate, search_regex) override this to false. ClideDaemon only pays the
+	 * cost of lazily restarting a session previously stopped by "exit"/"quit" for
+	 * commands that actually declare they need it - see
+	 * ClideDaemon.ensureSessionReady().
+	 */
+	public boolean needsJdtlsSession() {
+		return true;
+	}
 
 	public String getKeyword() {
 		final Constructor<?> ctor = noArgConstructor();
@@ -73,6 +88,12 @@ public abstract class Command {
 
 	public int paramSize() {
 		return getDescriptionParam().length;
+	}
+
+	/** Alphabetical order on @Keyword. */
+	@Override
+	public int compareTo(final Command other) {
+		return getKeyword().compareTo(other.getKeyword());
 	}
 
 	private Constructor<?> noArgConstructor() {

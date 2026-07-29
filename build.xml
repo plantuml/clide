@@ -7,10 +7,10 @@
     sandbox). Requires only a JDK and Ant — no dependency download.
 
     Usage:
-        ant          -> builds clide.jar (default target: dist)
-        ant compile  -> compiles classes only, no jar
-        ant run      -> builds and runs clide (interactive stdin)
-        ant clean    -> removes the build directory and the jar
+        ant                          -> builds clide.jar (default target: dist)
+        ant compile                  -> compiles classes only, no jar
+        ant run -Dproject=<path>     -> builds and runs clide on <path> (interactive stdin)
+        ant clean                    -> removes the build directory and the jar
     ========================================================================
 -->
 <project name="clide" default="dist" basedir=".">
@@ -38,8 +38,10 @@
     </target>
 
     <target name="run" depends="compile">
+        <fail unless="project" message="Usage: ant run -Dproject=&lt;path&gt;"/>
         <java classname="${main.class}" classpath="${classes.dir}" fork="true">
             <!-- fork="true" so stdin is properly connected to the JVM's console -->
+            <arg value="${project}"/>
         </java>
     </target>
 

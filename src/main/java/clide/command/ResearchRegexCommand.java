@@ -28,6 +28,11 @@ public class ResearchRegexCommand extends Command {
 		// Constructeur
 	}
 
+	@Override
+	public boolean needsJdtlsSession() {
+		return false;
+	}
+
 	/**
 	 * Walks the initial path, keeps only files whose (forward-slash normalized)
 	 * path matches the path regex, then greps the content regex line by line in

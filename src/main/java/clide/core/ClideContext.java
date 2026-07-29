@@ -1,62 +1,79 @@
 package clide.core;
 
-import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import clide.jdtls.JdtlsSession;
 
 /**
- * Mutable state shared across command executions within a single clide run: one
- * jdtls session per opened project, which one is "current" (the target of
- * print_diagnostics), the list of registered commands (for help), and whether
- * the shell should stop reading further input.
+ * State shared across every command execution for the lifetime of the clide
+ * daemon: the single jdtls session for this project, the list of registered
+ * commands (for help), and the two distinct ways a client interaction can
+ * end:
+ * <ul>
+ * <li>"exit"/"quit" (see DisconnectCommand) - stop the jdtls session and end
+ * only the current connection. The daemon and its .clide.lock stay up; the
+ * next command that actually needs jdtls restarts it lazily - see
+ * ClideDaemon.ensureSessionReady().</li>
+ * <li>"terminate" (see TerminateCommand) - stop the jdtls session, end the
+ * connection, and shut the whole daemon down.</li>
+ * </ul>
+ * ClideDaemon resets isDisconnectRequested() at the start of every new
+ * connection; isShutdownRequested() is one-way and checked by both the
+ * per-connection loop and the daemon's own accept loop.
  */
 public class ClideContext {
 
-	private final Map<Path, JdtlsSession> sessions = new LinkedHashMap<>();
 	private final List<Command> commands;
-	private JdtlsSession currentSession;
-	private boolean exitRequested;
+	private final JdtlsSession session;
+	private boolean shutdownRequested;
+	private boolean disconnectRequested;
 
-	public ClideContext(final List<Command> commands) {
+	public ClideContext(final JdtlsSession session, final List<Command> commands) {
 		this.commands = commands;
+		this.session = session;
 	}
 
 	public List<Command> getCommands() {
 		return commands;
 	}
 
-	public Map<Path, JdtlsSession> getSessions() {
-		return sessions;
-	}
-
 	public JdtlsSession getCurrentSession() {
-		return currentSession;
-	}
-
-	public void setCurrentSession(final JdtlsSession session) {
-		currentSession = session;
+		return session;
 	}
 
 	/**
-	 * Stops every jdtls session still tracked, then forgets them. Safe to call more
-	 * than once.
+	 * Stops the jdtls session. Safe to call more than once, and safe to follow
+	 * later with JdtlsSession.start()/build() to bring it back up - see
+	 * ClideDaemon.ensureSessionReady().
 	 */
-	public void stopAllSessions() {
-		for (final JdtlsSession session : sessions.values())
-			session.stop();
-
-		sessions.clear();
+	public void stopSession() {
+		session.stop();
 	}
 
-	public void requestExit() {
-		exitRequested = true;
+	/**
+	 * "exit"/"quit": end the current client connection - the clide daemon (and
+	 * its jdtls session, restarted lazily on demand) stay up for the next one.
+	 */
+	public void requestDisconnect() {
+		disconnectRequested = true;
 	}
 
-	public boolean isExitRequested() {
-		return exitRequested;
+	public boolean isDisconnectRequested() {
+		return disconnectRequested;
+	}
+
+	/** Reset at the start of every new connection - see ClideDaemon.serveOneClient(). */
+	public void clearDisconnectRequested() {
+		disconnectRequested = false;
+	}
+
+	/** "terminate": end this connection and shut the whole daemon down. */
+	public void requestShutdown() {
+		shutdownRequested = true;
+	}
+
+	public boolean isShutdownRequested() {
+		return shutdownRequested;
 	}
 
 }

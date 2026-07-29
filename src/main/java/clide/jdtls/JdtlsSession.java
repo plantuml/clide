@@ -213,6 +213,82 @@ public class JdtlsSession {
 	 */
 	public List<String> goToPosition(final String lspMethod, final Path file, final int oneBasedLine,
 			final String symbolText) throws IOException, InterruptedException, LspClient.TimeoutException {
+		final int column = wholeWordColumn(file, oneBasedLine, symbolText);
+
+		final Map<String, Object> response = client.request(lspMethod, positionParams(file, oneBasedLine, column), 30);
+		if (response.containsKey("error"))
+			throw new IOException(lspMethod + " failed: " + response.get("error"));
+
+		return formatLocations(response.get("result"));
+	}
+
+	/**
+	 * textDocument/hover: the signature/Javadoc jdtls knows for symbolText itself
+	 * (same whole-word-on-line position resolution as goToPosition()) - as opposed
+	 * to goToPosition(), which locates some *other* place (a definition,
+	 * an implementation), hover explains this exact symbol where it stands.
+	 * Returns jdtls' hover text verbatim (already Markdown, printed as-is - not
+	 * reformatted), or "<no hover info>" if jdtls had nothing to say (e.g. the
+	 * symbol's type can't be resolved - no matching jar in .clide - or hover just
+	 * doesn't apply to this kind of symbol).
+	 */
+	public String hover(final Path file, final int oneBasedLine, final String symbolText)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final int column = wholeWordColumn(file, oneBasedLine, symbolText);
+
+		final Map<String, Object> response = client.request("textDocument/hover",
+				positionParams(file, oneBasedLine, column), 30);
+		if (response.containsKey("error"))
+			throw new IOException("textDocument/hover failed: " + response.get("error"));
+
+		return formatHover(response.get("result"));
+	}
+
+	/**
+	 * textDocument/documentSymbol: lists the direct members (methods, fields,
+	 * constructors - not further-nested inner types' own members) of the
+	 * class/interface/enum named symbolText, declared at oneBasedLine of file -
+	 * same whole-word-on-line resolution as goToPosition()/hover(), but here it
+	 * picks which type to inspect rather than where to jump/what to explain.
+	 * Requires hierarchicalDocumentSymbolSupport (see initializeParams()) - without
+	 * declaring it, jdtls falls back to a flat SymbolInformation[] with no
+	 * "children" at all, and this could never find any member.
+	 *
+	 * Returns one "[kind] path:line: line content" entry per member, in
+	 * documentSymbol's own order.
+	 */
+	public List<String> listMembers(final Path file, final int oneBasedLine, final String symbolText)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		wholeWordColumn(file, oneBasedLine, symbolText); // same fast, clear validation as goToPosition()/hover()
+
+		final String uri = file.toUri().toString();
+		final Map<String, Object> textDocument = new LinkedHashMap<>();
+		textDocument.put("uri", uri);
+		final Map<String, Object> params = new LinkedHashMap<>();
+		params.put("textDocument", textDocument);
+
+		final Map<String, Object> response = client.request("textDocument/documentSymbol", params, 30);
+		if (response.containsKey("error"))
+			throw new IOException("textDocument/documentSymbol failed: " + response.get("error"));
+
+		final Map<String, Object> typeNode = findTypeNode(asList(response.get("result")), symbolText,
+				oneBasedLine - 1);
+		if (typeNode == null)
+			throw new IOException("No class/interface/enum named '" + symbolText + "' declared at line " + oneBasedLine
+					+ " of " + file + " (list_members only inspects types, not methods/fields)");
+
+		return formatMembers(uri, asList(typeNode.get("children")));
+	}
+
+	/**
+	 * Validates file/oneBasedLine and finds symbolText as a whole word on that
+	 * line - shared by every command resolving a position from a (file, line,
+	 * symbol) triple: goToPosition() (goto_definition/goto_type_definition/
+	 * goto_implementation), hover(), and listMembers(). Returns the (0-based)
+	 * column of the match; same error messages goToPosition() always had, for a
+	 * bad file, an out-of-range line, or a symbol that isn't actually there.
+	 */
+	private int wholeWordColumn(final Path file, final int oneBasedLine, final String symbolText) throws IOException {
 		if (Files.isRegularFile(file) == false)
 			throw new IOException("Not a file: " + file);
 
@@ -225,6 +301,11 @@ public class JdtlsSession {
 		if (column < 0)
 			throw new IOException("Symbol '" + symbolText + "' not found on line " + oneBasedLine + " of " + file);
 
+		return column;
+	}
+
+	/** textDocument/position request params, for a position already resolved by wholeWordColumn(). */
+	private Map<String, Object> positionParams(final Path file, final int oneBasedLine, final int column) {
 		final Map<String, Object> textDocument = new LinkedHashMap<>();
 		textDocument.put("uri", file.toUri().toString());
 		final Map<String, Object> position = new LinkedHashMap<>();
@@ -233,12 +314,211 @@ public class JdtlsSession {
 		final Map<String, Object> params = new LinkedHashMap<>();
 		params.put("textDocument", textDocument);
 		params.put("position", position);
+		return params;
+	}
 
-		final Map<String, Object> response = client.request(lspMethod, params, 30);
+	/**
+	 * workspace/symbol: finds symbols by name anywhere in the project - the
+	 * lookup goto_* itself needs a file+line to already know. Matching (fuzzy,
+	 * camelCase, exact - whatever jdtls itself implements) is entirely up to the
+	 * server; clide sends query as-is and applies no filtering of its own on the
+	 * results.
+	 *
+	 * Returns one "[kind] path:line: line content" entry per symbol in the
+	 * response, in server order - see formatSymbol(); an empty list if the
+	 * response was empty/null.
+	 */
+	public List<String> findSymbol(final String query)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Map<String, Object> params = new LinkedHashMap<>();
+		params.put("query", query);
+
+		final Map<String, Object> response = client.request("workspace/symbol", params, 30);
 		if (response.containsKey("error"))
-			throw new IOException(lspMethod + " failed: " + response.get("error"));
+			throw new IOException("workspace/symbol failed: " + response.get("error"));
 
-		return formatLocations(response.get("result"));
+		return formatSymbols(response.get("result"));
+	}
+
+	/** Accepts either a SymbolInformation[], or null/absent. */
+	@SuppressWarnings("unchecked")
+	private List<String> formatSymbols(final Object result) {
+		final List<Object> rawSymbols = result instanceof List ? (List<Object>) result : List.of();
+
+		final List<String> formatted = new ArrayList<>();
+		for (final Object item : rawSymbols)
+			if (item instanceof Map)
+				formatted.add(formatSymbol((Map<String, Object>) item));
+
+		return formatted;
+	}
+
+	/**
+	 * "[kind] path:line: line content" - the location part reuses formatLocation()
+	 * as-is: a SymbolInformation's own "location" field is a plain Location
+	 * (uri+range), the same shape formatLocation() already renders for
+	 * goto_definition/goto_implementation.
+	 */
+	@SuppressWarnings("unchecked")
+	private String formatSymbol(final Map<String, Object> symbol) {
+		final Map<String, Object> location = (Map<String, Object>) symbol.get("location");
+		final String locationText = location == null ? String.valueOf(symbol.get("name")) + ": <no location>"
+				: formatLocation(location);
+
+		return "[" + symbolKindLabel(symbol.get("kind")) + "] " + locationText;
+	}
+
+	/**
+	 * Human label for an LSP SymbolKind code - only the kinds a Java source file
+	 * can actually produce are named individually, everything else (there
+	 * shouldn't be any, in practice) falls back to "symbol" rather than a bare
+	 * number.
+	 */
+	private String symbolKindLabel(final Object kind) {
+		final long code = kind instanceof Number ? ((Number) kind).longValue() : 0;
+		return switch ((int) code) {
+			case 4 -> "package";
+			case 5 -> "class";
+			case 6 -> "method";
+			case 7 -> "property";
+			case 8 -> "field";
+			case 9 -> "constructor";
+			case 10 -> "enum";
+			case 11 -> "interface";
+			case 12 -> "function";
+			case 13 -> "variable";
+			case 14 -> "constant";
+			case 22 -> "enum member";
+			case 23 -> "struct";
+			default -> "symbol";
+		};
+	}
+
+	/**
+	 * LSP SymbolKind codes documentSymbol/workspace/symbol can return for something
+	 * "class/interface/enum"-shaped - what listMembers() is willing to treat as a
+	 * type to inspect. Struct(23) included even though Java has no such kind, for
+	 * the same reason symbolKindLabel() names it: harmless, and one less surprise
+	 * if jdtls ever reports one.
+	 */
+	private static final List<Integer> TYPE_SYMBOL_KINDS = List.of(5, 10, 11, 23);
+
+	/** Best-effort cast to List<Object>, empty if value isn't one (missing/null result, wrong shape, ...). */
+	@SuppressWarnings("unchecked")
+	private List<Object> asList(final Object value) {
+		return value instanceof List ? (List<Object>) value : List.of();
+	}
+
+	/**
+	 * Recursively searches a documentSymbol tree (nodes, and each node's own
+	 * "children") for a type-kind node (see TYPE_SYMBOL_KINDS) named name and
+	 * declared at zeroBasedLine (its own selectionRange, i.e. just the name token -
+	 * matches oneBasedLine-1 the same way findWholeWordColumn() validated it
+	 * upstream). Returns the first match found (depth-first), or null.
+	 */
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> findTypeNode(final List<Object> nodes, final String name, final int zeroBasedLine) {
+		for (final Object item : nodes) {
+			if (item instanceof Map == false)
+				continue;
+
+			final Map<String, Object> node = (Map<String, Object>) item;
+			if (isMatchingTypeNode(node, name, zeroBasedLine))
+				return node;
+
+			final Map<String, Object> foundInChildren = findTypeNode(asList(node.get("children")), name,
+					zeroBasedLine);
+			if (foundInChildren != null)
+				return foundInChildren;
+		}
+		return null;
+	}
+
+	@SuppressWarnings("unchecked")
+	private boolean isMatchingTypeNode(final Map<String, Object> node, final String name, final int zeroBasedLine) {
+		final Object kind = node.get("kind");
+		final long kindCode = kind instanceof Number ? ((Number) kind).longValue() : -1;
+		if (TYPE_SYMBOL_KINDS.contains((int) kindCode) == false)
+			return false;
+		if (name.equals(node.get("name")) == false)
+			return false;
+
+		final Map<String, Object> selectionRange = (Map<String, Object>) node.get("selectionRange");
+		final Map<String, Object> start = selectionRange == null ? null
+				: (Map<String, Object>) selectionRange.get("start");
+		final long line = start != null && start.get("line") instanceof Number ? ((Number) start.get("line")).longValue()
+				: -1;
+		return line == zeroBasedLine;
+	}
+
+	private List<String> formatMembers(final String uri, final List<Object> children) {
+		final List<String> formatted = new ArrayList<>();
+		for (final Object item : children)
+			if (item instanceof Map)
+				formatted.add(formatMember(uri, castToMap(item)));
+
+		return formatted;
+	}
+
+	/**
+	 * "[kind] path:line: line content" - built the same way formatSymbol() builds
+	 * one for workspace/symbol, except a documentSymbol child has no "location" of
+	 * its own (uri+range together): the uri is the containing file's (same for
+	 * every child, passed in), only "selectionRange" is on the child itself. A
+	 * synthetic {"uri":..., "range":...} map lets formatLocation() render it
+	 * exactly the same way regardless.
+	 */
+	private String formatMember(final String uri, final Map<String, Object> member) {
+		final Map<String, Object> location = new LinkedHashMap<>();
+		location.put("uri", uri);
+		location.put("range", member.get("selectionRange"));
+
+		return "[" + symbolKindLabel(member.get("kind")) + "] " + formatLocation(location);
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> castToMap(final Object value) {
+		return (Map<String, Object>) value;
+	}
+
+	/**
+	 * Renders a Hover response's "contents", which can be a plain string, a
+	 * MarkupContent ({"value": "..."}), a (deprecated) MarkedString in the same
+	 * {"value": "..."} shape, or an array mixing any of those - jdtls' own choice,
+	 * not something clide controls, so every shape is handled rather than assumed.
+	 */
+	private String formatHover(final Object result) {
+		if (result instanceof Map == false)
+			return "<no hover info>";
+
+		final String text = hoverText(castToMap(result).get("contents"));
+		return text == null || text.isBlank() ? "<no hover info>" : text.strip();
+	}
+
+	@SuppressWarnings("unchecked")
+	private String hoverText(final Object contents) {
+		if (contents instanceof String)
+			return (String) contents;
+
+		if (contents instanceof Map) {
+			final Object value = castToMap(contents).get("value");
+			return value == null ? null : value.toString();
+		}
+
+		if (contents instanceof List) {
+			final StringBuilder combined = new StringBuilder();
+			for (final Object item : (List<Object>) contents) {
+				final String itemText = hoverText(item);
+				if (itemText != null) {
+					if (combined.length() > 0)
+						combined.append("\n\n");
+					combined.append(itemText);
+				}
+			}
+			return combined.length() == 0 ? null : combined.toString();
+		}
+
+		return null;
 	}
 
 	/** Column (0-based) of the first whole-word match of symbol on line, or -1. */
@@ -462,8 +742,15 @@ public class JdtlsSession {
 
 		final Map<String, Object> publishDiagnostics = new LinkedHashMap<>();
 		publishDiagnostics.put("relatedInformation", true);
+		// Without this, jdtls has no signal that clide can handle the nested
+		// DocumentSymbol[] shape (range/selectionRange/children) and falls back to a
+		// flat SymbolInformation[] instead - which has no "children" at all, so
+		// listMembers() could never find any member.
+		final Map<String, Object> documentSymbolCapabilities = new LinkedHashMap<>();
+		documentSymbolCapabilities.put("hierarchicalDocumentSymbolSupport", true);
 		final Map<String, Object> textDocumentCapabilities = new LinkedHashMap<>();
 		textDocumentCapabilities.put("publishDiagnostics", publishDiagnostics);
+		textDocumentCapabilities.put("documentSymbol", documentSymbolCapabilities);
 		final Map<String, Object> capabilities = new LinkedHashMap<>();
 		capabilities.put("textDocument", textDocumentCapabilities);
 

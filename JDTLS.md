@@ -183,11 +183,31 @@ l'absence de `.clide/` (cas de clide lui-même) ne casse rien.
   d'interfaces. Particulièrement utile sur une base aussi polymorphique que
   PlantUML.
 - **`textDocument/documentSymbol`** — plan d'un fichier (classes, méthodes,
-  champs), utile pour se repérer sans tout relire.
+  champs), utile pour se repérer sans tout relire. **Fait** : commande
+  `list_members` (voir `CLAUDE.md`), `JdtlsSession.listMembers` — restreinte
+  aux membres directs d'un type précis plutôt qu'au plan complet du fichier,
+  pour répondre au besoin exprimé ("lister les méthodes d'un type" sans
+  grepper les appels à la main). Nécessite `hierarchicalDocumentSymbolSupport`
+  déclaré côté client dans `initialize` (fait), sinon jdtls renvoie un
+  `SymbolInformation[]` plat sans `children`. Pas encore testé de bout en bout
+  (nécessite un vrai jdtls + projet, indisponible dans la sandbox Claude) ;
+  logique de recherche/formatage vérifiée par réflexion sur un arbre
+  `DocumentSymbol` synthétique.
 - **`workspace/symbol`** — recherche d'un symbole par nom dans tout le
-  projet, sans connaître le fichier.
+  projet, sans connaître le fichier. **Fait** : commande `find_symbol` (voir
+  `CLAUDE.md`), `JdtlsSession.findSymbol`. Aucun filtrage côté clide sur les
+  résultats — le matching (flou/camelCase en pratique) reste entièrement celui
+  de jdtls. Pas encore testé de bout en bout (nécessite un vrai jdtls + projet,
+  indisponible dans la sandbox Claude).
 - **`textDocument/hover`** — signature/Javadoc d'un symbole, utile pour
-  comprendre une API sans ouvrir le fichier source.
+  comprendre une API sans ouvrir le fichier source. **Fait** : commande
+  `hover` (voir `CLAUDE.md`), `JdtlsSession.hover`. Gère les trois formes
+  possibles de `Hover.contents` (`String`, `MarkupContent`/`MarkedString` en
+  `{"value": ...}`, ou une liste mélangeant les deux) — jdtls choisit la
+  forme, clide ne l'impose pas. Pas encore testé de bout en bout (nécessite un
+  vrai jdtls + projet, indisponible dans la sandbox Claude) ; formatage
+  vérifié par réflexion sur des réponses `Hover` synthétiques couvrant les
+  trois formes.
 
 ## 3. Modifications outillées (utile, mais secondaire)
 

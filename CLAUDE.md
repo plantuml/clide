@@ -45,7 +45,30 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
 - `clide` démarre et lit des commandes textuelles sur l'entrée standard.
 - Commandes implémentées :
   - `help` → liste toutes les commandes enregistrées (mot-clé, paramètres,
-    description), généré depuis leurs annotations — voir plus bas.
+    description), généré depuis leurs annotations — voir plus bas. Affiché
+    sous forme de tableau ASCII via `clide.util.TextTable`, classe générale
+    (bordures `+`/`-`/`|`, colonnes alignées sur la valeur la plus large),
+    sans connaissance du contenu affiché — réutilisable telle quelle par
+    d'autres commandes qui voudraient un rendu tabulaire. Chaque colonne a
+    une largeur maximale (`DEFAULT_MAX_COLUMN_WIDTH` = 100 par défaut,
+    surchargeable au constructeur) : une cellule plus large est repliée sur
+    plusieurs lignes en coupant aux espaces (word wrap) ; un mot sans espace
+    pour couper (donc plus large que la colonne) reste entier sur sa ligne,
+    jamais coupé au milieu. Concepts réifiés en classes dédiées
+    (`clide.util`, package-privées sauf `TextTable`) : `Column` (en-tête +
+    largeur max), `Cell` (texte source → lignes repliées), `Row` (une ligne
+    de cellules, hauteur = max des hauteurs de ses cellules, complétée de
+    lignes vides pour les cellules plus courtes).
+  - `help_ai` → même contenu que `help` (mot-clé, paramètres, description,
+    triées alphabétiquement) mais pour un client IA (Claude) plutôt qu'un
+    humain : une ligne par commande (`keyword <param> ... - description`),
+    zéro octet décoratif — pas de titre, pas de bordures, pas de wrap, pas de
+    ligne de séparation. `help` (le tableau `TextTable`) et `help_ai`
+    partagent la même logique de tri (`new TreeSet<>(context.getCommands())`,
+    dupliquée entre les deux plutôt que factorisée — trop peu de code pour
+    justifier un partage) mais divergent volontairement sur le rendu : les
+    deux publics (humain / IA) ont des besoins de lisibilité opposés, pas de
+    format de compromis unique.
   - `exit` → quitte proprement (arrête tous les jdtls ouverts, via un
     shutdown LSP propre avant de tuer chaque processus).
   - `open_project <chemin>` → ouvre un projet Java à ce chemin : démarre un
@@ -63,6 +86,25 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     `chemin_initial`, ne garde que les fichiers dont le chemin (normalisé en
     `/`, donc portable Windows/Linux) matche `regex_chemin`, puis grep
     `regex_cherché` ligne par ligne dans ces fichiers.
+  - `find_symbol <nom>` → cherche un symbole par nom dans tout le projet, sans
+    connaître à l'avance le fichier/la ligne — ce qui manquait en amont de
+    `goto_*` (voir `TODO.md`, retiré une fois cette commande faite) : il
+    fallait grepper soi-même pour trouver la ligne avant de pouvoir appeler
+    `goto_definition`. Bâtie sur `workspace/symbol` (`JdtlsSession.findSymbol`) ;
+    **le matching est entièrement délégué à jdtls** (typiquement flou/camelCase
+    en pratique, pas une égalité stricte) — clide ne filtre rien lui-même en
+    plus, par choix : `find_symbol UGraphic` peut très bien remonter aussi
+    `UGraphicSvg`, `UGraphicNull`, etc. Chaque résultat est préfixé par la
+    nature du symbole entre crochets (`[class]`, `[interface]`, `[method]`,
+    `[field]`, `[constructor]`, `[enum]`, `[constant]`, `[package]`,
+    `[variable]`, `[property]`, `[function]`, `[enum member]`, `[struct]`, ou
+    `[symbol]` si le code `SymbolKind` LSP n'est pas reconnu), suivi du même
+    format `chemin/relatif.java:ligne: contenu de la ligne` que `goto_*` —
+    volontairement, pour pouvoir recopier tel quel le fichier/la ligne d'un
+    résultat dans un `goto_definition`/`goto_implementation` juste après.
+    Nécessite un `open_project` préalable, même message d'erreur que `goto_*`
+    sinon. Pas encore testé de bout en bout (nécessite un vrai jdtls + projet,
+    indisponible dans la sandbox Claude).
   - `goto_definition <chemin fichier> <ligne> <symbole>` → où est réellement
     définie la déclaration du symbole (pas juste un usage). `goto_type_definition`
     même signature → où est définie la classe/interface du type déclaré du
@@ -108,6 +150,40 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     trois —, `HelpCommand`, `OpenProjectCommand`, `PrintDiagnosticsCommand`,
     `ResearchRegexCommand`), sans bruit (ni la déclaration abstraite, ni les
     sites d'appel `command.executeCommand(...)` qu'un grep aurait remontés).
+  - `hover <chemin fichier> <ligne> <symbole>` → signature/Javadoc que jdtls
+    connaît pour ce symbole précis, à cet endroit précis (pas un autre
+    emplacement comme `goto_*` — `hover` explique le symbole où il se trouve).
+    Même résolution de position que `goto_*` (mot entier sur la ligne, colonne
+    déduite). Bâtie sur `textDocument/hover` (`JdtlsSession.hover`). Le texte
+    renvoyé par jdtls (généralement du Markdown) est affiché tel quel, sans
+    reformatage ; `"<no hover info>"` si jdtls n'a rien à dire (type non
+    résolu — jar manquant dans `.clide` — ou hover non applicable à ce genre
+    de symbole). Répond au besoin noté dans `TODO.md` (retiré une fois cette
+    commande faite) : reconstituer à la main la signature d'une classe externe
+    (TeaVM/OpenPDF/Ant) en grepant ses appels.
+  - `list_members <chemin fichier> <ligne> <symbole>` → liste les membres
+    directs (méthodes, champs, constructeurs — pas les membres d'un type
+    imbriqué, seulement le type lui-même en tant que membre) de la
+    classe/interface/enum `symbole`, déclarée à cette ligne de ce fichier.
+    Même résolution de position que `goto_*`/`hover`, mais ici pour désigner
+    quel type inspecter plutôt qu'où sauter/quoi expliquer. Bâtie sur
+    `textDocument/documentSymbol` (`JdtlsSession.listMembers`), qui a besoin
+    que `hierarchicalDocumentSymbolSupport` soit déclaré dans les
+    `capabilities` de `initialize` (sinon jdtls renvoie un `SymbolInformation[]`
+    plat, sans `children`, et `list_members` ne trouverait jamais rien).
+    Chaque résultat suit le même format `[nature] chemin/relatif.java:ligne:
+    contenu de la ligne` que `find_symbol`. Erreur claire si `symbole` n'est
+    pas un type (une classe/interface/enum) à cette ligne — `list_members` ne
+    fonctionne que sur des types, pas des méthodes/champs. Répond au même
+    besoin que `hover` (voir `TODO.md`, retiré une fois ces deux commandes
+    faites), en listant directement tous les membres d'un coup plutôt qu'un à
+    la fois.
+
+    **Pas encore testé de bout en bout** (nécessite un vrai jdtls + projet,
+    indisponible dans la sandbox Claude) — seule la logique de formatage
+    interne (`formatHover`/`hoverText`, `findTypeNode`/`formatMember`) a été
+    vérifiée par réflexion contre des réponses JSON synthétiques, comme pour
+    `find_symbol`.
 
 ### Syntaxe des commandes : un token par ligne
 

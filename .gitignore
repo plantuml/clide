@@ -2,3 +2,5 @@
 build
 /jdtls
 /clide.jar
+.clide.lock
+.clide-daemon.log
