@@ -1,9 +1,3 @@
------
-
-renommer la commande "hoover" en
-retrieve_javadoc <symbol>
-
-
 -------------
 
 Plutot que systématiquement demander:
