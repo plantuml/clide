@@ -293,6 +293,21 @@ pratique).
 `ClideDaemon.readParams()` — aucune commande ne l'utilise encore ; le
 supporter réellement sur plusieurs lignes est un chantier séparé.
 
+**`<chemin fichier>` accepte deux formes**, départagées par
+`Symbol.resolveFile()`/`isFileUri()` : un chemin relatif classique (résolu
+contre `projectRoot`, comme décrit plus haut), ou une URI `file:` telle
+quelle — c'est le format dans lequel `find_symbol`/`goto_*`/`hover`/
+`list_members` impriment déjà chacun de leurs résultats (voir
+`JdtlsSession.formatLocation()`), donc un résultat recopié tel quel depuis
+l'un de ces retours et renvoyé en paramètre d'un `hover`/`goto_*` suivant
+fonctionne sans avoir à le retoucher à la main. `projectRoot.resolve()` seul
+ne suffit pas pour une URI : sous Windows, `"file:///C:/..."` n'est pas un
+chemin Windows valide (le `:` après la lettre de lecteur — ou après `file` —
+fait échouer le parseur de chemin Windows, `InvalidPathException: Illegal
+char <:> at index ...`), d'où le passage par `java.net.URI`/`Paths.get(URI)`
+plutôt que par `Path.resolve()` dès qu'un `pathArgument` commence par `file:`
+(insensible à la casse).
+
 **Testé de bout en bout** (clone GitHub frais, jdtls extrait de l'archive
 commitée, build Ant, `clide` sur lui-même) : `hover`, `goto_implementation` et
 `list_members` avec la nouvelle notation à paramètre unique (ex.
@@ -305,7 +320,15 @@ file: ...` et sur un symbole absent de la ligne donnée en `?SYNTAX ERROR:
 Symbol '...' not found on line ...`, dans les deux cas sans qu'aucune requête
 LSP ne parte ; `search_regex` avec un `<chemin regex>` syntaxiquement
 invalide (`[invalid(`) échoue en `?SYNTAX ERROR: Invalid regex '...'` avant
-même que `search_regex` ne commence à parcourir les fichiers.
+même que `search_regex` ne commence à parcourir les fichiers. Testé
+séparément (sandbox Linux, projet buildé et servi par un vrai daemon jdtls) :
+`hover` avec `<symbole>` sous forme d'URI `file:///.../ClideContext.java:29:
+ClideContext` et sous forme de chemin relatif
+`src/main/java/clide/core/ClideContext.java:29:ClideContext` renvoient tous
+les deux, à l'identique, le Javadoc de `ClideContext` — plus de `?SYNTAX
+ERROR: Illegal char <:> at index ...` sur la forme URI. Un `hover` sur une
+URI pointant vers un fichier inexistant échoue toujours proprement en
+`?SYNTAX ERROR: Not a file: ...`.
 
 ### Architecture des commandes (pattern Command)
 

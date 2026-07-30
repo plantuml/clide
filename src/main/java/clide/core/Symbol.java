@@ -1,9 +1,11 @@
 package clide.core;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -87,7 +89,7 @@ public final class Symbol {
 					"Invalid symbol '" + token + "' - expected <file path>:<line>:<name>");
 
 		final String pathArgument = notation.group(1);
-		final Path file = projectRoot.resolve(pathArgument).normalize();
+		final Path file = resolveFile(pathArgument, projectRoot);
 		if (Files.isRegularFile(file) == false)
 			throw new IllegalArgumentException("Not a file: " + pathArgument);
 
@@ -110,6 +112,35 @@ public final class Symbol {
 					"Symbol '" + name + "' not found on line " + line + " of " + pathArgument);
 
 		return new Symbol(file, line, name, column);
+	}
+
+	/**
+	 * Resolves the &lt;file path&gt; half of the notation. Accepts two forms:
+	 * a plain path, resolved against projectRoot - never the daemon's own
+	 * current directory (see class doc); or a "file:" URI, taken as an
+	 * absolute location as-is - this is the form find_symbol, goto_*, hover and
+	 * list_members results are themselves printed in (see
+	 * JdtlsSession.formatLocation()), so a result copied straight out of one
+	 * of those and fed back into a SYMBOL parameter works without editing.
+	 * projectRoot.resolve() alone can't be used for a URI: on Windows,
+	 * "file:///C:/..." isn't a valid Windows path string (the colon after the
+	 * drive letter - or after "file" - trips the Windows path parser), so the
+	 * URI form needs java.net.URI/Paths.get(URI) instead.
+	 */
+	private static Path resolveFile(final String pathArgument, final Path projectRoot) {
+		if (isFileUri(pathArgument)) {
+			try {
+				return Paths.get(URI.create(pathArgument)).normalize();
+			} catch (final RuntimeException e) {
+				throw new IllegalArgumentException("Invalid file URI '" + pathArgument + "': " + e.getMessage());
+			}
+		}
+
+		return projectRoot.resolve(pathArgument).normalize();
+	}
+
+	private static boolean isFileUri(final String pathArgument) {
+		return pathArgument.regionMatches(true, 0, "file:", 0, 5);
 	}
 
 	/** 0-based column of the first whole-word match of name on line, or -1. */
