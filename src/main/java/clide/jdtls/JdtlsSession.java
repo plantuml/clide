@@ -9,11 +9,15 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import clide.core.Symbol;
@@ -276,6 +280,18 @@ public class JdtlsSession {
 	public List<String> listMembers(final Symbol symbol)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final String uri = symbol.file().toUri().toString();
+		final Map<String, Object> typeNode = findTypeNode(documentSymbols(uri), symbol.name(), symbol.line() - 1);
+		if (typeNode == null)
+			throw new IOException("No class/interface/enum named '" + symbol.name() + "' declared at line "
+					+ symbol.line() + " of " + symbol.file()
+					+ " (list_members only inspects types, not methods/fields)");
+
+		return formatMembers(uri, asList(typeNode.get("children")));
+	}
+
+	/** Raw textDocument/documentSymbol tree for uri - empty on any error. */
+	private List<Object> documentSymbols(final String uri)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Map<String, Object> textDocument = new LinkedHashMap<>();
 		textDocument.put("uri", uri);
 		final Map<String, Object> params = new LinkedHashMap<>();
@@ -285,14 +301,344 @@ public class JdtlsSession {
 		if (response.containsKey("error"))
 			throw new IOException("textDocument/documentSymbol failed: " + response.get("error"));
 
-		final Map<String, Object> typeNode = findTypeNode(asList(response.get("result")), symbol.name(),
-				symbol.line() - 1);
-		if (typeNode == null)
-			throw new IOException("No class/interface/enum named '" + symbol.name() + "' declared at line "
-					+ symbol.line() + " of " + symbol.file()
-					+ " (list_members only inspects types, not methods/fields)");
+		return asList(response.get("result"));
+	}
 
-		return formatMembers(uri, asList(typeNode.get("children")));
+	/**
+	 * textDocument/implementation on a *method*, plus a second pass that recovers
+	 * the overrides jdtls silently omits.
+	 *
+	 * jdtls answers textDocument/implementation on a method by building a JDT
+	 * SearchPattern from the method element and running it over the declaring
+	 * type's hierarchy scope. That pattern compares parameter types by the
+	 * *source spelling* of the declaration, so when the target method declares
+	 * its own type parameter - "&lt;SHAPE extends UShape&gt; void draw(SHAPE
+	 * shape)" - only overrides that spell the type variable identically match.
+	 * Two perfectly legal override forms are therefore dropped without a word:
+	 *
+	 * - the erasure form, "void draw(UShape shape)" (a subsignature per JLS
+	 *   8.4.2, which javac accepts without even an -Xlint warning, and which an
+	 *   @Override annotation does not rescue), and
+	 * - the renamed form, "&lt;X extends UShape&gt; void draw(X shape)".
+	 *
+	 * On PlantUML that means 3 of the 25 real overrides of UGraphic.draw are
+	 * reported - the other 22 look like they don't exist. A caller trusting the
+	 * result would conclude the drawing layer has three implementations.
+	 *
+	 * The recovery pass asks the question jdtls *does* answer correctly:
+	 * textDocument/implementation on the declaring *type* (44/44 correct on
+	 * PlantUML), then reads each subtype's own documentSymbol tree and keeps the
+	 * members declaring a method of the same name and arity. Both result sets are
+	 * unioned rather than one replacing the other - each finds cases the other
+	 * misses (the pass below cannot see a subtype jdtls' type search didn't
+	 * return, and jdtls sees the same-spelling overrides directly).
+	 *
+	 * Arity, not full signature, is what is compared: reconstructing erasure
+	 * from source text would mean resolving every parameter type by hand, which
+	 * is exactly the work jdtls exists to do. Name plus arity within a known
+	 * subtype is precise enough in practice - measured on PlantUML: 25/25
+	 * overrides found, 0 false positives - and any residual imprecision costs an
+	 * extra line, never a missing one.
+	 */
+	public List<String> findMethodImplementations(final Symbol symbol)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Map<String, Object> response = client.request("textDocument/implementation",
+				positionParams(symbol.file(), symbol.line(), symbol.column(), null), 30);
+		if (response.containsKey("error"))
+			throw new IOException("textDocument/implementation failed: " + response.get("error"));
+
+		final List<Map<String, Object>> merged = new ArrayList<>(rawLocations(response.get("result")));
+		final Set<String> seen = new LinkedHashSet<>();
+		for (final Map<String, Object> location : merged)
+			seen.add(locationKey(location));
+
+		for (final Map<String, Object> recovered : overridesJdtlsMisses(symbol))
+			if (seen.add(locationKey(recovered)))
+				merged.add(recovered);
+
+		final List<String> formatted = new ArrayList<>();
+		for (final Map<String, Object> location : merged)
+			formatted.add(formatLocation(location));
+
+		return formatted;
+	}
+
+	/**
+	 * The recovery pass described on findMethodImplementations(): walks the
+	 * declaring type's subtypes and keeps every member declaring symbol.name()
+	 * with the same arity. Best effort throughout - anything unresolvable
+	 * (symbol not inside a type, no subtype, unreadable line) yields an empty
+	 * list rather than an error, so the direct jdtls answer always stands on its
+	 * own.
+	 */
+	private List<Map<String, Object>> overridesJdtlsMisses(final Symbol symbol)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final String uri = symbol.file().toUri().toString();
+		final String declaration = readLineSafely(uri, symbol.line());
+		final int arity = arityAfterName(declaration, symbol.name());
+		if (arity < 0)
+			return List.of();
+
+		final Map<String, Object> declaringType = enclosingTypeNode(documentSymbols(uri), symbol.line() - 1);
+		if (declaringType == null)
+			return List.of();
+
+		// Only generics make textDocument/implementation under-report, and this
+		// pass costs one documentSymbol request per subtype - 363 of them on
+		// TextBlock. Skip it entirely when neither the method nor its declaring
+		// type is generic: there is nothing to recover, and the plain request is
+		// already exhaustive.
+		if (declaresTypeParameters(declaration) == false && isGenericType(declaringType) == false)
+			return List.of();
+
+		final Map<String, Object> start = startOf(declaringType.get("selectionRange"));
+		if (start == null)
+			return List.of();
+
+		final Map<String, Object> response = client.request("textDocument/implementation",
+				positionParams(symbol.file(), lineOf(start) + 1, characterOf(start), null), 30);
+		if (response.containsKey("error"))
+			return List.of();
+
+		final List<Map<String, Object>> found = new ArrayList<>();
+		for (final Map<String, Object> subtype : rawLocations(response.get("result")))
+			collectDeclaredMethods(subtype, symbol.name(), arity, found);
+
+		return found;
+	}
+
+	/**
+	 * Adds to found every member of the type declared at subtype's location that
+	 * declares a method named name taking arity parameters.
+	 */
+	private void collectDeclaredMethods(final Map<String, Object> subtype, final String name, final int arity,
+			final List<Map<String, Object>> found)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final String uri = uriOf(subtype);
+		final Map<String, Object> range = rangeOf(subtype);
+		final Map<String, Object> start = startOf(range);
+		if (uri == null || start == null)
+			return;
+
+		final Map<String, Object> typeNode = typeNodeAt(documentSymbols(uri), lineOf(start));
+		if (typeNode == null)
+			return;
+
+		for (final Object item : asList(typeNode.get("children"))) {
+			if (item instanceof Map == false)
+				continue;
+
+			final Map<String, Object> member = castToMap(item);
+			final Map<String, Object> memberStart = startOf(member.get("selectionRange"));
+			if (memberStart == null)
+				continue;
+
+			final String declaration = readLineSafely(uri, lineOf(memberStart) + 1);
+			if (arityAfterName(declaration, name) != arity)
+				continue;
+
+			// jdtls answers "implementation" with concrete methods only, and
+			// filters abstract ones out itself; a sub-interface re-declaring the
+			// method abstractly is not an implementation of it. Same rule here,
+			// so the recovered results stay homogeneous with the direct ones.
+			if (isAbstractDeclaration(declaration))
+				continue;
+
+			final Map<String, Object> location = new LinkedHashMap<>();
+			location.put("uri", uri);
+			location.put("range", member.get("selectionRange"));
+			found.add(location);
+		}
+	}
+
+	/**
+	 * Whether declaration opens its own type parameter list - "&lt;SHAPE extends
+	 * UShape&gt; void draw(...)" - as opposed to merely returning a generic type
+	 * ("List&lt;String&gt; foo()"), which is why the match is anchored to the
+	 * modifiers rather than looked for anywhere on the line. Only these methods
+	 * need the recovery pass; a stray extra match would just cost time, never
+	 * correctness.
+	 */
+	private static final Pattern OWN_TYPE_PARAMETERS = Pattern.compile(
+			"^\\s*(?:@\\w+\\s+)*(?:(?:public|protected|private|static|final|abstract|default|synchronized|native|strictfp)\\s+)*<");
+
+	/**
+	 * Whether declaration declares a method without a body - "abstract" spelled
+	 * out, or an interface method, which simply ends in ";" where a concrete one
+	 * opens a "{".
+	 */
+	private boolean isAbstractDeclaration(final String declaration) {
+		final String trimmed = declaration.strip();
+		return trimmed.endsWith(";") || Pattern.compile("\\babstract\\b").matcher(trimmed).find();
+	}
+
+	private boolean declaresTypeParameters(final String declaration) {
+		return declaration != null && OWN_TYPE_PARAMETERS.matcher(declaration).find();
+	}
+
+	/**
+	 * Whether the type is generic ("Box&lt;T&gt;"), i.e. jdtls names it with its
+	 * type parameters. A raw implementation of one ("class RawBox implements
+	 * Box") declares its members against the erased types and goes missing in
+	 * exactly the same way a generic method's erasure override does.
+	 */
+	private boolean isGenericType(final Map<String, Object> typeNode) {
+		final Object rawName = typeNode.get("name");
+		return rawName instanceof String && ((String) rawName).indexOf('<') >= 0;
+	}
+
+	/**
+	 * Number of parameters of the method named name declared on declaration, or
+	 * -1 if declaration doesn't declare one (name absent as a whole word, no
+	 * parameter list, or a parameter list left unclosed on this line - a
+	 * signature wrapped over several lines).
+	 */
+	private int arityAfterName(final String declaration, final String name) {
+		if (declaration == null)
+			return -1;
+
+		final Matcher matcher = Pattern.compile("\\b" + Pattern.quote(name) + "\\s*\\(").matcher(declaration);
+		if (matcher.find() == false)
+			return -1;
+
+		return arityOfParameterList(declaration, matcher.end() - 1);
+	}
+
+	/**
+	 * Counts the parameters of the list opening at openIndex, ignoring commas
+	 * nested inside generics, arrays or nested calls. -1 if the list never
+	 * closes on this line.
+	 */
+	private int arityOfParameterList(final String declaration, final int openIndex) {
+		int depth = 0;
+		int angleDepth = 0;
+		int parameters = 0;
+		for (int i = openIndex; i < declaration.length(); i++) {
+			final char current = declaration.charAt(i);
+			if (current == '(' || current == '[') {
+				depth++;
+				if (depth == 1)
+					parameters = 1;
+			} else if (current == ')' || current == ']') {
+				depth--;
+				if (depth == 0)
+					return declaration.substring(openIndex + 1, i).isBlank() ? 0 : parameters;
+			} else if (current == '<') {
+				angleDepth++;
+			} else if (current == '>') {
+				angleDepth--;
+			} else if (current == ',' && depth == 1 && angleDepth == 0) {
+				parameters++;
+			}
+		}
+		return -1;
+	}
+
+	/** Innermost type-kind node whose whole range covers zeroBasedLine, or null. */
+	private Map<String, Object> enclosingTypeNode(final List<Object> nodes, final int zeroBasedLine) {
+		for (final Object item : nodes) {
+			if (item instanceof Map == false)
+				continue;
+
+			final Map<String, Object> node = castToMap(item);
+			if (coversLine(node, zeroBasedLine) == false)
+				continue;
+
+			final Map<String, Object> deeper = enclosingTypeNode(asList(node.get("children")), zeroBasedLine);
+			if (deeper != null)
+				return deeper;
+
+			if (isTypeKind(node))
+				return node;
+		}
+		return null;
+	}
+
+	/** Type-kind node whose name token sits on zeroBasedLine, or null. */
+	private Map<String, Object> typeNodeAt(final List<Object> nodes, final int zeroBasedLine) {
+		for (final Object item : nodes) {
+			if (item instanceof Map == false)
+				continue;
+
+			final Map<String, Object> node = castToMap(item);
+			final Map<String, Object> start = startOf(node.get("selectionRange"));
+			if (isTypeKind(node) && start != null && lineOf(start) == zeroBasedLine)
+				return node;
+
+			final Map<String, Object> deeper = typeNodeAt(asList(node.get("children")), zeroBasedLine);
+			if (deeper != null)
+				return deeper;
+		}
+		return null;
+	}
+
+	private boolean coversLine(final Map<String, Object> node, final int zeroBasedLine) {
+		final Map<String, Object> range = castToMap(node.get("range"));
+		if (range == null)
+			return false;
+
+		final Map<String, Object> start = startOf(range);
+		final Map<String, Object> end = castToMap(range.get("end"));
+		if (start == null || end == null)
+			return false;
+
+		return lineOf(start) <= zeroBasedLine && zeroBasedLine <= lineOf(end);
+	}
+
+	private boolean isTypeKind(final Map<String, Object> node) {
+		final Object kind = node.get("kind");
+		final long kindCode = kind instanceof Number ? ((Number) kind).longValue() : -1;
+		return TYPE_SYMBOL_KINDS.contains((int) kindCode);
+	}
+
+	private Map<String, Object> startOf(final Object range) {
+		final Map<String, Object> asMap = range instanceof Map ? castToMap(range) : null;
+		final Object start = asMap == null ? null : asMap.get("start");
+		return start instanceof Map ? castToMap(start) : null;
+	}
+
+	private int lineOf(final Map<String, Object> position) {
+		return position.get("line") instanceof Number ? ((Number) position.get("line")).intValue() : -1;
+	}
+
+	private int characterOf(final Map<String, Object> position) {
+		return position.get("character") instanceof Number ? ((Number) position.get("character")).intValue() : 0;
+	}
+
+	private String uriOf(final Map<String, Object> location) {
+		final Object uri = location.get("uri") != null ? location.get("uri") : location.get("targetUri");
+		return uri instanceof String ? (String) uri : null;
+	}
+
+	private Map<String, Object> rangeOf(final Map<String, Object> location) {
+		final Object range = location.get("range") != null ? location.get("range")
+				: location.get("targetSelectionRange");
+		return range instanceof Map ? castToMap(range) : null;
+	}
+
+	/** "uri:line" - identity of a location for de-duplication purposes. */
+	private String locationKey(final Map<String, Object> location) {
+		final Map<String, Object> start = startOf(rangeOf(location));
+		return uriOf(location) + ":" + (start == null ? -1 : lineOf(start));
+	}
+
+	/** Same shapes formatLocations() accepts (Location, Location[], null), left raw. */
+	@SuppressWarnings("unchecked")
+	private List<Map<String, Object>> rawLocations(final Object result) {
+		final List<Object> items;
+		if (result instanceof List)
+			items = (List<Object>) result;
+		else if (result instanceof Map)
+			items = List.of(result);
+		else
+			items = List.of();
+
+		final List<Map<String, Object>> locations = new ArrayList<>();
+		for (final Object item : items)
+			if (item instanceof Map)
+				locations.add(castToMap(item));
+
+		return locations;
 	}
 
 	/** textDocument/position request params, for a position already resolved by Symbol.parse(). */
@@ -443,7 +789,12 @@ public class JdtlsSession {
 		final long kindCode = kind instanceof Number ? ((Number) kind).longValue() : -1;
 		if (TYPE_SYMBOL_KINDS.contains((int) kindCode) == false)
 			return false;
-		if (name.equals(node.get("name")) == false)
+		// jdtls names a generic type after its source spelling, type parameters
+		// included ("AbstractUGraphic<O>"), while <symbol> only ever carries the
+		// bare name - Symbol.parse() matched it as a whole word on the line. An
+		// equals() on the raw name therefore never matched a generic type, and
+		// list_members failed on every one of them.
+		if (name.equals(withoutTypeParameters(node.get("name"))) == false)
 			return false;
 
 		final Map<String, Object> selectionRange = (Map<String, Object>) node.get("selectionRange");
@@ -452,6 +803,16 @@ public class JdtlsSession {
 		final long line = start != null && start.get("line") instanceof Number ? ((Number) start.get("line")).longValue()
 				: -1;
 		return line == zeroBasedLine;
+	}
+
+	/** "AbstractUGraphic&lt;O&gt;" -&gt; "AbstractUGraphic"; null unless rawName is a String. */
+	private String withoutTypeParameters(final Object rawName) {
+		if (rawName instanceof String == false)
+			return null;
+
+		final String name = (String) rawName;
+		final int angle = name.indexOf('<');
+		return angle < 0 ? name : name.substring(0, angle);
 	}
 
 	private List<String> formatMembers(final String uri, final List<Object> children) {

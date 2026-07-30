@@ -66,6 +66,16 @@ public class FindImplementationCommand extends Command {
 		if (what.equals("method") == false && what.equals("type") == false)
 			return CommandResult.error("Invalid <what> '" + what + "' - expected \"method\" or \"type\"");
 
+		// <what> used to be documentation only - jdtls resolves type-vs-method
+		// from the position alone. It now genuinely selects a code path: on a
+		// method, textDocument/implementation under-reports (it drops erasure and
+		// renamed-type-variable overrides of a generic method), so that case goes
+		// through a recovering pass - see JdtlsSession.findMethodImplementations().
+		// On a type, the plain request is already exhaustive.
+		if (what.equals("method"))
+			return PositionCommandSupport.findMethodImplementationsAndFormat(context, "find_implementation",
+					params[1]);
+
 		return PositionCommandSupport.goToAndFormat(context, "find_implementation", "textDocument/implementation",
 				params[1], null);
 	}

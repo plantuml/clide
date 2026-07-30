@@ -52,19 +52,48 @@ final class PositionCommandSupport {
 		}
 
 		try {
-			final List<String> locations = session.goToPosition(lspMethod, symbol, requestContext);
-			if (locations.isEmpty())
-				return CommandResult.ok(commandName + ": no definition found");
-
-			final StringBuilder output = new StringBuilder();
-			output.append(commandName).append(": ").append(locations.size()).append(" location(s)\n");
-			for (final String location : locations)
-				output.append(location).append('\n');
-
-			return CommandResult.ok(output.toString().strip());
+			return format(commandName, session.goToPosition(lspMethod, symbol, requestContext));
 		} catch (final Exception e) {
 			return CommandResult.error(commandName + " failed: " + e.getMessage());
 		}
+	}
+
+	/**
+	 * Same parse-then-run pipeline as goToAndFormat(), for the one question that
+	 * is not a plain single LSP request: find_implementation on a *method*, which
+	 * goes through JdtlsSession.findMethodImplementations() to also recover the
+	 * overrides textDocument/implementation drops on generic methods (see that
+	 * method for why).
+	 */
+	static CommandResult findMethodImplementationsAndFormat(final ClideContext context, final String commandName,
+			final String symbolText) {
+		final JdtlsSession session = context.getCurrentSession();
+
+		final Symbol symbol;
+		try {
+			symbol = Symbol.parse(symbolText, context.getProjectRoot());
+		} catch (final IllegalArgumentException e) {
+			return CommandResult.error(e.getMessage());
+		}
+
+		try {
+			return format(commandName, session.findMethodImplementations(symbol));
+		} catch (final Exception e) {
+			return CommandResult.error(commandName + " failed: " + e.getMessage());
+		}
+	}
+
+	/** "<count> location(s)" then one "path:line: line content" per result. */
+	private static CommandResult format(final String commandName, final List<String> locations) {
+		if (locations.isEmpty())
+			return CommandResult.ok(commandName + ": no definition found");
+
+		final StringBuilder output = new StringBuilder();
+		output.append(commandName).append(": ").append(locations.size()).append(" location(s)\n");
+		for (final String location : locations)
+			output.append(location).append('\n');
+
+		return CommandResult.ok(output.toString().strip());
 	}
 
 }
