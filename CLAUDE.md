@@ -143,52 +143,58 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     revalider sur un projet de la taille de PlantUML). Cas d'erreur (symbole
     absent de la ligne donnée) : message clair, `Symbol 'foobar' not found on
     line 55 of ...`.
-  - `goto_implementation <symbole>` → mêmes
-    paramètre et même comportement que `goto_definition`/`goto_type_definition`
-    (troisième sous-classe de `GotoPositionCommand`, aucune logique
-    supplémentaire) mais interroge `textDocument/implementation` : quelles
-    classes/méthodes implémentent réellement le symbole visé — typiquement une
-    méthode abstraite ou d'interface. C'est la question de polymorphisme posée
-    dès l'origine du projet.
+  - `find_implementation <what> <symbole>` → interroge
+    `textDocument/implementation` : quelles classes/méthodes implémentent ou
+    surchargent réellement le symbole visé — typiquement une méthode
+    abstraite ou d'interface. C'est la question de polymorphisme posée dès
+    l'origine du projet. Renommée depuis `goto_implementation` une fois
+    `find_declaration`/`find_reference` en place, pour suivre le même schéma
+    de nommage (voir « Harmonisation » plus bas) ; `<what>` a été ajouté par
+    symétrie même si, ici, une seule requête LSP existe (pas de branchement
+    comme pour `find_declaration`) — il documente quand même une vraie
+    distinction conceptuelle : pointé sur un type, « qui implémente cette
+    interface/étend cette classe abstraite » ; pointé sur une méthode, « qui
+    la surcharge ». jdtls résout laquelle des deux s'applique à partir de la
+    seule position, mais `<what>` sert de garde-fou typo côté client (même
+    validation littérale que pour `find_declaration`/`find_reference`) et
+    documente l'intention de l'appelant.
 
     **Testé de bout en bout, clide sur lui-même** (re-testé après l'ajout de
-    `hover`/`list_members`/`goto_references` — la liste évolue avec le nombre
-    de commandes) : `goto_implementation` sur `executeCommand` (méthode
-    abstraite de `Command.java`) renvoie exactement les 10 implémentations
-    concrètes existantes (`DisconnectCommand` — partagée par `exit`/`quit` —,
-    `FindSymbolCommand`, `GotoPositionCommand` — partagée par les quatre
-    commandes `goto_*`, listée une seule fois, pas quatre —, `HelpAiCommand`,
-    `HelpCommand`, `HoverCommand`, `ListMembersCommand`,
-    `PrintDiagnosticsCommand`, `ResearchRegexCommand`, `TerminateCommand`),
-    sans bruit (ni la déclaration abstraite, ni les sites d'appel
-    `command.executeCommand(...)` qu'un grep aurait remontés).
-  - `goto_references <symbole>` → même paramètre
-    que les trois autres `goto_*` (quatrième sous-classe de
-    `GotoPositionCommand`), mais interroge `textDocument/references` :
-    partout où `symbole` est réellement utilisé dans le projet — l'inverse de
-    `goto_implementation` (qui part d'une interface/méthode abstraite vers
-    ses implémentations concrètes ; `goto_references` part de n'importe quel
-    symbole vers tous ses usages réels). Envoie `includeDeclaration: false`
-    dans le `context` de la requête LSP : la déclaration est déjà connue
-    (c'est l'entrée de la commande), seuls les vrais usages comptent — avec
-    `includeDeclaration: true`, une méthode jamais appelée remonterait quand
-    même 1 résultat (sa propre déclaration), ce qui fausserait justement la
-    réponse à « cette méthode est-elle vraiment appelée quelque part ? ».
-    `JdtlsSession.goToPosition` a été élargi (nouvelle surcharge à 5
-    paramètres) pour accepter ce `context` optionnel, plutôt que de dupliquer
-    la logique dans une méthode séparée comme `hover`/`listMembers` — les
-    trois autres `goto_*` continuent de passer par la surcharge à 4
-    paramètres (`context` implicitement `null`).
+    `hover`/`list_members`/`find_reference` — la liste évolue avec le nombre
+    de commandes) : `find_implementation` sur `executeCommand` (méthode
+    abstraite de `Command.java`) renvoie exactement les implémentations
+    concrètes existantes, sans bruit (ni la déclaration abstraite, ni les
+    sites d'appel `command.executeCommand(...)` qu'un grep aurait remontés).
+    `PositionCommandSupport` (voir « Harmonisation » plus bas) n'y apparaît
+    plus, contrairement à l'ancienne `GotoPositionCommand` : elle n'étend
+    désormais plus `Command` du tout, ce n'est donc plus une fausse
+    implémentation remontée à tort.
+  - `find_reference <what> <symbole>` → interroge
+    `textDocument/references` : partout où `symbole` est réellement utilisé
+    dans le projet, déclaration exclue — l'inverse de `find_implementation`
+    (qui part d'une interface/méthode abstraite vers ses implémentations
+    concrètes ; `find_reference` part de n'importe quel symbole vers tous ses
+    usages réels). Envoie `includeDeclaration: false` dans le `context` de la
+    requête LSP : la déclaration est déjà connue (c'est l'entrée de la
+    commande), seuls les vrais usages comptent — avec `includeDeclaration:
+    true`, une méthode jamais appelée remonterait quand même 1 résultat (sa
+    propre déclaration), ce qui fausserait justement la réponse à « cette
+    méthode est-elle vraiment appelée quelque part ? ». `<what>` est validé
+    (même contrôle littéral que `find_declaration`/`find_implementation`)
+    mais purement cosmétique ici : une seule requête LSP existe, donc
+    `<what>` ne change jamais le comportement — il n'est là que pour la
+    symétrie de nom avec `find_declaration`/`find_implementation`. Renommée
+    depuis `goto_references` (voir « Harmonisation » plus bas).
 
-    **Testé de bout en bout, clide sur lui-même** : `goto_references` sur
+    **Testé de bout en bout, clide sur lui-même** : `find_reference` sur
     `getCurrentSession` (déclarée ligne 40 de `ClideContext.java`) renvoie
-    exactement ses 6 sites d'appel réels, sans la déclaration elle-même —
+    exactement ses sites d'appel réels, sans la déclaration elle-même —
     confirme que `includeDeclaration: false` fonctionne comme prévu.
   - `hover <symbole>` → signature/Javadoc que jdtls
     connaît pour ce symbole précis, à cet endroit précis (pas un autre
-    emplacement comme `goto_*` — `hover` explique le symbole où il se trouve).
-    Même résolution de position que `goto_*` (mot entier sur la ligne, colonne
-    déduite). Bâtie sur `textDocument/hover` (`JdtlsSession.hover`). Le texte
+    emplacement comme `find_declaration`/`find_reference`/`find_implementation`
+    — `hover` explique le symbole où il se trouve). Même résolution de
+    position que ces commandes (mot entier sur la ligne, colonne déduite). Bâtie sur `textDocument/hover` (`JdtlsSession.hover`). Le texte
     renvoyé par jdtls (généralement du Markdown) est affiché tel quel, sans
     reformatage ; `"<no hover info>"` si jdtls n'a rien à dire (type non
     résolu — jar manquant dans `.clide` — ou hover non applicable à ce genre
@@ -199,8 +205,9 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     directs (méthodes, champs, constructeurs — pas les membres d'un type
     imbriqué, seulement le type lui-même en tant que membre) de la
     classe/interface/enum `symbole`, déclarée à cette ligne de ce fichier.
-    Même résolution de position que `goto_*`/`hover`, mais ici pour désigner
-    quel type inspecter plutôt qu'où sauter/quoi expliquer. Bâtie sur
+    Même résolution de position que `find_declaration`/`find_reference`/
+    `find_implementation`/`hover`, mais ici pour désigner quel type inspecter
+    plutôt qu'où sauter/quoi expliquer. Bâtie sur
     `textDocument/documentSymbol` (`JdtlsSession.listMembers`), qui a besoin
     que `hierarchicalDocumentSymbolSupport` soit déclaré dans les
     `capabilities` de `initialize` (sinon jdtls renvoie un `SymbolInformation[]`
@@ -220,6 +227,60 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     lui-même) ; `list_members` sur ce même `Command` renvoie exactement ses 8
     méthodes déclarées, dans l'ordre du fichier, aucun faux positif/négatif
     (la classe n'a aucun champ — cohérent avec le résultat).
+
+### Harmonisation find_declaration/find_reference/find_implementation (remplace goto_*)
+
+Les quatre commandes `goto_definition`/`goto_type_definition`/
+`goto_implementation`/`goto_references` avaient des noms qui ne suivaient
+aucun schéma commun, et deux d'entre elles (`goto_definition`/
+`goto_type_definition`) ne se distinguaient que par la question posée à
+propos du même symbole — pas vraiment deux verbes différents. Renommage en
+trois commandes `find_declaration`/`find_reference`/`find_implementation`,
+chacune prenant un paramètre `<what>` (`method` ou `type` — vocabulaire
+repris de l'IHM Eclipse, où « type » désigne classe, interface, annotation,
+enum ou record indifféremment — validé par égalité littérale dans
+`executeCommand()`, pas via `ParamType` : ce contrôle-là n'existe pas au
+niveau du protocole comme pour `SYMBOL`/`REGEX`) :
+
+- `find_declaration` remplace `goto_definition`/`goto_type_definition` —
+  ici `<what>` sélectionne réellement une requête LSP différente
+  (`textDocument/definition` vs `textDocument/typeDefinition`).
+- `find_reference` remplace `goto_references` — `<what>` est purement
+  cosmétique (une seule requête, `textDocument/references`, existe), gardé
+  pour la symétrie de nom et comme garde-fou anti-typo.
+- `find_implementation` remplace `goto_implementation` — même requête
+  unique (`textDocument/implementation`) qu'avant, mais `<what>` documente
+  une vraie distinction conceptuelle (type → qui l'implémente/l'étend,
+  méthode → qui la surcharge) même si jdtls la résout lui-même à partir de
+  la seule position.
+
+`GotoPositionCommand`, la classe intermédiaire partagée par les quatre
+anciennes commandes `goto_*`, a été réécrite en `PositionCommandSupport` :
+une classe utilitaire `final`, constructeur privé, une seule méthode statique
+`goToAndFormat(ClideContext, String commandName, String lspMethod, String
+symbolText, Map<String,Object> requestContext)` — elle n'étend plus
+`Command` du tout (elle ne l'était jamais vraiment conceptuellement : pas de
+`@Keyword` propre, personne ne l'invoque comme commande). Effet de bord
+positif : elle n'apparaît plus dans les résultats de `find_implementation`
+sur `Command.executeCommand` — avant, `GotoPositionCommand` y figurait à
+tort, comme une fausse implémentation parmi les vraies.
+
+`goto_definition`, `goto_type_definition` et `goto_references` ont été
+purement et simplement supprimées (`goto_implementation` renommée plutôt que
+supprimée, voir plus haut) : leur usage revient exactement au même via
+`find_declaration`/`find_reference` avec le bon `<what>`, sans perte de
+capacité — vérifié en sandbox que les anciens noms renvoient bien
+`?SYNTAX ERROR` (commande inconnue) après suppression, et que `help`/
+`help_ai` n'en gardent aucune trace.
+
+**Pages `man` volontairement dépourvues de détails LSP.** Les descriptions
+et sections ERRORS des quatre commandes `find_*` ne mentionnent ni
+`textDocument/*`, ni jdtls, ni le protocole/la validation interne — elles
+disent uniquement ce que chaque commande trouve et sous quelle forme, jamais
+comment elle s'y prend. Cette information technique reste dans le Javadoc de
+classe (au-dessus de `public class Find*Command`), destiné à qui lit le
+code, pas dans `@Manual` qui est lu par l'utilisateur de `man` — les deux
+publics n'ont pas besoin des mêmes détails.
 
 ### Syntaxe des commandes : un token par ligne
 
@@ -250,8 +311,8 @@ all
 
 ### Notation `<chemin fichier>:<ligne>:<nom>` (paramètre unique, remplace le triplet)
 
-`goto_definition`, `goto_type_definition`, `goto_implementation`,
-`goto_references`, `hover` et `list_members` prenaient chacune trois
+`find_declaration`, `find_reference`, `find_implementation`, `hover` et
+`list_members` prenaient chacune trois
 paramètres séparés (`<chemin fichier>`, `<ligne>`, `<symbole>`), demandés sur
 trois échanges distincts — répétitif côté client, et rien ne garantissait avant
 l'exécution que le triplet désignait bien quelque chose de réel. Remplacé par
@@ -343,11 +404,12 @@ d'édition (voir TODO).
 **`<chemin fichier>` accepte deux formes**, départagées par
 `Symbol.resolveFile()`/`isFileUri()` : un chemin relatif classique (résolu
 contre `projectRoot`, comme décrit plus haut), ou une URI `file:` telle
-quelle — c'est le format dans lequel `find_symbol`/`goto_*`/`hover`/
-`list_members` impriment déjà chacun de leurs résultats (voir
-`JdtlsSession.formatLocation()`), donc un résultat recopié tel quel depuis
-l'un de ces retours et renvoyé en paramètre d'un `hover`/`goto_*` suivant
-fonctionne sans avoir à le retoucher à la main. `projectRoot.resolve()` seul
+quelle — c'est le format dans lequel `find_symbol`/`find_declaration`/
+`find_reference`/`find_implementation`/`hover`/`list_members` impriment
+déjà chacun de leurs résultats (voir `JdtlsSession.formatLocation()`), donc
+un résultat recopié tel quel depuis l'un de ces retours et renvoyé en
+paramètre d'un `hover`/`find_declaration` suivant fonctionne sans avoir à le
+retoucher à la main. `projectRoot.resolve()` seul
 ne suffit pas pour une URI : sous Windows, `"file:///C:/..."` n'est pas un
 chemin Windows valide (le `:` après la lettre de lecteur — ou après `file` —
 fait échouer le parseur de chemin Windows, `InvalidPathException: Illegal
@@ -356,13 +418,13 @@ plutôt que par `Path.resolve()` dès qu'un `pathArgument` commence par `file:`
 (insensible à la casse).
 
 **Testé de bout en bout** (clone GitHub frais, jdtls extrait de l'archive
-commitée, build Ant, `clide` sur lui-même) : `hover`, `goto_implementation` et
+commitée, build Ant, `clide` sur lui-même) : `hover`, `find_implementation` et
 `list_members` avec la nouvelle notation à paramètre unique (ex.
 `src/main/java/clide/core/Command.java:56:needsJdtlsSession`) renvoient
 exactement les mêmes résultats qu'avant ce refactor (respectivement le
 Javadoc de la méthode, ses 6 implémentations concrètes réelles, et les 10
 membres de `Command` — `getParamTypes()` inclus, la nouvelle méthode) ;
-`goto_definition` sur un chemin inexistant échoue en `?SYNTAX ERROR: Not a
+`find_declaration` sur un chemin inexistant échoue en `?SYNTAX ERROR: Not a
 file: ...` et sur un symbole absent de la ligne donnée en `?SYNTAX ERROR:
 Symbol '...' not found on line ...`, dans les deux cas sans qu'aucune requête
 LSP ne parte ; `search_regex` avec un `<chemin regex>` syntaxiquement
@@ -544,11 +606,12 @@ correspondante. Tout vit dans `clide.core` :
   mot-clé → `Command` à partir de la liste fixe déclarée dans `Main`.
 - Implémentations concrètes : `HelpCommand`, `ExitCommand`,
   `OpenProjectCommand`, `PrintDiagnosticsCommand`, `ResearchRegex`
-  (`search_regex`), `GotoDefinitionCommand`, `GotoTypeDefinitionCommand`,
-  `GotoImplementationCommand` (les trois via la classe intermédiaire
-  `GotoPositionCommand`, seule exception au principe « une classe = une
-  commande », justifiée par une logique de dispatch strictement identique
-  entre les trois — voir plus bas).
+  (`search_regex`), `FindDeclarationCommand`, `FindReferenceCommand`,
+  `FindImplementationCommand` (les trois délèguent le gros du travail à
+  `PositionCommandSupport.goToAndFormat()`, une classe utilitaire statique —
+  pas une sous-classe de `Command` — plutôt qu'à la classe intermédiaire
+  `GotoPositionCommand` d'avant le renommage, voir « Harmonisation » plus
+  haut).
 
 Ajouter une commande = ajouter une classe `clide.core` qui étend `Command`
 et l'enregistrer dans `Main.commands` ; aucune autre modification de `Main`
@@ -659,20 +722,24 @@ seulement "pas testé" comme noté précédemment : le bytecode de
 par nom, avec ou sans ce paramètre. Aucune piste connue pour lever cette
 limite-là côté jdtls actuellement.
 
-Le paramètre n'a pas encore été ajouté pour de vrai dans le
-`initializeParams()` réel (le test ci-dessus a été fait sur une copie
-sandbox, retirée après test) — à faire si on veut que `find_symbol` marche
-aussi sur les méthodes en usage normal.
+**Ajouté pour de vrai depuis** dans `JdtlsSession.initializeParams()` —
+`java.symbols.includeSourceMethodDeclarations = true` est maintenant envoyé
+systématiquement à l'initialisation, plus seulement testé en sandbox :
+`find_symbol` remonte donc aussi les méthodes en usage normal, pas
+uniquement les types. Toujours aucune piste côté champs (voir ci-dessus) —
+`find_symbol` ne les trouvera jamais, avec ou sans ce paramètre.
 
-**`goto_references` sur une méthode d'interface fonctionne correctement à
-travers le polymorphisme** — vérifié sur le même mini-projet : pointé sur
-la déclaration abstraite `Foo.bar()`, `goto_references` renvoie bien les 3
-appels du projet, qu'ils soient faits via une variable typée `Foo`
-(l'interface) ou typée `FooImpl`/`FooOtherImpl` (les implémentations
-concrètes) ; pointé sur l'override concret `FooImpl.bar()`, il ne renvoie
-que les 2 appels pertinents pour cette méthode précise (pas celui qui
-appelle `FooOtherImpl.bar()`). Donc pas de limite de ce côté, contrairement
-à une hypothèse envisagée un temps.
+**`find_reference` sur une méthode d'interface fonctionne correctement à
+travers le polymorphisme** — vérifié sur le même mini-projet (test fait à
+l'époque sous l'ancien nom `goto_references`, comportement inchangé depuis
+le renommage) : pointé sur la déclaration abstraite `Foo.bar()`,
+`find_reference` renvoie bien les 3 appels du projet, qu'ils soient faits
+via une variable typée `Foo` (l'interface) ou typée `FooImpl`/
+`FooOtherImpl` (les implémentations concrètes) ; pointé sur l'override
+concret `FooImpl.bar()`, il ne renvoie que les 2 appels pertinents pour
+cette méthode précise (pas celui qui appelle `FooOtherImpl.bar()`). Donc
+pas de limite de ce côté, contrairement à une hypothèse envisagée un
+temps.
 
 **jdtls supporte aussi le Call Hierarchy standard LSP**
 (`textDocument/prepareCallHierarchy` +
@@ -681,13 +748,14 @@ les imports de `JDTLanguageServer.java` côté jdtls) — une relation
 différente de `references` : pas une liste plate d'usages, mais un arbre
 navigable « qui appelle ceci » / « qu'est-ce que ceci appelle ». Aucune
 commande clide ne l'utilise encore ; piste pour une future commande,
-distincte de `goto_references`.
+distincte de `find_reference`.
 
-Pour mémoire, l'équivalent côté IHM Eclipse de `goto_references`/`goto_*`
-est « Find References » / « Open Declaration », qui opèrent toujours à
-partir d'une occurrence sélectionnée dans un fichier ouvert — jamais d'un
-nom tapé à la main, exactement comme les commandes `goto_*`/`hover`/
-`list_members` de clide aujourd'hui. La recherche par nom seul, plus
+Pour mémoire, l'équivalent côté IHM Eclipse de `find_reference`/
+`find_declaration`/`find_implementation` est « Find References » / « Open
+Declaration », qui opèrent toujours à partir d'une occurrence sélectionnée
+dans un fichier ouvert — jamais d'un nom tapé à la main, exactement comme
+les commandes `find_declaration`/`find_reference`/`find_implementation`/
+`hover`/`list_members` de clide aujourd'hui. La recherche par nom seul, plus
 générale (type OU méthode OU champ, avec un scope
 déclarations/références/implémenteurs), correspond au dialogue séparé
 « Search > Java... » d'Eclipse — c'est ce que `find_symbol` cherche à
@@ -721,9 +789,9 @@ persistant d'une session à l'autre.
 - Requêtes sémantiques supplémentaires via `JdtlsSession`/`LspClient` :
   `callHierarchy` (confirmé supporté par jdtls — voir « Capacités de jdtls »
   ci-dessus), `typeHierarchy`, etc. (`definition`/`typeDefinition`/
-  `implementation`/`references` faits — voir `goto_definition`/
-  `goto_type_definition`/`goto_implementation`/`goto_references` ci-dessus ;
-  voir `JDTLS.md`, section 2).
+  `implementation`/`references` faits — voir `find_declaration`/
+  `find_reference`/`find_implementation` ci-dessus ; voir `JDTLS.md`,
+  section 2).
 - Attendre réellement la fin d'indexation (`language/status` →
   `Started`/`ServiceReady`) plutôt que le délai fixe actuel dans
   `JdtlsSession.waitForServiceReady` — suffisant sur un petit projet comme
