@@ -57,6 +57,18 @@ public abstract class Command implements Comparable<Command> {
 		return true;
 	}
 
+	/**
+	 * Whether this command needs at least one transaction currently open before
+	 * it's allowed to run - see TransactionStack, CLAUDE.md. Defaults to false;
+	 * only commands that modify project files are expected to override it to
+	 * true (none of the transaction commands themselves do - open_transaction is
+	 * exactly how the first one gets opened). ClideDaemon checks this before
+	 * executeCommand() ever runs - see ClideDaemon.runSession().
+	 */
+	public boolean needsOpenTransaction() {
+		return false;
+	}
+
 	public String getKeyword() {
 		final Constructor<?> ctor = noArgConstructor();
 		if (ctor == null)

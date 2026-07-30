@@ -21,6 +21,7 @@ import clide.core.Command;
 import clide.core.CommandResult;
 import clide.core.CommandStatus;
 import clide.core.Symbol;
+import clide.core.TransactionStack;
 import clide.jdtls.JdtlsLauncher;
 import clide.jdtls.JdtlsSession;
 import clide.jdtls.LspClient.TimeoutException;
@@ -68,16 +69,20 @@ public final class ClideDaemon {
 	public void run() throws IOException, InterruptedException, TimeoutException {
 		System.out.println("*** clide daemon starting for " + projectRoot);
 
-		System.out.print("(1/3) Initializing IDE ...");
+		System.out.print("(1/4) Checking for a leftover transaction state ...");
+		TransactionStack.refuseIfDirty(projectRoot);
+		System.out.println(" [OK]");
+
+		System.out.print("(2/4) Initializing IDE ...");
 		final JdtlsLauncher launcher = new JdtlsLauncher(jdtlsHome());
 		final JdtlsSession session = new JdtlsSession(launcher, projectRoot);
 		System.out.println(" [OK]");
 
-		System.out.print("(2/3) Starting session ...");
+		System.out.print("(3/4) Starting session ...");
 		session.start();
 		System.out.println(" [OK]");
 
-		System.out.print("(3/3) Building project ...");
+		System.out.print("(4/4) Building project ...");
 		session.build();
 		System.out.println(" [OK]");
 
@@ -146,6 +151,11 @@ public final class ClideDaemon {
 			if (paramError != null) {
 				out.println("?SYNTAX ERROR: " + paramError);
 				continue; // surface-invalid parameter - back to READY, the command never runs
+			}
+
+			if (command.needsOpenTransaction() && context.getTransactions().hasAnyOpen() == false) {
+				printResult(out, CommandResult.error(keyword + " requires an open transaction - see open_transaction"));
+				continue;
 			}
 
 			if (command.needsJdtlsSession()) {
@@ -275,13 +285,19 @@ public final class ClideDaemon {
 
 	/**
 	 * Surface-level check for one parameter's raw text, run purely on that text -
-	 * REGEX must compile (java.util.regex.Pattern), SYMBOL must parse as a real
-	 * file/line/word (see Symbol.parse()). Every other ParamType has nothing to
-	 * check here. Returns null when value is acceptable, or an error message fit
-	 * to send back to the client as-is otherwise.
+	 * TRANSACTION_ID must match TransactionStack.ID_PATTERN, REGEX must compile
+	 * (java.util.regex.Pattern), SYMBOL must parse as a real file/line/word (see
+	 * Symbol.parse()). Every other ParamType has nothing to check here. Returns
+	 * null when value is acceptable, or an error message fit to send back to the
+	 * client as-is otherwise.
 	 */
 	private String validate(final ParamType type, final String value, final Path projectRoot) {
 		switch (type) {
+		case TRANSACTION_ID:
+			if (TransactionStack.ID_PATTERN.matcher(value).matches() == false)
+				return "Invalid transaction id '" + value + "' - expected $segment, lowercase word characters only "
+						+ "(e.g. $refactor_foo, $refactor_foo$part1)";
+			return null;
 		case REGEX:
 			try {
 				Pattern.compile(value);

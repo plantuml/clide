@@ -32,12 +32,14 @@ public class ClideContext {
 
 	private final Path projectRoot;
 	private final JdtlsSession session;
+	private final TransactionStack transactions;
 	private boolean shutdownRequested;
 	private boolean disconnectRequested;
 
 	public ClideContext(final Path projectRoot, final JdtlsSession session, Collection<Command> commands) {
 		this.projectRoot = projectRoot;
 		this.session = session;
+		this.transactions = new TransactionStack(projectRoot);
 
 		for (final Command command : commands) {
 			final String keyword = command.getKeyword();
@@ -72,6 +74,11 @@ public class ClideContext {
 
 	public JdtlsSession getCurrentSession() {
 		return session;
+	}
+
+	/** The stack of currently-open transactions for this project - see TransactionStack, CLAUDE.md. */
+	public TransactionStack getTransactions() {
+		return transactions;
 	}
 
 	/**

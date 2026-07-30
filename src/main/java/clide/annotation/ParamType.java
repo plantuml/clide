@@ -4,16 +4,19 @@ package clide.annotation;
  * What kind of value a @Param expects, beyond "just some text". Lets
  * ClideDaemon run a cheap, jdtls-free "surface" check on a parameter's raw
  * text before the command it belongs to ever runs - see
- * ClideDaemon.validate(). Only REGEX and SYMBOL have a check today:
+ * ClideDaemon.validate(). Checked today:
  * <ul>
+ * <li>TRANSACTION_ID must match TransactionStack.ID_PATTERN: one or more
+ * "$segment" chunks chained back to back (e.g. "$refactor_foo",
+ * "$refactor_foo$part1"), each segment lower-case word characters only.</li>
  * <li>REGEX must compile as a java.util.regex.Pattern.</li>
  * <li>SYMBOL must parse as "&lt;file path&gt;:&lt;line&gt;:&lt;name&gt;" (see
  * clide.core.Symbol.parse()) - the file path relative to the open project,
  * never the daemon's own current directory - and name must actually appear
  * as a whole word on that line of that file.</li>
  * </ul>
- * TRANSACTION_ID and SINGLE_LINE accept any text unchecked, read as exactly
- * one line by ClideDaemon.readParams().
+ * SINGLE_LINE accepts any text unchecked, read as exactly one line by
+ * ClideDaemon.readParams().
  *
  * MULTI_LINE is the odd one out. A Java method body - or any other chunk of
  * code a client wants to send as a single parameter - is multi-line by

@@ -4,3 +4,4 @@ build
 /clide.jar
 .clide.lock
 .clide-daemon.log
+/.clide/

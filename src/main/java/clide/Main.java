@@ -6,6 +6,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
+import clide.command.CommitTransactionCommand;
+import clide.command.DiffTransactionCommand;
 import clide.command.ExitCommand;
 import clide.command.FindSymbolCommand;
 import clide.command.GotoDefinitionCommand;
@@ -17,9 +19,12 @@ import clide.command.HelpCommand;
 import clide.command.HoverCommand;
 import clide.command.ListMembersCommand;
 import clide.command.ManualCommand;
+import clide.command.OpenTransactionCommand;
 import clide.command.PrintDiagnosticsCommand;
 import clide.command.QuitCommand;
 import clide.command.ResearchRegexCommand;
+import clide.command.RestoreFileCommand;
+import clide.command.RollbackTransactionCommand;
 import clide.command.TerminateCommand;
 import clide.core.Command;
 import clide.daemon.ClideClient;
@@ -40,7 +45,8 @@ public class Main {
 			new ExitCommand(), new QuitCommand(), new TerminateCommand(), new PrintDiagnosticsCommand(),
 			new ResearchRegexCommand(), new FindSymbolCommand(), new HoverCommand(), new ListMembersCommand(),
 			new GotoDefinitionCommand(), new GotoTypeDefinitionCommand(), new GotoImplementationCommand(),
-			new GotoReferencesCommand());
+			new GotoReferencesCommand(), new OpenTransactionCommand(), new CommitTransactionCommand(),
+			new RollbackTransactionCommand(), new DiffTransactionCommand(), new RestoreFileCommand());
 
 	public static void main(final String[] args) throws IOException, InterruptedException {
 		final Path projectRoot = parseProjectRoot(args);
