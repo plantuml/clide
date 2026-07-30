@@ -57,6 +57,19 @@ public final class TransactionStack {
 	}
 
 	/**
+	 * Every currently open transaction id, root first, most-recently-opened
+	 * (topmost) last - see exit/quit's warning and terminate's refusal
+	 * (DisconnectCommand, TerminateCommand) when this isn't empty.
+	 */
+	public List<String> openIds() {
+		final List<String> ids = new ArrayList<>();
+		for (final Transaction transaction : stack)
+			ids.add(transaction.id());
+
+		return ids;
+	}
+
+	/**
 	 * Records, once, the state of absoluteFile right before a modification about
 	 * to happen to it, in whichever transaction is currently on top of the stack
 	 * - see Transaction.backupBeforeModification(). This is the integration

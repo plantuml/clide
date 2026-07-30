@@ -1,5 +1,7 @@
 package clide.command;
 
+import java.util.List;
+
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
@@ -11,6 +13,12 @@ import clide.core.CommandResult;
  * is strictly identical between the two (only the @Keyword differs), so - like
  * GotoPositionCommand for the three goto_* commands - this is kept as a shared
  * base with thin concrete subclasses.
+ *
+ * Unlike terminate, exit/quit never touch TransactionStack: the whole point
+ * of leaving the daemon up is that the next connection can pick up right
+ * where this one left off, still-open transactions included. If any are
+ * open, a warning is appended instead - purely informational, nothing here
+ * is blocked by it.
  */
 public abstract class DisconnectCommand extends Command {
 
@@ -22,7 +30,13 @@ public abstract class DisconnectCommand extends Command {
 	@Override
 	public final CommandResult executeCommand(final ClideContext context, final String... params) {
 		context.requestDisconnect();
-		return CommandResult.ok("");
+
+		final List<String> open = context.getTransactions().openIds();
+		if (open.isEmpty())
+			return CommandResult.ok("");
+
+		return CommandResult.ok("Warning: transaction(s) still open, unaffected by exit/quit - reconnect to "
+				+ "commit_transaction/rollback_transaction them: " + String.join(", ", open));
 	}
 
 }

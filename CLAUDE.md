@@ -482,6 +482,39 @@ open→backup→diff→restore→commit→rollback, erreurs `CommandResult.error
 sur id inconnu ou sous-transaction sœur refusée). Tout compilé et exécuté
 dans un sandbox Linux avec un miroir complet du projet réel (JDK 21).
 
+**`exit`/`quit` vs `terminate` : une transaction ouverte laissée en plan.**
+Comme `ClideContext` (et donc `TransactionStack`) vit pour toute la durée du
+daemon et pas par connexion, une transaction ouverte par un client puis
+laissée telle quelle (simple déconnexion, pas forcément `exit`/`quit`) reste
+ouverte sur la pile pour la connexion suivante — potentiellement un client
+tout à fait différent, qui se retrouverait bloqué par un `open_transaction`
+refusé sans savoir pourquoi. Deux cas bien distincts :
+
+- `exit`/`quit` (`DisconnectCommand`) ne touchent jamais `TransactionStack` :
+  toute l'idée de laisser le daemon tourner est justement de pouvoir
+  reprendre plus tard là où on s'est arrêté, transaction ouverte comprise —
+  les fermer d'autorité casserait ce cas d'usage normal. `openIds()` (nouveau
+  sur `TransactionStack`) permet juste d'afficher un avertissement
+  informatif (« Warning: transaction(s) still open … ») si la pile n'est
+  pas vide au moment de la déconnexion — rien n'est bloqué.
+- `terminate` (`TerminateCommand`), lui, refuse purement et simplement de
+  s'exécuter si `openIds()` n'est pas vide (`CommandResult.error`, aucun
+  effet de bord). Contrairement à `exit`/`quit`, `terminate` met fin au
+  process du daemon pour de bon — une transaction dont plus personne ne
+  viendra jamais faire `commit_transaction`/`rollback_transaction` est
+  exactement l'état sale que `refuseIfDirty()` est censé détecter au
+  prochain démarrage (voir plus haut), réservé à un vrai plantage — pas à
+  un arrêt volontaire. Ce refus maintient l'invariant « `terminate` ne
+  laisse jamais `.clide/transactions` sale », ce qui rend `refuseIfDirty()`
+  au démarrage suivant un signal fiable de plantage réel, jamais un faux
+  positif dû à un arrêt propre mais pressé.
+
+**Testé** (4 cas supplémentaires, même sandbox) : `exit`/`quit` réussissent
+toujours et n'altèrent pas la pile, avec avertissement listant les ids
+ouverts si la pile n'est pas vide, silencieux sinon ; `terminate` refuse
+proprement (sans toucher `isShutdownRequested()` ni la pile) tant qu'une
+transaction est ouverte, et réussit normalement une fois la pile vide.
+
 ### Architecture des commandes (pattern Command)
 
 Le dispatch dans `Main.java` est générique : `Main` ne connaît aucune
