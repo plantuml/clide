@@ -4,6 +4,7 @@ import java.util.List;
 
 import clide.annotation.Help;
 import clide.annotation.Keyword;
+import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
@@ -23,6 +24,29 @@ public class FindSymbolCommand extends Command {
 	@Keyword("find_symbol")
 	@Help("Finds symbols by name anywhere in the project - matching is jdtls' own (typically fuzzy/camelCase, not exact). Use this to locate the <file path>/<line> that goto_definition/goto_type_definition/goto_implementation need.")
 	@Param(type = ParamType.SINGLE_LINE, description = "Name")
+	@Manual("""
+			NAME
+				find_symbol - find symbols by name anywhere in the project
+
+			SYNOPSIS
+				find_symbol <name>
+
+			DESCRIPTION
+				Sends workspace/symbol to jdtls to find every symbol named
+				<name> anywhere in the project, without needing to already
+				know which file or line it lives on. Matching is entirely
+				jdtls' own - typically fuzzy/camelCase, not an exact match -
+				clide applies no filtering of its own on top of it. Meant to
+				locate the <file path>/<line> that goto_definition,
+				goto_type_definition, goto_implementation and goto_references
+				all need as input: run find_symbol first, then feed what it
+				finds into whichever of those actually answers your
+				question.
+
+			SEE ALSO
+				goto_definition(1), goto_type_definition(1),
+				goto_implementation(1), goto_references(1)
+			""")
 	public FindSymbolCommand() {
 
 	}

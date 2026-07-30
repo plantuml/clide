@@ -16,8 +16,32 @@ public class GotoDefinitionCommand extends GotoPositionCommand {
 	@Help("Finds where a symbol is really defined (its declaration), not just used - <symbol> as <file path>:<line>:<name>.")
 	@Param(type = ParamType.SYMBOL, description = "Symbol")
 	@Manual("""
-			This is a long explanation.
-			On several lines
+			NAME
+				goto_definition - find where a symbol is really defined
+
+			SYNOPSIS
+				goto_definition <symbol>
+
+			DESCRIPTION
+				Sends textDocument/definition to jdtls for <symbol> and
+				reports where it's really defined - its own declaration -
+				not just one of the places it happens to be used. <symbol>
+				is given as <file path>:<line>:<name>, name located as a
+				whole word on line of file path. Shares its parameter
+				resolution and result formatting with goto_type_definition,
+				goto_implementation and goto_references; only the LSP
+				method it sends differs.
+
+			ERRORS
+				<symbol> must parse as <file path>:<line>:<name> - the file
+				must exist under the project root, line must be within it,
+				and name must appear on it as a whole word. The daemon
+				checks all of this before goto_definition ever runs, and
+				reports whichever check fails first.
+
+			SEE ALSO
+				goto_type_definition(1), goto_implementation(1),
+				goto_references(1), find_symbol(1)
 			""")
 	public GotoDefinitionCommand() {
 
