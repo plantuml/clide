@@ -22,3 +22,26 @@ Réflexion (suite à discussion avec l'utilisateur) sur l'édition de fichiers d
   - Visibilité : tout montrer (y compris `private`) ou filtrer sur `public`/`protected` pour un survol plus léger ?
   - Javadoc : ajouter la première ligne de Javadoc par membre (comme le fait `hover`), au risque d'alourdir la sortie, ou rester sur signatures nues ?
   - Classes imbriquées (au sein d'un même type, à distinguer des sous-packages) : les lister comme simple membre sans détailler leur contenu, par cohérence avec le comportement actuel de `list_members` — probable mais pas encore confirmé.
+- **`change_signature <chemin fichier> <ligne> <nom méthode> ...`** : première brique d'une famille de refactorings de signature de méthode — réordonner des paramètres existants, en ajouter de nouveaux (avec une valeur à donner explicitement dans la commande — Java n'ayant pas de valeurs par défaut natives, voir « Décidé » plus bas), en supprimer. Contrairement à `edit_method`, ce n'est pas un simple remplacement de texte localisé : il faut aussi mettre à jour tous les sites d'appel de la méthode (et potentiellement ses redéfinitions dans les sous-classes), ce qui est un problème nettement plus difficile — initialement jugé « trop risqué à implémenter nous-mêmes ».
+
+  Vérifié (suite à recherche web, voir sources en bas) : ce risque est levé, jdtls sait déjà faire ce refactoring, pas besoin de le réimplémenter à la main. `eclipse.jdt.ls` expose « Change signature » comme un vrai refactoring de protocole depuis la version 1.22.0 (avril 2023, PR #2497, classe `ChangeSignatureHandler`) — et ce n'est pas une fonctionnalité propre à l'UI Eclipse ou à VS Code : `nvim-jdtls`, un client Neovim entièrement headless (sans aucune UI graphique derrière), l'utilise aussi, ce qui confirme que c'est une vraie capacité de protocole et pas un bricolage côté client. Le mécanisme concret, tel qu'observé dans l'implémentation de `nvim-jdtls` :
+  1. Requête LSP custom `java/getChangeSignatureInfo` (fichier + position de la méthode) → renvoie la signature actuelle telle que jdtls la voit (paramètres, visibilité, type de retour).
+  2. Le client envoie la signature voulue (paramètres réordonnés/ajoutés/supprimés) via une autre requête custom, `java/getRefactorEdit`, qui renvoie un `WorkspaceEdit`.
+  3. Ce `WorkspaceEdit` est appliqué tel quel — il couvre déjà la mise à jour des sites d'appel et, d'après la documentation vscode-java, se propage « à travers la hiérarchie d'héritage de la méthode » (donc les redéfinitions dans les sous-classes sont gérées aussi).
+
+  Ce mécanisme suit le même pattern requête/réponse JSON-RPC déjà utilisé ailleurs dans `JdtlsSession`/`LspClient` (comme pour `goto_definition`), donc réutilisable sans nouveau mécanisme à inventer côté clide.
+
+  Décidé (suite à discussion avec l'utilisateur) :
+  - Pour l'ajout d'un paramètre, la valeur (celle qui joue le rôle de « valeur par défaut ») est donnée explicitement en paramètre de la commande — pas de tentative d'inférence automatique.
+
+  Questions encore ouvertes :
+  - La case « Keep original method as delegate to changed method » vue dans la boîte de dialogue Eclipse (qui génère une surcharge gardant l'ancienne signature au lieu de toucher tous les appelants — la stratégie pressentie pour l'ajout de paramètre) : pas confirmé si elle fait partie des arguments exposés par `java/getChangeSignatureInfo`/`getRefactorEdit`, ou si c'est une option propre à l'UI Eclipse/VS Code. À vérifier concrètement (inspection du jdtls déjà extrait dans `jdtls/`, ou test direct une fois la commande esquissée).
+  - Fiabilité de la suppression de paramètre : l'issue vscode-java #3089 rapporte que supprimer un paramètre (ou une exception) fait échouer Preview/Refactor dans certains cas côté outillage existant. Le risque « on doit tout réimplémenter nous-mêmes » est levé, mais pas le risque « jdtls peut se planter sur ce cas précis » — à tester à fond (dans l'esprit des sections « Testé de bout en bout » déjà présentes dans `CLAUDE.md`), en particulier sur la suppression, avant de faire confiance au résultat.
+  - Deux risques sémantiques que la recompilation ne peut pas détecter, indépendamment de la fiabilité de jdtls : réordonner deux paramètres de même type (ex. deux `String`) compile sans erreur même si un site d'appel n'a pas été mis à jour correctement ; supprimer un paramètre dont l'expression a, à un site d'appel, un effet de bord (ex. `foo(bar(), calculerEtLoguer())`) fait disparaître silencieusement cet effet de bord. Le rebuild + diagnostics prévu pour les autres commandes ne suffit pas à couvrir ces deux cas.
+
+  Sources :
+  - CHANGELOG eclipse.jdt.ls, entrée v1.22.0 : https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/main/CHANGELOG.md
+  - PR eclipse.jdt.ls #2497 (« Add change signature refactoring ») : https://github.com/eclipse/eclipse.jdt.ls/pull/2497
+  - Documentation vscode-java, « Change Method Signature » : https://github.com/redhat-developer/vscode-java/blob/master/document/_java.learnMoreAboutRefactorings.md
+  - Issue vscode-java #3089 (bug sur la suppression de paramètres) : https://github.com/redhat-developer/vscode-java/issues/3089
+  - Implémentation `change_signature` dans nvim-jdtls (`lua/jdtls.lua`) : https://github.com/mfussenegger/nvim-jdtls/blob/master/lua/jdtls.lua
