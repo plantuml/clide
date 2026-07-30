@@ -730,8 +730,16 @@ public class JdtlsSession {
 		final Map<String, Object> importSettings = new LinkedHashMap<>();
 		importSettings.put("gradle", gradleSettings);
 		importSettings.put("maven", mavenSettings);
+		// Without this, workspace/symbol (and so find_symbol) only ever returns
+		// types (classes/interfaces/enums/records/annotations), never methods -
+		// confirmed empirically (see CLAUDE.md, "Capacites de jdtls"). Does NOT
+		// cover fields: jdtls has no field search in workspace/symbol at all,
+		// with or without this setting.
+		final Map<String, Object> symbolsSettings = new LinkedHashMap<>();
+		symbolsSettings.put("includeSourceMethodDeclarations", true);
 		final Map<String, Object> javaSettings = new LinkedHashMap<>();
 		javaSettings.put("import", importSettings);
+		javaSettings.put("symbols", symbolsSettings);
 		final Map<String, Object> settings = new LinkedHashMap<>();
 		settings.put("java", javaSettings);
 		final Map<String, Object> initializationOptions = new LinkedHashMap<>();

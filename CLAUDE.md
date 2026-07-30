@@ -622,20 +622,40 @@ Recherche faite en réponse à deux questions posées à l'usage (rien
 d'appliqué au code ci-dessous, juste consigné pour ne pas le re-chercher
 plus tard) :
 
-**`find_symbol` ne remonte que des types (classes/interfaces/enums/records/
-annotations), jamais des méthodes ou des champs** — confirmé par un test
-dédié sur un mini-projet Java (`Foo`/`FooImpl`/`FooOtherImpl`/`Caller`) :
-`find_symbol` sur un nom de classe fonctionne, sur un nom de méthode renvoie
-"no symbol found". Ce n'est pas une limite du protocole LSP en soi : jdtls a
-un paramètre d'initialisation, `java.symbols.includeSourceMethodDeclarations`
-(défaut `false`), qui contrôle précisément ça — "Include method declarations
-from source files in symbol search" (documenté par le client Sublime
-LSP-jdtls, confirmé par un rapport indépendant sur le même symptôme avec
-nvim-jdtls). Piste pour lever la limite : l'ajouter à
-`initializationOptions.settings` dans `JdtlsSession.initializeParams()`, à
-côté de `java.import.gradle.enabled`/`java.import.maven.enabled`. Pas
-testé, et rien de confirmé côté champs (le nom du paramètre ne parle que
-des méthodes) — à vérifier une fois ajouté.
+**`find_symbol` ne remonte que des types par défaut (classes/interfaces/
+enums/records/annotations), jamais des méthodes ou des champs** — confirmé
+par un test dédié sur un mini-projet Java (`Foo`/`FooImpl`/`FooOtherImpl`/
+`Caller`) : `find_symbol` sur un nom de classe fonctionne, sur un nom de
+méthode renvoie "no symbol found". Ce n'est pas une limite du protocole LSP
+en soi : jdtls a un paramètre d'initialisation,
+`java.symbols.includeSourceMethodDeclarations` (défaut `false`), qui
+contrôle précisément ça.
+
+**Vérifié empiriquement (sandbox, `initializationOptions.settings.java.
+symbols.includeSourceMethodDeclarations = true` ajouté temporairement dans
+`JdtlsSession.initializeParams()`)** : avec le paramètre à `true`,
+`find_symbol` sur un nom de méthode (`barMethod`, présent à la fois comme
+déclaration abstraite dans l'interface `Foo` et comme override dans
+`FooImpl`) renvoie bien les deux `[method]` — un par déclaration source,
+pas juste un site "canonique". Confirmé aussi dans le bytecode de
+`org.eclipse.jdt.ls.core` (`WorkspaceSymbolHandler`) : le flag ajoute un
+second appel, `SearchEngine.searchAllMethodNames`, en plus du
+`searchAllTypeNames` déjà fait pour les types.
+
+**Côté champs en revanche, confirmé négatif** : avec le même flag à `true`,
+`find_symbol` sur un nom de champ (`bazField`, champ public de `FooImpl`)
+reste "no symbol found" — sans changement par rapport à `false`. Pas
+seulement "pas testé" comme noté précédemment : le bytecode de
+`WorkspaceSymbolHandler` ne contient absolument aucune recherche de champ
+(zéro occurrence du mot "field", aucun appel style `searchAllFieldNames`) —
+`workspace/symbol` chez jdtls ne sait tout simplement pas chercher un champ
+par nom, avec ou sans ce paramètre. Aucune piste connue pour lever cette
+limite-là côté jdtls actuellement.
+
+Le paramètre n'a pas encore été ajouté pour de vrai dans le
+`initializeParams()` réel (le test ci-dessus a été fait sur une copie
+sandbox, retirée après test) — à faire si on veut que `find_symbol` marche
+aussi sur les méthodes en usage normal.
 
 **`goto_references` sur une méthode d'interface fonctionne correctement à
 travers le polymorphisme** — vérifié sur le même mini-projet : pointé sur
