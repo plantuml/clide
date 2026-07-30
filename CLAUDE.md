@@ -583,6 +583,61 @@ reconnu » — PlantUML n'a pas encore de `.classpath`/`.project` commité
 comme clide. Même traitement nécessaire là-bas (`./gradlew eclipse` +
 commit) avant que `clide` y soit vraiment utile.
 
+### Capacités de jdtls — pistes trouvées en marge des commandes actuelles
+
+Recherche faite en réponse à deux questions posées à l'usage (rien
+d'appliqué au code ci-dessous, juste consigné pour ne pas le re-chercher
+plus tard) :
+
+**`find_symbol` ne remonte que des types (classes/interfaces/enums/records/
+annotations), jamais des méthodes ou des champs** — confirmé par un test
+dédié sur un mini-projet Java (`Foo`/`FooImpl`/`FooOtherImpl`/`Caller`) :
+`find_symbol` sur un nom de classe fonctionne, sur un nom de méthode renvoie
+"no symbol found". Ce n'est pas une limite du protocole LSP en soi : jdtls a
+un paramètre d'initialisation, `java.symbols.includeSourceMethodDeclarations`
+(défaut `false`), qui contrôle précisément ça — "Include method declarations
+from source files in symbol search" (documenté par le client Sublime
+LSP-jdtls, confirmé par un rapport indépendant sur le même symptôme avec
+nvim-jdtls). Piste pour lever la limite : l'ajouter à
+`initializationOptions.settings` dans `JdtlsSession.initializeParams()`, à
+côté de `java.import.gradle.enabled`/`java.import.maven.enabled`. Pas
+testé, et rien de confirmé côté champs (le nom du paramètre ne parle que
+des méthodes) — à vérifier une fois ajouté.
+
+**`goto_references` sur une méthode d'interface fonctionne correctement à
+travers le polymorphisme** — vérifié sur le même mini-projet : pointé sur
+la déclaration abstraite `Foo.bar()`, `goto_references` renvoie bien les 3
+appels du projet, qu'ils soient faits via une variable typée `Foo`
+(l'interface) ou typée `FooImpl`/`FooOtherImpl` (les implémentations
+concrètes) ; pointé sur l'override concret `FooImpl.bar()`, il ne renvoie
+que les 2 appels pertinents pour cette méthode précise (pas celui qui
+appelle `FooOtherImpl.bar()`). Donc pas de limite de ce côté, contrairement
+à une hypothèse envisagée un temps.
+
+**jdtls supporte aussi le Call Hierarchy standard LSP**
+(`textDocument/prepareCallHierarchy` +
+`callHierarchy/incomingCalls`/`callHierarchy/outgoingCalls`, visible dans
+les imports de `JDTLanguageServer.java` côté jdtls) — une relation
+différente de `references` : pas une liste plate d'usages, mais un arbre
+navigable « qui appelle ceci » / « qu'est-ce que ceci appelle ». Aucune
+commande clide ne l'utilise encore ; piste pour une future commande,
+distincte de `goto_references`.
+
+Pour mémoire, l'équivalent côté IHM Eclipse de `goto_references`/`goto_*`
+est « Find References » / « Open Declaration », qui opèrent toujours à
+partir d'une occurrence sélectionnée dans un fichier ouvert — jamais d'un
+nom tapé à la main, exactement comme les commandes `goto_*`/`hover`/
+`list_members` de clide aujourd'hui. La recherche par nom seul, plus
+générale (type OU méthode OU champ, avec un scope
+déclarations/références/implémenteurs), correspond au dialogue séparé
+« Search > Java... » d'Eclipse — c'est ce que `find_symbol` cherche à
+approcher, avec la limite ci-dessus.
+
+(Sans rapport direct avec clide, noté en passant : il existe un plugin
+Claude Code officiel packageant jdtls, avec type search/call
+hierarchy/refactoring/etc. clide reste volontairement indépendant, zéro
+dépendance, avec son propre protocole texte.)
+
 ## Contrainte réseau importante
 
 Le wrapper Gradle télécharge sa distribution depuis `services.gradle.org`, qui
@@ -604,10 +659,11 @@ persistant d'une session à l'autre.
   nécessite pas de téléchargement de dépendances).
 - Commande de lancement d'un test unique.
 - Requêtes sémantiques supplémentaires via `JdtlsSession`/`LspClient` :
-  `references`, `callHierarchy`, `typeHierarchy`, etc. (`definition`/
-  `typeDefinition`/`implementation` faits — voir `goto_definition`/
-  `goto_type_definition`/`goto_implementation` ci-dessus ; voir `JDTLS.md`,
-  section 2).
+  `callHierarchy` (confirmé supporté par jdtls — voir « Capacités de jdtls »
+  ci-dessus), `typeHierarchy`, etc. (`definition`/`typeDefinition`/
+  `implementation`/`references` faits — voir `goto_definition`/
+  `goto_type_definition`/`goto_implementation`/`goto_references` ci-dessus ;
+  voir `JDTLS.md`, section 2).
 - Attendre réellement la fin d'indexation (`language/status` →
   `Started`/`ServiceReady`) plutôt que le délai fixe actuel dans
   `JdtlsSession.waitForServiceReady` — suffisant sur un petit projet comme
