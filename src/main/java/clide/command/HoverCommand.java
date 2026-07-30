@@ -2,6 +2,7 @@ package clide.command;
 
 import clide.annotation.Help;
 import clide.annotation.Keyword;
+import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
@@ -11,12 +12,12 @@ import clide.core.Symbol;
 import clide.jdtls.JdtlsSession;
 
 /**
- * textDocument/hover: the signature/Javadoc jdtls knows for one specific
- * symbol - <symbol> as <file path>:<line>:<name> (see Symbol,
- * ParamType.SYMBOL), same notation as goto_* and list_members. Doesn't share
- * GotoPositionCommand: goto_* results are lists of Location, hover's is a
- * single blob of (usually Markdown) text - a different enough shape that it
- * gets its own thin Command instead.
+ * textDocument/hover: the signature/Javadoc jdtls knows for one specific symbol
+ * - <symbol> as <file path>:<line>:<name> (see Symbol, ParamType.SYMBOL), same
+ * notation as goto_* and list_members. Doesn't share GotoPositionCommand:
+ * goto_* results are lists of Location, hover's is a single blob of (usually
+ * Markdown) text - a different enough shape that it gets its own thin Command
+ * instead.
  *
  * Meant for the case goto_* doesn't cover: a call site already found (e.g. via
  * search_regex or find_symbol) whose exact resolved signature is wanted,
@@ -27,6 +28,27 @@ public class HoverCommand extends Command {
 	@Keyword("hover")
 	@Help("Shows the signature/Javadoc jdtls knows for a symbol - <symbol> as <file path>:<line>:<name>.")
 	@Param(type = ParamType.SYMBOL, description = "Symbol")
+	@Manual("""
+			NAME
+				hover - show the signature/Javadoc jdtls knows for a symbol
+
+			SYNOPSIS
+				hover <file path> <line> <symbol>
+
+			DESCRIPTION
+				Sends textDocument/hover to jdtls for <symbol>, located as a
+				whole word on <line> of <file path> - the same position
+				resolution goto_* and list_members use. Returns a single
+				blob of text, usually Markdown: the resolved signature and
+				whatever Javadoc jdtls knows for it, without having to open
+				and read the symbol's own declaration by hand. Meant for a
+				call site already found - e.g. via search_regex or
+				find_symbol - whose exact resolved signature is wanted; use
+				goto_definition instead to jump to that declaration itself.
+
+			SEE ALSO
+				goto_definition(1), list_members(1)
+			""")
 	public HoverCommand() {
 
 	}

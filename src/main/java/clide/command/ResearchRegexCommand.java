@@ -12,6 +12,7 @@ import java.util.stream.Stream;
 
 import clide.annotation.Help;
 import clide.annotation.Keyword;
+import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
@@ -25,6 +26,32 @@ public class ResearchRegexCommand extends Command {
 	@Param(type = ParamType.SINGLE_LINE, description = "Initial path")
 	@Param(type = ParamType.REGEX, description = "Path regex")
 	@Param(type = ParamType.REGEX, description = "Content regex")
+	@Manual("""
+			NAME
+				search_regex - grep the project for lines matching a regex
+
+			SYNOPSIS
+				search_regex <initial path> <path regex> <content regex>
+
+			DESCRIPTION
+				Walks every file under <initial path>, keeps the ones whose
+				path - normalized to forward slashes, so the same regex
+				matches whether clide runs on Windows or Linux - matches
+				<path regex>, then searches each of those files line by line
+				for <content regex>. Every match is printed as
+				"<path>:<line>: <text>", followed by a summary line
+				"search_regex: <n> match(es) in <n> file(s)". A file that
+				can't be read as UTF-8 text - a binary, typically - is
+				silently skipped, not reported as an error.
+
+				Doesn't touch jdtls: this is a plain filesystem/text search,
+				not a language-server query. Use find_symbol instead when
+				jdtls' own (typically fuzzy/camelCase) name matching is
+				wanted rather than a literal regex over file contents.
+
+			SEE ALSO
+				find_symbol(1)
+			""")
 	public ResearchRegexCommand() {
 
 	}
