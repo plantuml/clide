@@ -8,6 +8,7 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -76,6 +77,8 @@ public final class ClideDaemon {
 		TransactionStack.refuseIfDirty(projectRoot);
 		System.out.println(" [OK]");
 
+		final boolean eclipseFilesWereMissing = hasEclipseFiles() == false;
+
 		System.out.print("(2/4) Initializing IDE ...");
 		final JdtlsLauncher launcher = new JdtlsLauncher(jdtlsHome());
 		final JdtlsSession session = new JdtlsSession(launcher, projectRoot);
@@ -87,7 +90,10 @@ public final class ClideDaemon {
 
 		System.out.print("(4/4) Building project ...");
 		session.build();
-		System.out.println(" [OK]");
+		if (eclipseFilesWereMissing && hasEclipseFiles())
+			System.out.println(" [OK] (generated .project/.classpath from src/**/java and .clide/*.jar)");
+		else
+			System.out.println(" [OK]");
 
 		final ClideContext context = new ClideContext(projectRoot, session, commands);
 
@@ -351,6 +357,20 @@ public final class ClideDaemon {
 			return Paths.get(override);
 
 		return Paths.get("jdtls");
+	}
+
+	/**
+	 * Whether the project already has its Eclipse configuration files (.project
+	 * and .classpath) at its root. When they are missing, jdtls generates both
+	 * during the initial workspace import/build ("invisible project" support:
+	 * source folders detected from the tree, every .clide/*.jar added as a
+	 * library) - run() uses a before/after call to this method to report that
+	 * generation in the startup trace, so a client seeing the project build
+	 * correctly without any committed Eclipse files understands why.
+	 */
+	private boolean hasEclipseFiles() {
+		return Files.isRegularFile(projectRoot.resolve(".project"))
+				&& Files.isRegularFile(projectRoot.resolve(".classpath"));
 	}
 
 }
