@@ -10,14 +10,13 @@ import clide.core.Command;
 import clide.core.CommandResult;
 
 /**
- * Harmonized front end over goto_definition/goto_type_definition: same
- * <symbol> parameter and the same underlying pipeline (see
- * GotoPositionCommand.goToAndFormat()), but the LSP method to send -
- * textDocument/definition or textDocument/typeDefinition - is picked at
- * runtime from a new leading <what> parameter instead of being fixed per
- * command class. goto_definition and goto_type_definition are unchanged and
- * keep working exactly as before; this is purely an additional, more
- * consistently-named entry point (see CLAUDE.md).
+ * Where a symbol is really declared - <what> picks which LSP request goes
+ * out (textDocument/definition for "method", textDocument/typeDefinition for
+ * "type"), then reuses the same pipeline as every other position-based
+ * command (see PositionCommandSupport.goToAndFormat()). Replaces the former
+ * goto_definition/goto_type_definition, which sent exactly these same two
+ * requests but as two separate commands with no <what> to tell them apart -
+ * removed once this made them redundant (see CLAUDE.md).
  */
 public class FindDeclarationCommand extends Command {
 
@@ -39,13 +38,12 @@ public class FindDeclarationCommand extends Command {
 				completely different class (e.g. an interface method
 				implemented elsewhere). <what> picks which LSP request is
 				sent: "method" sends textDocument/definition (the symbol's
-				own declaration - same request as goto_definition), "type"
-				sends textDocument/typeDefinition (where the symbol's
-				declared type - its class or interface - is defined, not
-				the symbol's own declaration - same request as
-				goto_type_definition). A harmonized, more consistently
-				named front end over those two commands, which are
-				unaffected and keep working exactly as before.
+				own declaration), "type" sends textDocument/typeDefinition
+				(where the symbol's declared type - its class or interface -
+				is defined, not the symbol's own declaration). Replaces the
+				former goto_definition/goto_type_definition commands, which
+				sent these same two requests but as two separate commands
+				with no <what> to tell them apart.
 
 			ERRORS
 				<what> must be exactly "method" or "type" - anything else
@@ -57,9 +55,7 @@ public class FindDeclarationCommand extends Command {
 				whichever check fails first.
 
 			SEE ALSO
-				find_reference(1), goto_definition(1),
-				goto_type_definition(1), goto_implementation(1),
-				find_symbol(1)
+				find_reference(1), find_implementation(1), find_symbol(1)
 			""")
 	public FindDeclarationCommand() {
 
@@ -76,7 +72,7 @@ public class FindDeclarationCommand extends Command {
 		else
 			return CommandResult.error("Invalid <what> '" + what + "' - expected \"method\" or \"type\"");
 
-		return GotoPositionCommand.goToAndFormat(context, "find_declaration", lspMethod, params[1], null);
+		return PositionCommandSupport.goToAndFormat(context, "find_declaration", lspMethod, params[1], null);
 	}
 
 }

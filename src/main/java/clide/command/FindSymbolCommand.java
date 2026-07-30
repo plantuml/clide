@@ -22,7 +22,7 @@ import clide.jdtls.JdtlsSession;
 public class FindSymbolCommand extends Command {
 
 	@Keyword("find_symbol")
-	@Help("Finds symbols by name anywhere in the project - matching is jdtls' own (typically fuzzy/camelCase, not exact). Use this to locate the <file path>/<line> that goto_definition/goto_type_definition/goto_implementation need.")
+	@Help("Finds symbols by name anywhere in the project - matching is jdtls' own (typically fuzzy/camelCase, not exact). Use this to locate the <file path>/<line> that find_declaration/find_reference/find_implementation need.")
 	@Param(type = ParamType.SINGLE_LINE, description = "Name")
 	@Manual("""
 			NAME
@@ -37,15 +37,14 @@ public class FindSymbolCommand extends Command {
 				know which file or line it lives on. Matching is entirely
 				jdtls' own - typically fuzzy/camelCase, not an exact match -
 				clide applies no filtering of its own on top of it. Meant to
-				locate the <file path>/<line> that goto_definition,
-				goto_type_definition, goto_implementation and goto_references
-				all need as input: run find_symbol first, then feed what it
-				finds into whichever of those actually answers your
-				question.
+				locate the <file path>/<line> that find_declaration,
+				find_reference and find_implementation all need as input:
+				run find_symbol first, then feed what it finds into
+				whichever of those actually answers your question.
 
 			SEE ALSO
-				goto_definition(1), goto_type_definition(1),
-				goto_implementation(1), goto_references(1)
+				find_declaration(1), find_reference(1),
+				find_implementation(1)
 			""")
 	public FindSymbolCommand() {
 

@@ -360,7 +360,7 @@ public class JdtlsSession {
 	 * "[kind] path:line: line content" - the location part reuses formatLocation()
 	 * as-is: a SymbolInformation's own "location" field is a plain Location
 	 * (uri+range), the same shape formatLocation() already renders for
-	 * goto_definition/goto_implementation.
+	 * find_declaration/find_implementation.
 	 */
 	@SuppressWarnings("unchecked")
 	private String formatSymbol(final Map<String, Object> symbol) {

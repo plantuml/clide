@@ -10,9 +10,9 @@ import clide.core.CommandResult;
  * Shared logic behind exit and quit: both stop the jdtls session but leave the
  * clide daemon (and .clide.lock) running for the next connection - see
  * TerminateCommand for the command that also shuts the daemon down. Dispatch
- * is strictly identical between the two (only the @Keyword differs), so - like
- * GotoPositionCommand for the three goto_* commands - this is kept as a shared
- * base with thin concrete subclasses.
+ * is strictly identical between the two (only the @Keyword differs), so this
+ * is kept as a shared abstract base with thin concrete subclasses (ExitCommand,
+ * QuitCommand) rather than duplicating the same logic twice.
  *
  * Unlike terminate, exit/quit never touch TransactionStack: the whole point
  * of leaving the daemon up is that the next connection can pick up right

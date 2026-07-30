@@ -14,14 +14,15 @@ import clide.jdtls.JdtlsSession;
 /**
  * textDocument/hover: the signature/Javadoc jdtls knows for one specific symbol
  * - <symbol> as <file path>:<line>:<name> (see Symbol, ParamType.SYMBOL), same
- * notation as goto_* and list_members. Doesn't share GotoPositionCommand:
- * goto_* results are lists of Location, hover's is a single blob of (usually
- * Markdown) text - a different enough shape that it gets its own thin Command
- * instead.
+ * notation as find_declaration/find_reference/find_implementation and
+ * list_members. Doesn't reuse PositionCommandSupport: those commands' results
+ * are lists of Location, hover's is a single blob of (usually Markdown) text -
+ * a different enough shape that it gets its own thin Command instead.
  *
- * Meant for the case goto_* doesn't cover: a call site already found (e.g. via
- * search_regex or find_symbol) whose exact resolved signature is wanted,
- * without hunting down and reading its declaration by hand.
+ * Meant for the case find_declaration/find_reference/find_implementation
+ * don't cover: a call site already found (e.g. via search_regex or
+ * find_symbol) whose exact resolved signature is wanted, without hunting down
+ * and reading its declaration by hand.
  */
 public class HoverCommand extends Command {
 
@@ -44,10 +45,10 @@ public class HoverCommand extends Command {
 				and read the symbol's own declaration by hand. Meant for a
 				call site already found - e.g. via search_regex or
 				find_symbol - whose exact resolved signature is wanted; use
-				goto_definition instead to jump to that declaration itself.
+				find_declaration instead to jump to that declaration itself.
 
 			SEE ALSO
-				goto_definition(1), list_members(1)
+				find_declaration(1), list_members(1)
 			""")
 	public HoverCommand() {
 
