@@ -24,14 +24,14 @@ import clide.jdtls.JdtlsSession;
  * search_regex or find_symbol) whose exact resolved signature is wanted,
  * without hunting down and reading its declaration by hand.
  */
-public class RetrieveJavadocCommand extends Command {
+public class HoverCommand extends Command {
 
-	@Keyword("retrieve_javadoc")
+	@Keyword("hover")
 	@Help("Shows the signature/Javadoc jdtls knows for a symbol, at <line> in <file path>, locating <symbol> as a whole word on that line.")
 	@Param(type = ParamType.SINGLE_LINE, description = "File path")
 	@Param(type = ParamType.SINGLE_LINE, description = "Line")
 	@Param(type = ParamType.SINGLE_LINE, description = "Symbol")
-	public RetrieveJavadocCommand() {
+	public HoverCommand() {
 
 	}
 
@@ -63,7 +63,7 @@ public class RetrieveJavadocCommand extends Command {
 	}
 
 	private String usage() {
-		return "Usage: retrieve_javadoc <file path> <line> <symbol>";
+		return "Usage: hover <file path> <line> <symbol>";
 	}
 
 }

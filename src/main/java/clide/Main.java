@@ -14,7 +14,7 @@ import clide.command.GotoReferencesCommand;
 import clide.command.GotoTypeDefinitionCommand;
 import clide.command.HelpAiCommand;
 import clide.command.HelpCommand;
-import clide.command.RetrieveJavadocCommand;
+import clide.command.HoverCommand;
 import clide.command.ListMembersCommand;
 import clide.command.ManualCommand;
 import clide.command.PrintDiagnosticsCommand;
@@ -38,7 +38,7 @@ public class Main {
 
 	public static final List<Command> commands = List.of(new HelpCommand(), new ManualCommand(), new HelpAiCommand(),
 			new ExitCommand(), new QuitCommand(), new TerminateCommand(), new PrintDiagnosticsCommand(),
-			new ResearchRegexCommand(), new FindSymbolCommand(), new RetrieveJavadocCommand(), new ListMembersCommand(),
+			new ResearchRegexCommand(), new FindSymbolCommand(), new HoverCommand(), new ListMembersCommand(),
 			new GotoDefinitionCommand(), new GotoTypeDefinitionCommand(), new GotoImplementationCommand(),
 			new GotoReferencesCommand());
 
