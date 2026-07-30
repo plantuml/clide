@@ -4,6 +4,7 @@ import java.lang.reflect.Constructor;
 
 import clide.annotation.Help;
 import clide.annotation.Keyword;
+import clide.annotation.Manual;
 import clide.annotation.Param;
 
 /**
@@ -73,6 +74,15 @@ public abstract class Command implements Comparable<Command> {
 		return help == null ? "" : help.value();
 	}
 
+	public String getManual() {
+		final Constructor<?> ctor = noArgConstructor();
+		if (ctor == null)
+			return "";
+
+		final Manual man = ctor.getAnnotation(Manual.class);
+		return man == null ? "" : man.value();
+	}
+
 	public String[] getDescriptionParam() {
 		final Constructor<?> ctor = noArgConstructor();
 		if (ctor == null)
@@ -81,7 +91,7 @@ public abstract class Command implements Comparable<Command> {
 		final Param[] params = ctor.getAnnotationsByType(Param.class);
 		final String[] descriptions = new String[params.length];
 		for (int i = 0; i < params.length; i++)
-			descriptions[i] = params[i].value();
+			descriptions[i] = params[i].description();
 
 		return descriptions;
 	}

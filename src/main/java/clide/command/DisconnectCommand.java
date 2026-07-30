@@ -21,7 +21,6 @@ public abstract class DisconnectCommand extends Command {
 
 	@Override
 	public final CommandResult executeCommand(final ClideContext context, final String... params) {
-		context.stopSession();
 		context.requestDisconnect();
 		return CommandResult.ok("");
 	}

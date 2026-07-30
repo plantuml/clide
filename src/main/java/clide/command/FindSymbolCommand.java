@@ -5,6 +5,7 @@ import java.util.List;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Param;
+import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
@@ -12,18 +13,18 @@ import clide.jdtls.JdtlsSession;
 
 /**
  * workspace/symbol: finds symbols by name anywhere in the project, without
- * already knowing which file/line they're in - exactly the lookup goto_*
- * itself needs (file path + line + symbol). Matching is entirely jdtls' own
- * (typically fuzzy/camelCase, not exact) - clide applies no filtering of its
- * own on top of it, by design (see CLAUDE.md).
+ * already knowing which file/line they're in - exactly the lookup goto_* itself
+ * needs (file path + line + symbol). Matching is entirely jdtls' own (typically
+ * fuzzy/camelCase, not exact) - clide applies no filtering of its own on top of
+ * it, by design (see CLAUDE.md).
  */
 public class FindSymbolCommand extends Command {
 
 	@Keyword("find_symbol")
 	@Help("Finds symbols by name anywhere in the project - matching is jdtls' own (typically fuzzy/camelCase, not exact). Use this to locate the <file path>/<line> that goto_definition/goto_type_definition/goto_implementation need.")
-	@Param("Name")
+	@Param(type = ParamType.SINGLE_LINE, description = "Name")
 	public FindSymbolCommand() {
-		// Constructeur
+
 	}
 
 	@Override

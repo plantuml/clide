@@ -10,12 +10,11 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
+import java.util.Collection;
 
 import clide.Main;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandRegistry;
 import clide.core.CommandResult;
 import clide.core.CommandStatus;
 import clide.jdtls.JdtlsLauncher;
@@ -25,13 +24,13 @@ import clide.jdtls.LspClient.TimeoutException;
 /**
  * The long-lived side of clide: owns the single JdtlsSession for a project and
  * a local TCP ServerSocket, and keeps both alive across many separate clide
- * invocations instead of paying jdtls' handshake and full workspace build
- * again every time - see CLAUDE.md. This is also the daemon's own entry point
- * (main() below) - ClideClient re-execs "java ... clide.daemon.ClideDaemon
- * &lt;project&gt;" as a detached background process the first time a project
- * is opened (see ClideClient.startDetachedDaemon()); not meant to be typed by
- * hand. Every later "clide &lt;project&gt;" run just connects to it as a
- * client - see ClideClient/Main.
+ * invocations instead of paying jdtls' handshake and full workspace build again
+ * every time - see CLAUDE.md. This is also the daemon's own entry point (main()
+ * below) - ClideClient re-execs "java ... clide.daemon.ClideDaemon
+ * &lt;project&gt;" as a detached background process the first time a project is
+ * opened (see ClideClient.startDetachedDaemon()); not meant to be typed by
+ * hand. Every later "clide &lt;project&gt;" run just connects to it as a client
+ * - see ClideClient/Main.
  *
  * Client connections are served one at a time (accept() loops sequentially):
  * jdtls itself only ever handles one request at a time anyway, and clide is a
@@ -46,9 +45,9 @@ import clide.jdtls.LspClient.TimeoutException;
 public final class ClideDaemon {
 
 	private final Path projectRoot;
-	private final List<Command> commands;
+	private final Collection<Command> commands;
 
-	public ClideDaemon(final Path projectRoot, final List<Command> commands) {
+	public ClideDaemon(final Path projectRoot, Collection<Command> commands) {
 		this.projectRoot = projectRoot;
 		this.commands = commands;
 	}
@@ -78,7 +77,6 @@ public final class ClideDaemon {
 		session.build();
 		System.out.println(" [OK]");
 
-		final CommandRegistry registry = new CommandRegistry(commands);
 		final ClideContext context = new ClideContext(session, commands);
 
 		final ServerSocket serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
@@ -88,7 +86,7 @@ public final class ClideDaemon {
 		System.out.println("Daemon ready on port " + serverSocket.getLocalPort());
 
 		while (context.isShutdownRequested() == false)
-			serveOneClient(serverSocket, registry, context);
+			serveOneClient(serverSocket, context);
 
 		shutdown(session, serverSocket);
 	}
@@ -98,21 +96,20 @@ public final class ClideDaemon {
 	 * EOF, on "exit"/"quit" (this connection only), or on "terminate" (this
 	 * connection, and the whole daemon via run()'s loop condition).
 	 */
-	private void serveOneClient(final ServerSocket serverSocket, final CommandRegistry registry,
-			final ClideContext context) throws IOException {
+	private void serveOneClient(final ServerSocket serverSocket, final ClideContext context) throws IOException {
 		context.clearDisconnectRequested(); // fresh connection - an earlier exit/quit must not leak into this one
 		try (Socket client = serverSocket.accept();
 				BufferedReader reader = new BufferedReader(
 						new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
 				PrintStream out = new PrintStream(client.getOutputStream(), true, StandardCharsets.UTF_8)) {
-			runSession(reader, out, registry, context);
+			runSession(reader, out, context);
 		} catch (final IOException e) {
 			// this client's connection broke - the daemon stays up for the next one
 		}
 	}
 
-	private void runSession(final BufferedReader reader, final PrintStream out, final CommandRegistry registry,
-			final ClideContext context) throws IOException {
+	private void runSession(final BufferedReader reader, final PrintStream out, final ClideContext context)
+			throws IOException {
 		while (context.isShutdownRequested() == false) {
 			out.println();
 			out.println("> READY");
@@ -124,7 +121,7 @@ public final class ClideDaemon {
 			if (keyword.isEmpty())
 				continue;
 
-			final Command command = registry.find(keyword);
+			final Command command = context.getCommand(keyword);
 			if (command == null) {
 				out.println("?SYNTAX ERROR");
 				continue;
@@ -158,9 +155,9 @@ public final class ClideDaemon {
 	/**
 	 * Lazily restarts the jdtls session if a previous "exit"/"quit" stopped it
 	 * while leaving the daemon (and this connection) running. Only called for
-	 * commands that declare needsJdtlsSession() - a cheap no-op (one boolean
-	 * read) when the session is already up. Returns an error CommandResult if the
-	 * restart itself fails, null if the session is ready to use.
+	 * commands that declare needsJdtlsSession() - a cheap no-op (one boolean read)
+	 * when the session is already up. Returns an error CommandResult if the restart
+	 * itself fails, null if the session is ready to use.
 	 */
 	private CommandResult ensureSessionReady(final PrintStream out, final ClideContext context) {
 		final JdtlsSession session = context.getCurrentSession();

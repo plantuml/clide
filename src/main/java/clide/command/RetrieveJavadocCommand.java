@@ -6,6 +6,7 @@ import java.nio.file.Paths;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Param;
+import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
@@ -23,15 +24,15 @@ import clide.jdtls.JdtlsSession;
  * search_regex or find_symbol) whose exact resolved signature is wanted,
  * without hunting down and reading its declaration by hand.
  */
-public class HoverCommand extends Command {
+public class RetrieveJavadocCommand extends Command {
 
-	@Keyword("hover")
+	@Keyword("retrieve_javadoc")
 	@Help("Shows the signature/Javadoc jdtls knows for a symbol, at <line> in <file path>, locating <symbol> as a whole word on that line.")
-	@Param("File path")
-	@Param("Line")
-	@Param("Symbol")
-	public HoverCommand() {
-		// Constructeur
+	@Param(type = ParamType.SINGLE_LINE, description = "File path")
+	@Param(type = ParamType.SINGLE_LINE, description = "Line")
+	@Param(type = ParamType.SINGLE_LINE, description = "Symbol")
+	public RetrieveJavadocCommand() {
+
 	}
 
 	@Override
@@ -62,7 +63,7 @@ public class HoverCommand extends Command {
 	}
 
 	private String usage() {
-		return "Usage: hover <file path> <line> <symbol>";
+		return "Usage: retrieve_javadoc <file path> <line> <symbol>";
 	}
 
 }

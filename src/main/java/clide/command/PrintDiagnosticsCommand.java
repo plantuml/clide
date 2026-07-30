@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Param;
+import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
@@ -20,9 +21,9 @@ public class PrintDiagnosticsCommand extends Command {
 
 	@Keyword("print_diagnostics")
 	@Help("Reports diagnostics from the current project's last build: <all> lists everything, <errors> only errors.")
-	@Param("Filter: all or errors")
+	@Param(type = ParamType.SINGLE_LINE, description = "Filter: all or errors")
 	public PrintDiagnosticsCommand() {
-		// Constructeur
+
 	}
 
 	@Override

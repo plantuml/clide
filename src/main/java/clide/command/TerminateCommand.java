@@ -12,7 +12,7 @@ public class TerminateCommand extends Command {
 	@Keyword("terminate")
 	@Help("Stops the jdtls session and shuts down the clide daemon.")
 	public TerminateCommand() {
-		// Constructeur
+		
 	}
 
 	@Override

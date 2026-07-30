@@ -1,8 +1,5 @@
 package clide.command;
 
-import java.util.Set;
-import java.util.TreeSet;
-
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.core.ClideContext;
@@ -21,7 +18,7 @@ public class HelpAiCommand extends Command {
 	@Keyword("help_ai")
 	@Help("Lists every available command, one line per command, with no decorative formatting - meant for an AI client.")
 	public HelpAiCommand() {
-		// Constructeur
+
 	}
 
 	@Override
@@ -31,10 +28,8 @@ public class HelpAiCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
-		final Set<Command> commands = new TreeSet<>(context.getCommands());
-
 		final StringBuilder text = new StringBuilder();
-		for (final Command command : commands) {
+		for (final Command command : context.getAllCommands()) {
 			text.append(command.getKeyword());
 			for (final String paramDescription : command.getDescriptionParam())
 				text.append(" <").append(paramDescription).append('>');

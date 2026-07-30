@@ -1,3 +1,203 @@
+-----
+
+renommer la commande "hoover" en
+retrieve_javadoc <symbol>
+
+
+-------------
+
+Plutot que systématiquement demander:
+
+> File path ?
+src/main/java/clide/command/ManualCommand.java    
+> Line ?
+27
+> Symbol ?
+needsJdtlsSession
+
+
+Si on normalisait la notation:
+
+
+src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession
+
+Le "File path" relatif doit être relatif au projet ouvert, pas au répertoire courant.
+
+
+Cette notation détermine forcément un symbole.
+Cela simplifierait les échanges
+Du coup, réifier une class Symbol.java dans le projet
+Et avoir une approche object: rajouter par exemple une méthode retrieveJavadoc() sur la class Symbol
+
+On a aussi créé un ParamType.SYMBOL (pour faire un controle de surface et de vérifier que le symbole existe bien dès la saisie, avant même que la commande passe en action)
+Pareil, sur ParamType.REGEX, vérifier que c'est une regex correcte.
+
+(Seul ParamType.TEXT_BLOCK est sur plusieurs lignes comme on verra plus bas)
+
+------------
+Du coup avoir un man qui affiche une aide détaillée pour chaque keyword:
+
+man <keyword>
+
+exemple:
+> READY
+man
+> Get 'man' expecting now 1 parameter(s).
+> Keyword ?
+goto_references
+
+
+
+-------------
+
+
+> READY
+goto_references
+> Get 'goto_references' expecting now 3 parameter(s).
+> File path ?
+../plantuml/src/main/java/net/sourceforge/plantuml/klimt/drawing/UGraphic.java    
+> Line ?
+52
+> Symbol ?
+getStringBounder
+goto_references: no definition found
+
+> READY
+
+Comment trouver tous les appels à getStringBounder ?
+
+avoir un "find_reference" ?
+
+et avoir un "find_declaration" pour les déclarations ?
+
+Préciser pour quoi fonctionnent goto_definition/goto_implementation/goto_references. Que des types/classes ?
+
+comment lister les commandes 
+
+find_symbol ne semble marcher QUE sur des classes
+"find_symbol hoover" devrait trouver la méthode hoover
+
+Bref, il faut revoir toutes ces commandes et leur noms
+
+-------------
+
+
+Attention, dans les sorties (je pense à la commande 'search_regex'), ne JAMAIS mettre de chemin absolu
+Tout doit être relatif au chemin du projet.
+Y compris pour le > Initial path ?
+Mettre un . si on veut cherche dans tout le projet
+
+
+Sauf peut-être pour hoover:
+
+hover
+> Get 'hover' expecting now 3 parameter(s).
+> File path ?
+src/main/java/clide/jdtls/JdtlsSession.java
+> Line ?
+62
+> Symbol ?
+start
+void clide.jdtls.JdtlsSession.start() throws IOException, InterruptedException, TimeoutException
+
+Starts jdtls if needed and performs the initialize/initialized handshake.
+
+* **Throws:**
+  * IOException
+  * InterruptedException
+  * TimeoutException
+
+Source: *[clide](file:///home/foo/clide/src/main/java/clide/jdtls/JdtlsSession.java#62)*
+
+D'où vient de "Source:" ?
+J'ai l'impression que c'set jdtls qui génère ça: donc on ne touche pas, on garde le texte tel quel
+
+
+-----
+
+En ce qui concerne les éditions, plusieurs choses.
+
+1) Pour régler le problème protocole « un token par ligne » : un corps de méthode Java est par nature multi-ligne
+On va rajouter une notion de "bloc de texte" dans le protocole.
+Donc si un paramètre est de type ParamType.TEXT_BLOCK (trouver un meilleur nom que TEXT_BLOCK) on sait que c'est un bloc de lignes.
+Du coup, pour les blocs de lignes, l'IDE demande en tout premier un séparateur.
+Il faut alors saisir une chaine discriminante (peu importe sa valeur), qui servira de terminateur de fin.
+Du coup, l'IDE enregistre toutes les lignes saisies, jusqu'à rencontrer ce terminateur.
+
+
+2) Pour tout ce qui est modification du code, on va introduire la notion de transaction.
+Avant toute modification, il faudra ouvrir une transation. Syntaxe:
+
+open_transaction <transation_id>
+
+Example:
+> READY
+open_transaction $refactor_foo
+
+Un id de transation commence forcément par un $ (puis \w+ en minuscule)
+Ce n'est qu'une fois la transaction appelée qu'on pourra faire des modifs (sinon, échec)
+
+Ensuite, on peut faire les modifications.
+
+Mais on peut faire un:
+rollback_transaction $refactor_foo
+
+si on a tout cassé
+
+ou bien un:
+commit_transaction $refactor_foo
+
+si tout va bien.
+
+On peut aussi faire un:
+"diff_transaction $refactor_foo" pour voir les fichiers modifiés
+"diff_transaction $refactor_foo src/foo.java " pour voir les modifications précises sur ce fichier
+"restore_file $refactor_foo src/foo.java " pour faire un restore sur ce fichier uniquement
+
+
+L'implémentation est simple: on créé un répertoire 
+
+.clide/transactions/refactor_foo
+
+Dans lequel on mets des backup des fichiers *avant modification*
+Et un fichier "vide" en cas de création
+
+Le commit de la transaction consiste à supprimer ce répertoire
+Le rollback (et le diff) à reprendre ces fichiers
+
+De plus, on peut avoir des sous-transactions:
+
+open_transaction $refactor_foo$part1
+
+dans ce cas, ça créé un nouveau répertoire
+.clide/transactions/part1
+
+un commit de $refactor_foo$part1 reporte les modifs de .clide/transactions/part1 vers .clide/transactions/refactor_foo
+
+un commit de $refactor_foo commit implicitement d'abord la sous chaine des transactions
+
+car on peut très bien avoir:
+
+open_transaction $refactor_foo$part1$a
+
+Niveau code, il faut réifier Transaction.java et TransactionsStack.java
+
+Un inconvénient, c'est que si le daemon plante pour une raison ou une autre, on sera dans un état instable.
+Donc refuser de démarrer si on lance un daemon alors que le répertoire .clide/transactions n'est pas vide
+Ca sera à l'utilisateur de faire le ménage.
+
+
+
+
+
+
+
+
+
+
+-----
+
+
 
 - Dans le code python transformer jdt-language-server-latest.tar.gz en jdt-language-server-latest.zip
 - de façon à auto unziper jdt-language-server-latest.zip dans le code Java si besoin

@@ -1,8 +1,5 @@
 package clide.command;
 
-import java.util.Set;
-import java.util.TreeSet;
-
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.core.ClideContext;
@@ -16,7 +13,7 @@ public class HelpCommand extends Command {
 	@Keyword("help")
 	@Help("Lists every available command with its parameters.")
 	public HelpCommand() {
-		// Constructeur
+
 	}
 
 	@Override
@@ -28,9 +25,7 @@ public class HelpCommand extends Command {
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final TextTable table = new TextTable(80, "Keyword", "Parameters", "Description");
 
-		final Set<Command> commands = new TreeSet<>(context.getCommands());
-
-		for (final Command command : commands) {
+		for (final Command command : context.getAllCommands()) {
 			table.addRow(command.getKeyword(), formatParams(command), command.getHelp());
 			table.addEmptyRow();
 		}

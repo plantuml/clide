@@ -7,6 +7,7 @@ import java.util.List;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Param;
+import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
@@ -14,22 +15,22 @@ import clide.jdtls.JdtlsSession;
 
 /**
  * textDocument/documentSymbol: lists the direct members (methods, fields,
- * constructors) of the class/interface/enum named <symbol>, declared at
- * <line> in <file path> - same whole-word-on-line position resolution as
- * goto_* and hover, but here it identifies which type to inspect rather than
- * where to jump or what to explain. Doesn't share GotoPositionCommand for the
- * same reason hover doesn't: a different result shape (a type's member list,
- * not a list of Location).
+ * constructors) of the class/interface/enum named <symbol>, declared at <line>
+ * in <file path> - same whole-word-on-line position resolution as goto_* and
+ * hover, but here it identifies which type to inspect rather than where to jump
+ * or what to explain. Doesn't share GotoPositionCommand for the same reason
+ * hover doesn't: a different result shape (a type's member list, not a list of
+ * Location).
  */
 public class ListMembersCommand extends Command {
 
 	@Keyword("list_members")
 	@Help("Lists the members (methods, fields, constructors) of the class/interface/enum named <symbol>, declared at <line> in <file path>, locating <symbol> as a whole word on that line.")
-	@Param("File path")
-	@Param("Line")
-	@Param("Symbol")
+	@Param(type = ParamType.SINGLE_LINE, description = "File path")
+	@Param(type = ParamType.SINGLE_LINE, description = "Line")
+	@Param(type = ParamType.SINGLE_LINE, description = "Symbol")
 	public ListMembersCommand() {
-		// Constructeur
+
 	}
 
 	@Override

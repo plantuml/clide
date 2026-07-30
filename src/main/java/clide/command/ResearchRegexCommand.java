@@ -13,6 +13,7 @@ import java.util.stream.Stream;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Param;
+import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
@@ -21,11 +22,11 @@ public class ResearchRegexCommand extends Command {
 
 	@Keyword("search_regex")
 	@Help("Searches <initial path> for lines matching <content regex>, in files whose path matches <path regex>.")
-	@Param("Initial path")
-	@Param("Path regex")
-	@Param("Content regex")
+	@Param(type = ParamType.SINGLE_LINE, description = "Initial path")
+	@Param(type = ParamType.SINGLE_LINE, description = "Path regex")
+	@Param(type = ParamType.SINGLE_LINE, description = "Content regex")
 	public ResearchRegexCommand() {
-		// Constructeur
+
 	}
 
 	@Override
