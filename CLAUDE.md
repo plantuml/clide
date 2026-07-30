@@ -289,9 +289,49 @@ quelle si ça échoue, avant même que `ResearchRegexCommand` ne soit invoquée
 reste en place par défense en profondeur, mais devient redondant en
 pratique).
 
-`ParamType.TEXT_BLOCK` reste, pour l'instant, lu comme une seule ligne par
-`ClideDaemon.readParams()` — aucune commande ne l'utilise encore ; le
-supporter réellement sur plusieurs lignes est un chantier séparé.
+### Paramètres multi-lignes (`ParamType.MULTI_LINE`)
+
+Un corps de méthode Java (ou tout autre bloc de code qu'un client veut
+envoyer comme un seul paramètre) est par nature multi-ligne — la contrainte
+« un token par ligne » ci-dessus ne suffit plus : contrairement aux autres
+`ParamType`, il n'y a pas de nombre de lignes à annoncer à l'avance, le
+client lui-même ne sait pas forcément combien de lignes il va taper avant de
+commencer. `ParamType.TEXT_BLOCK` est donc renommé `ParamType.MULTI_LINE`
+(miroir de `SINGLE_LINE`, plus explicite que l'ancien nom) et
+`ClideDaemon.readParams()` le lit désormais en deux temps au lieu d'un :
+
+1. Une première ligne, le **terminateur** — une chaîne discriminante au
+   choix du client, jamais validée ni interprétée, juste peu susceptible
+   d'apparaître telle quelle comme ligne du contenu réel.
+2. Puis autant de lignes que le client en envoie, conservées telles quelles
+   (**sans `trim()`** — contrairement à tous les autres `ParamType` :
+   l'indentation fait partie de la valeur, par exemple un corps de méthode
+   indenté à la tabulation), jusqu'à rencontrer une ligne strictement égale
+   au terminateur. Cette ligne est consommée mais exclue du résultat ; les
+   lignes précédentes sont jointes par `"\n"` (un bloc vide — terminateur
+   dès la première ligne — donne `""`).
+
+Réifié en deux méthodes privées dans `ClideDaemon` : `readSingleLineParam()`
+(l'ancien comportement, une ligne lue puis `trim()`ée) et
+`readMultiLineParam()` (le protocole ci-dessus) ; `readParams()` choisit
+entre les deux selon le `ParamType` de chaque paramètre
+(`command.getParamTypes()`). Au passage, `readParams()` renvoie désormais
+réellement `null` — comme sa Javadoc l'a toujours prétendu — dès qu'un
+paramètre (ou, pour `MULTI_LINE`, son terminateur, ou le bloc lui-même)
+rencontre l'EOF avant d'être complètement lu ; auparavant l'implémentation
+substituait silencieusement une chaîne vide à la place, rendant ce `null`
+mort côté appelant (`runSession()` le testait déjà, mais ne le recevait
+jamais).
+
+**Testé** via un test dédié, hors du dépôt (`readParams()` et ses deux
+sous-méthodes sont `private`, invoquées par réflexion sur une `Command`
+factice) : paramètres `SINGLE_LINE`/`MULTI_LINE` mélangés dans une même
+commande, bloc vide, indentation à la tabulation et lignes vides préservées
+telles quelles, `trim()` toujours appliqué aux paramètres `SINGLE_LINE`, et
+EOF prématurée — pendant le terminateur ou pendant le bloc — renvoyant bien
+`null`. Aucune commande ne déclare encore de paramètre `MULTI_LINE` à ce
+jour ; ce protocole est prêt à être utilisé par une future commande
+d'édition (voir TODO).
 
 **`<chemin fichier>` accepte deux formes**, départagées par
 `Symbol.resolveFile()`/`isFileUri()` : un chemin relatif classique (résolu

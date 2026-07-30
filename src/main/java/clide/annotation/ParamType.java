@@ -12,11 +12,23 @@ package clide.annotation;
  * never the daemon's own current directory - and name must actually appear
  * as a whole word on that line of that file.</li>
  * </ul>
- * TRANSACTION_ID and SINGLE_LINE accept any text unchecked. TEXT_BLOCK is
- * meant, eventually, to be read across several lines instead of one - not
- * implemented yet: every parameter, TEXT_BLOCK included, is currently read
- * as exactly one line by ClideDaemon.readParams().
+ * TRANSACTION_ID and SINGLE_LINE accept any text unchecked, read as exactly
+ * one line by ClideDaemon.readParams().
+ *
+ * MULTI_LINE is the odd one out. A Java method body - or any other chunk of
+ * code a client wants to send as a single parameter - is multi-line by
+ * nature, and unlike every other ParamType there is no line count to ask for
+ * up front: the client itself doesn't necessarily know how many lines it is
+ * about to send before it starts typing them. So ClideDaemon.readParams()
+ * reads a MULTI_LINE parameter in two steps instead of one: first a single
+ * line, the terminator - any discriminant string the client picks, never
+ * validated or interpreted, just something unlikely to occur as a whole line
+ * of the actual content - then every following line, kept verbatim (no
+ * trimming: indentation is part of the value, e.g. a tab-indented method
+ * body), until a line equal to that terminator is read. That line is
+ * consumed but excluded from the value; every line before it is joined with
+ * "\n".
  */
 public enum ParamType {
-	TRANSACTION_ID, REGEX, SYMBOL, SINGLE_LINE, TEXT_BLOCK
+	TRANSACTION_ID, REGEX, SYMBOL, SINGLE_LINE, MULTI_LINE
 }

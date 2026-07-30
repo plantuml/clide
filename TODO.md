@@ -6,7 +6,7 @@
 goto_references
 > Get 'goto_references' expecting now 3 parameter(s).
 > File path ?
-../plantuml/src/main/java/net/sourceforge/plantuml/klimt/drawing/UGraphic.java    
+src/main/java/net/sourceforge/plantuml/klimt/drawing/UGraphic.java    
 > Line ?
 52
 > Symbol ?
