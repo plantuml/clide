@@ -18,6 +18,13 @@ import clide.jdtls.JdtlsSession;
  * stay thin: their no-arg constructor carries the usual @Keyword/@Help/@Param
  * annotations, and they only implement lspMethod()/commandName() (and, for
  * goto_references, context()).
+ *
+ * The actual parse-resolve-format pipeline lives in goToAndFormat() (package-
+ * private, static) rather than only here: find_declaration/find_reference
+ * (see FindDeclarationCommand/FindReferenceCommand) reuse it too, against an
+ * lspMethod chosen at runtime from their own <what> parameter rather than a
+ * fixed one per class - so it can't stay a plain instance method tied to a
+ * single subclass the way it did before those two commands existed.
  */
 public abstract class GotoPositionCommand extends Command {
 
@@ -34,28 +41,41 @@ public abstract class GotoPositionCommand extends Command {
 
 	@Override
 	public final CommandResult executeCommand(final ClideContext context, final String... params) {
+		return goToAndFormat(context, commandName(), lspMethod(), params[0], context());
+	}
+
+	/**
+	 * Resolves symbolText ("<file path>:<line>:<name>") to a Symbol, sends
+	 * lspMethod against it (with requestContext merged in if non-null - see
+	 * JdtlsSession.goToPosition()), and formats the result exactly as every
+	 * goto_* command already did: "<count> location(s)" followed by one
+	 * "path:line: line content" per result, or "no definition found" if empty.
+	 * commandName prefixes both the success and error messages, same as before.
+	 */
+	static CommandResult goToAndFormat(final ClideContext context, final String commandName, final String lspMethod,
+			final String symbolText, final Map<String, Object> requestContext) {
 		final JdtlsSession session = context.getCurrentSession();
 
 		final Symbol symbol;
 		try {
-			symbol = Symbol.parse(params[0], context.getProjectRoot());
+			symbol = Symbol.parse(symbolText, context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResult.error(e.getMessage());
 		}
 
 		try {
-			final List<String> locations = session.goToPosition(lspMethod(), symbol, context());
+			final List<String> locations = session.goToPosition(lspMethod, symbol, requestContext);
 			if (locations.isEmpty())
-				return CommandResult.ok(commandName() + ": no definition found");
+				return CommandResult.ok(commandName + ": no definition found");
 
 			final StringBuilder output = new StringBuilder();
-			output.append(commandName()).append(": ").append(locations.size()).append(" location(s)\n");
+			output.append(commandName).append(": ").append(locations.size()).append(" location(s)\n");
 			for (final String location : locations)
 				output.append(location).append('\n');
 
 			return CommandResult.ok(output.toString().strip());
 		} catch (final Exception e) {
-			return CommandResult.error(commandName() + " failed: " + e.getMessage());
+			return CommandResult.error(commandName + " failed: " + e.getMessage());
 		}
 	}
 

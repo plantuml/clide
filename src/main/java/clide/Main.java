@@ -9,6 +9,8 @@ import java.util.List;
 import clide.command.CommitTransactionCommand;
 import clide.command.DiffTransactionCommand;
 import clide.command.ExitCommand;
+import clide.command.FindDeclarationCommand;
+import clide.command.FindReferenceCommand;
 import clide.command.FindSymbolCommand;
 import clide.command.GotoDefinitionCommand;
 import clide.command.GotoImplementationCommand;
@@ -45,8 +47,9 @@ public class Main {
 			new ExitCommand(), new QuitCommand(), new TerminateCommand(), new PrintDiagnosticsCommand(),
 			new ResearchRegexCommand(), new FindSymbolCommand(), new HoverCommand(), new ListMembersCommand(),
 			new GotoDefinitionCommand(), new GotoTypeDefinitionCommand(), new GotoImplementationCommand(),
-			new GotoReferencesCommand(), new OpenTransactionCommand(), new CommitTransactionCommand(),
-			new RollbackTransactionCommand(), new DiffTransactionCommand(), new RestoreFileCommand());
+			new GotoReferencesCommand(), new FindDeclarationCommand(), new FindReferenceCommand(),
+			new OpenTransactionCommand(), new CommitTransactionCommand(), new RollbackTransactionCommand(),
+			new DiffTransactionCommand(), new RestoreFileCommand());
 
 	public static void main(final String[] args) throws IOException, InterruptedException {
 		final Path projectRoot = parseProjectRoot(args);
