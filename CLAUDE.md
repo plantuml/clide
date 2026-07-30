@@ -85,57 +85,64 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     `/`, donc portable Windows/Linux) matche `regex_chemin`, puis grep
     `regex_cherché` ligne par ligne dans ces fichiers.
   - `find_symbol <nom>` → cherche un symbole par nom dans tout le projet, sans
-    connaître à l'avance le fichier/la ligne — ce qui manquait en amont de
-    `goto_*` (voir `TODO.md`, retiré une fois cette commande faite) : il
-    fallait grepper soi-même pour trouver la ligne avant de pouvoir appeler
-    `goto_definition`. Bâtie sur `workspace/symbol` (`JdtlsSession.findSymbol`) ;
-    **le matching est entièrement délégué à jdtls** (typiquement flou/camelCase
-    en pratique, pas une égalité stricte) — clide ne filtre rien lui-même en
-    plus, par choix : `find_symbol UGraphic` peut très bien remonter aussi
-    `UGraphicSvg`, `UGraphicNull`, etc. Chaque résultat est préfixé par la
-    nature du symbole entre crochets (`[class]`, `[interface]`, `[method]`,
-    `[field]`, `[constructor]`, `[enum]`, `[constant]`, `[package]`,
-    `[variable]`, `[property]`, `[function]`, `[enum member]`, `[struct]`, ou
-    `[symbol]` si le code `SymbolKind` LSP n'est pas reconnu), suivi du même
-    format `chemin/relatif.java:ligne: contenu de la ligne` que `goto_*` —
+    connaître à l'avance le fichier/la ligne — ce qui manquait en amont des
+    commandes de navigation par position (voir `TODO.md`, retiré une fois
+    cette commande faite) : il fallait grepper soi-même pour trouver la ligne
+    avant de pouvoir appeler `find_declaration`. Bâtie sur `workspace/symbol`
+    (`JdtlsSession.findSymbol`) ; **le matching est entièrement délégué à
+    jdtls** (typiquement flou/camelCase en pratique, pas une égalité stricte)
+    — clide ne filtre rien lui-même en plus, par choix : `find_symbol
+    UGraphic` peut très bien remonter aussi `UGraphicSvg`, `UGraphicNull`,
+    etc. Chaque résultat est préfixé par la nature du symbole entre crochets
+    (`[class]`, `[interface]`, `[method]`, `[field]`, `[constructor]`,
+    `[enum]`, `[constant]`, `[package]`, `[variable]`, `[property]`,
+    `[function]`, `[enum member]`, `[struct]`, ou `[symbol]` si le code
+    `SymbolKind` LSP n'est pas reconnu), suivi du même format
+    `chemin/relatif.java:ligne: contenu de la ligne` que `find_declaration`/
+    `find_reference`/`find_implementation`/`hover`/`list_members` —
     volontairement, pour pouvoir recopier tel quel le fichier/la ligne d'un
-    résultat dans un `goto_definition`/`goto_implementation` juste après.
+    résultat dans l'une de ces commandes juste après.
 
     **Testé de bout en bout** (clone GitHub frais de `plantuml/clide`, jdtls
     extrait, self-test — `clide` sur lui-même) : `find_symbol JdtlsSession`
     renvoie bien `[class] src/main/java/clide/jdtls/JdtlsSession.java:34: public
     class JdtlsSession {`.
-  - `goto_definition <symbole>` (notation `<chemin fichier>:<ligne>:<nom>`,
-    voir la section dédiée plus bas) → où est réellement
-    définie la déclaration du symbole (pas juste un usage). `goto_type_definition`
-    même paramètre unique `<symbole>` → où est définie la classe/interface du type déclaré du
-    symbole (pas la déclaration du symbole lui-même, et pas son type
-    d'exécution : le LSP ne connaît que le type statique déclaré). La ligne est
-    1-based (comme affichée en lisant le fichier) ; le symbole est cherché comme
-    mot entier sur cette ligne (`\bsymbole\b`), clide en déduit la colonne — pas
-    de comptage de caractères à faire. Les deux commandes affichent toutes les
+  - `find_declaration <what> <symbole>` (notation `<chemin fichier>:<ligne>:
+    <nom>`, voir la section dédiée plus bas) → où est réellement définie la
+    déclaration du symbole (pas juste un usage). `<what>` vaut `method` (→
+    `textDocument/definition`, la déclaration du symbole lui-même) ou `type`
+    (→ `textDocument/typeDefinition`, la classe/interface du type déclaré du
+    symbole — pas la déclaration du symbole lui-même, et pas son type
+    d'exécution : le LSP ne connaît que le type statique déclaré) ; toute
+    autre valeur est rejetée avant même d'atteindre jdtls. La ligne est
+    1-based (comme affichée en lisant le fichier) ; le symbole est cherché
+    comme mot entier sur cette ligne (`\bsymbole\b`), clide en déduit la
+    colonne — pas de comptage de caractères à faire. Affiche toutes les
     locations renvoyées (`chemin/relatif.java:ligne: contenu de la ligne`), ou
-    `"<no definition found>"` si vide. Logique partagée dans
-    `JdtlsSession.goToPosition` ; `GotoDefinitionCommand`/`GotoTypeDefinitionCommand`
-    ne diffèrent que par la méthode LSP appelée (`textDocument/definition` vs
-    `textDocument/typeDefinition`), via la classe intermédiaire
-    `GotoPositionCommand`. Pas de `textDocument/didOpen` envoyé avant la requête
-    (repose sur le modèle déjà construit par le dernier `build()`, fait
-    automatiquement au démarrage du daemon).
+    `"<no definition found>"` si vide. Pas de `textDocument/didOpen` envoyé
+    avant la requête (repose sur le modèle déjà construit par le dernier
+    `build()`, fait automatiquement au démarrage du daemon).
+
+    Remplace les anciennes `goto_definition`/`goto_type_definition` (retirées
+    — voir « Harmonisation find_declaration/find_reference/find_implementation »
+    plus bas) : mêmes deux requêtes LSP exactement, mais réunies sous un seul
+    nom de commande avec `<what>` pour les distinguer plutôt que deux
+    commandes séparées sans lien apparent dans leur nom.
 
     **Testé de bout en bout, clide sur lui-même** (clone GitHub frais de
-    `plantuml/clide`, jdtls extrait, `ant run`) : `goto_definition` sur une
-    variable renvoie sa déclaration locale (ex. `command` dans `Main.java` →
-    ligne de `final Command command = registry.find(keyword);`) ;
-    `goto_type_definition` sur ce même symbole renvoie directement la classe de
-    son type déclaré (`public abstract class Command {`), sans repasser par la
-    déclaration locale. Confirmé aussi sur `context`/`ClideContext`. **Confirmé
-    au passage : aucun `textDocument/didOpen` préalable n'est nécessaire**, la
-    requête aboutit directement sur le modèle du dernier `java/buildWorkspace` —
-    l'incertitude notée plus haut est levée (au moins sur un petit projet comme
-    clide ; à revalider sur un projet de la taille de PlantUML). Cas d'erreur
-    (symbole absent de la ligne donnée) : message clair,
-    `Symbol 'foobar' not found on line 55 of ...`.
+    `plantuml/clide`, jdtls extrait, `ant run`) : `find_declaration method`
+    sur une variable renvoie sa déclaration locale (ex. `command` dans
+    `Main.java` → ligne de `final Command command = registry.find(keyword);`)
+    ; `find_declaration type` sur ce même symbole renvoie directement la
+    classe de son type déclaré (`public abstract class Command {`), sans
+    repasser par la déclaration locale. Confirmé aussi sur
+    `context`/`ClideContext`. **Confirmé au passage : aucun
+    `textDocument/didOpen` préalable n'est nécessaire**, la requête aboutit
+    directement sur le modèle du dernier `java/buildWorkspace` — l'incertitude
+    notée plus haut est levée (au moins sur un petit projet comme clide ; à
+    revalider sur un projet de la taille de PlantUML). Cas d'erreur (symbole
+    absent de la ligne donnée) : message clair, `Symbol 'foobar' not found on
+    line 55 of ...`.
   - `goto_implementation <symbole>` → mêmes
     paramètre et même comportement que `goto_definition`/`goto_type_definition`
     (troisième sous-classe de `GotoPositionCommand`, aucune logique

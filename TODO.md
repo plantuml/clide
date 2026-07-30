@@ -2,37 +2,6 @@
 -------------
 
 
-> READY
-goto_references
-> Get 'goto_references' expecting now 3 parameter(s).
-> File path ?
-src/main/java/net/sourceforge/plantuml/klimt/drawing/UGraphic.java    
-> Line ?
-52
-> Symbol ?
-getStringBounder
-goto_references: no definition found
-
-> READY
-
-Comment trouver tous les appels à getStringBounder ?
-
-avoir un "find_reference" ?
-
-et avoir un "find_declaration" pour les déclarations ?
-
-Préciser pour quoi fonctionnent goto_definition/goto_implementation/goto_references. Que des types/classes ?
-
-comment lister les commandes 
-
-find_symbol ne semble marcher QUE sur des classes
-"find_symbol hoover" devrait trouver la méthode hoover
-
-Bref, il faut revoir toutes ces commandes et leur noms
-
--------------
-
-
 Attention, dans les sorties (je pense à la commande 'search_regex'), ne JAMAIS mettre de chemin absolu
 Tout doit être relatif au chemin du projet.
 Y compris pour le > Initial path ?

@@ -32,27 +32,22 @@ public class FindDeclarationCommand extends Command {
 				find_declaration <what> <symbol>
 
 			DESCRIPTION
-				Finds the real declaration of the symbol used or referenced
-				at <symbol> - <file path>:<line>:<name>, name located as a
-				whole word on line of file path - which may live in a
-				completely different class (e.g. an interface method
-				implemented elsewhere). <what> picks which LSP request is
-				sent: "method" sends textDocument/definition (the symbol's
-				own declaration), "type" sends textDocument/typeDefinition
-				(where the symbol's declared type - its class or interface -
-				is defined, not the symbol's own declaration). Replaces the
-				former goto_definition/goto_type_definition commands, which
-				sent these same two requests but as two separate commands
-				with no <what> to tell them apart.
+				Finds where a symbol is really declared - the file and line
+				it's actually defined at, not just a place it's used or
+				referenced. <symbol> is given as <file path>:<line>:<name>,
+				name located as a whole word on line of file path; the
+				result may live in a completely different file or class
+				(e.g. an interface method implemented elsewhere). <what>
+				says what kind of declaration is wanted: "method" for the
+				symbol's own declaration, "type" for the class or interface
+				of the symbol's declared type (not the symbol's own
+				declaration).
 
 			ERRORS
 				<what> must be exactly "method" or "type" - anything else
-				is rejected before any jdtls request is sent. <symbol>
-				must parse as <file path>:<line>:<name> - the file must
-				exist under the project root, line must be within it, and
-				name must appear on it as a whole word. The daemon checks
-				all of this before find_declaration ever runs, and reports
-				whichever check fails first.
+				is rejected. <symbol> must parse as <file path>:<line>:<name>
+				- the file must exist under the project root, line must be
+				within it, and name must appear on it as a whole word.
 
 			SEE ALSO
 				find_reference(1), find_implementation(1), find_symbol(1)

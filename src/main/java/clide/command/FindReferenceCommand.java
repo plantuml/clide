@@ -39,29 +39,19 @@ public class FindReferenceCommand extends Command {
 				find_reference <what> <symbol>
 
 			DESCRIPTION
-				Sends textDocument/references to jdtls for <symbol> -
+				Finds every real usage of a symbol across the whole
+				project, excluding its own declaration - is this actually
+				used anywhere, and where. <symbol> is given as
 				<file path>:<line>:<name>, name located as a whole word on
-				line of file path - and reports every real usage of it
-				across the whole project, excluding its own declaration.
-				<what> does not change which LSP request is sent (there is
-				only one, regardless of whether the symbol at <symbol> is
-				a method or a type): it exists for naming symmetry with
-				find_declaration, and its own literal value is checked
-				("method" or "type", nothing else), but it is not verified
-				against the actual kind of symbol found at that position -
-				doing so would cost an extra jdtls round trip for a check
-				textDocument/references does not itself need. Replaces the
-				former goto_references command, which sent this exact same
-				request but without a <what> parameter.
+				line of file path. <what> states whether <symbol> is a
+				method or a type, for consistency with find_declaration/
+				find_implementation; it does not change the result.
 
 			ERRORS
 				<what> must be exactly "method" or "type" - anything else
-				is rejected before any jdtls request is sent. <symbol>
-				must parse as <file path>:<line>:<name> - the file must
-				exist under the project root, line must be within it, and
-				name must appear on it as a whole word. The daemon checks
-				all of this before find_reference ever runs, and reports
-				whichever check fails first.
+				is rejected. <symbol> must parse as <file path>:<line>:<name>
+				- the file must exist under the project root, line must be
+				within it, and name must appear on it as a whole word.
 
 			SEE ALSO
 				find_declaration(1), find_implementation(1), find_symbol(1)

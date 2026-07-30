@@ -32,15 +32,15 @@ public class FindSymbolCommand extends Command {
 				find_symbol <name>
 
 			DESCRIPTION
-				Sends workspace/symbol to jdtls to find every symbol named
-				<name> anywhere in the project, without needing to already
-				know which file or line it lives on. Matching is entirely
-				jdtls' own - typically fuzzy/camelCase, not an exact match -
-				clide applies no filtering of its own on top of it. Meant to
-				locate the <file path>/<line> that find_declaration,
-				find_reference and find_implementation all need as input:
-				run find_symbol first, then feed what it finds into
-				whichever of those actually answers your question.
+				Finds every symbol named <name> anywhere in the project,
+				without needing to already know which file or line it lives
+				on. Matching is typically fuzzy/camelCase rather than an
+				exact match, so a broad <name> can return more than one
+				result. Meant to locate the <file path>/<line> that
+				find_declaration, find_reference and find_implementation
+				all need as input: run find_symbol first, then feed what it
+				finds into whichever of those actually answers your
+				question.
 
 			SEE ALSO
 				find_declaration(1), find_reference(1),

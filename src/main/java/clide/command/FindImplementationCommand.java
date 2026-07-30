@@ -37,30 +37,21 @@ public class FindImplementationCommand extends Command {
 				find_implementation <what> <symbol>
 
 			DESCRIPTION
-				Sends textDocument/implementation to jdtls for <symbol> -
-				<file path>:<line>:<name>, name located as a whole word on
-				line of file path - and reports which concrete classes or
-				methods actually implement or override it: the
-				polymorphism question a plain grep can't answer. <what>
-				states which of the two related questions is being asked
-				- "type" (which classes implement this interface or
-				extend this abstract class) or "method" (which concrete
-				methods override this one) - even though both send the
-				same LSP request; jdtls resolves which applies from the
-				position alone, but <what>'s own literal value is still
-				checked ("method" or "type", nothing else) before any
-				request is sent, same as find_declaration/find_reference.
-				Replaces the former goto_implementation command, which
-				had no <what> parameter.
+				Finds which concrete classes or methods actually implement
+				or override a symbol - typically an interface method, an
+				abstract method, an interface, or an abstract class: the
+				polymorphism question a plain grep can't answer. <symbol>
+				is given as <file path>:<line>:<name>, name located as a
+				whole word on line of file path. <what> states which
+				question is being asked: "type" (which classes implement
+				this interface or extend this abstract class) or "method"
+				(which concrete methods override this one).
 
 			ERRORS
 				<what> must be exactly "method" or "type" - anything else
-				is rejected before any jdtls request is sent. <symbol>
-				must parse as <file path>:<line>:<name> - the file must
-				exist under the project root, line must be within it, and
-				name must appear on it as a whole word. The daemon checks
-				all of this before find_implementation ever runs, and
-				reports whichever check fails first.
+				is rejected. <symbol> must parse as <file path>:<line>:<name>
+				- the file must exist under the project root, line must be
+				within it, and name must appear on it as a whole word.
 
 			SEE ALSO
 				find_declaration(1), find_reference(1), find_symbol(1)
