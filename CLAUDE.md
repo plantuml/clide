@@ -48,6 +48,16 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
   tourne en arrière-plan et reste up pour les lancements suivants) : il n'y a
   pas de commande séparée à taper pour l'ouvrir, ni de notion de « projet
   courant » à changer.
+- Un projet cible **sans** `.project`/`.classpath` est pris en charge tel
+  quel : jdtls les génère lui-même au premier build (« invisible project »,
+  marqueur `__CREATED_BY_JAVA_LANGUAGE_SERVER__` dans le filtre du `.project`
+  généré) — dossiers sources détectés depuis l'arborescence (`src/main/java`,
+  `src/main/resources`, `src/test/...`), et chaque jar déposé dans `.clide/`
+  à la racine du projet ajouté comme bibliothèque. Le daemon le signale dans
+  sa trace de démarrage : `(4/4) Building project ... [OK] (generated
+  .project/.classpath from src/**/java and .clide/*.jar)` — la ligne reste un
+  simple `[OK]` quand les fichiers existaient déjà. Vérifié sur PlantUML —
+  voir « Test sur PlantUML » plus bas.
 - Commandes implémentées :
   - `help` → liste toutes les commandes enregistrées (mot-clé, paramètres,
     description), généré depuis leurs annotations — voir plus bas. Affiché
@@ -139,10 +149,10 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     `context`/`ClideContext`. **Confirmé au passage : aucun
     `textDocument/didOpen` préalable n'est nécessaire**, la requête aboutit
     directement sur le modèle du dernier `java/buildWorkspace` — l'incertitude
-    notée plus haut est levée (au moins sur un petit projet comme clide ; à
-    revalider sur un projet de la taille de PlantUML). Cas d'erreur (symbole
-    absent de la ligne donnée) : message clair, `Symbol 'foobar' not found on
-    line 55 of ...`.
+    notée plus haut est levée (confirmé aussi sur PlantUML — 3600 fichiers :
+    mêmes commandes, réponses directes sur le modèle du build de démarrage).
+    Cas d'erreur (symbole absent de la ligne donnée) : message clair,
+    `Symbol 'foobar' not found on line 55 of ...`.
   - `find_implementation <what> <symbole>` → interroge
     `textDocument/implementation` : quelles classes/méthodes implémentent ou
     surchargent réellement le symbole visé — typiquement une méthode
@@ -627,17 +637,18 @@ puis taper `help` au prompt.
 
 `jdtls` n'est pas une dépendance Gradle : c'est un serveur autonome distribué
 en `.tar.gz` depuis `download.eclipse.org` (domaine non accessible depuis la
-sandbox Claude, testé : 403). Installation via `scripts/install_jdtls.py`
-(stdlib Python uniquement), qui télécharge le dernier build dans
-`jdt-language-server-latest.tar.gz` à la racine du repo, puis l'extrait dans
-`jdtls/`.
+sandbox Claude, testé : 403). Récupération via
+`scripts/download_and_zip_jdtls.py`, qui télécharge le dernier build et le
+reconditionne en `jdt-language-server-latest.zip` à la racine du repo
+(recompression interne des jars avec zopfli — voir le docstring du script ;
+nécessite `pip install zopflipy`).
 
-**Choix délibéré : l'archive `.tar.gz` est commitée dans git, `jdtls/` (son
+**Choix délibéré : l'archive `.zip` est commitée dans git, `jdtls/` (son
 contenu extrait) est ignoré.** Raison : `download.eclipse.org` n'est pas
 accessible depuis la sandbox Claude, mais `github.com` l'est. En committant
 l'archive et en la poussant sur GitHub, Claude peut cloner le repo dans sa
 sandbox et récupérer l'archive avec, sans jamais contacter Eclipse — puis
-l'extraire localement (le module `tarfile` de Python, ou `tar`, suffit). Le
+l'extraire localement (le module `zipfile` de Python, ou `unzip`, suffit). Le
 dossier extrait, lui, est dérivable de l'archive et n'a pas besoin d'être
 versionné.
 
@@ -680,11 +691,17 @@ une fois corrigée, réutilisation de la session entre deux lancements
 successifs de `clide <chemin>` sur le même projet (le daemon reste up, pas
 de nouveau handshake), et arrêt propre du sous-processus sur `exit`.
 
-**Test sur PlantUML (clone frais, `git clone --depth 1`)** : le daemon
-démarre et build techniquement (rapide, pas de blocage), mais rapporte « projet non
-reconnu » — PlantUML n'a pas encore de `.classpath`/`.project` commité
-comme clide. Même traitement nécessaire là-bas (`./gradlew eclipse` +
-commit) avant que `clide` y soit vraiment utile.
+**Test sur PlantUML (clone frais, `git clone --depth 1`, sandbox Claude)** :
+plus rien à préparer côté PlantUML. `.classpath`/`.project` n'ont besoin ni
+d'être commités ni d'être générés via `./gradlew eclipse` (comme l'affirmait
+une version antérieure de ce document) : jdtls les génère lui-même au
+premier build — voir « État actuel » — en récupérant automatiquement les
+jars commités dans `.clide/` (stubs ant/openpdf/teavm, JUnit et co).
+Résultat mesuré : build complet des 3633 fichiers `.java` au démarrage du
+daemon, **0 erreur**, 1300 warnings dans 584 fichiers ; `find_symbol`/
+`find_declaration`/`find_implementation`/`find_reference`/`hover`/
+`list_members`/`search_regex`/`print_diagnostics` répondent tous
+correctement, ~0,25 s par session client une fois le daemon up.
 
 ### Capacités de jdtls — pistes trouvées en marge des commandes actuelles
 
@@ -726,8 +743,10 @@ limite-là côté jdtls actuellement.
 `java.symbols.includeSourceMethodDeclarations = true` est maintenant envoyé
 systématiquement à l'initialisation, plus seulement testé en sandbox :
 `find_symbol` remonte donc aussi les méthodes en usage normal, pas
-uniquement les types. Toujours aucune piste côté champs (voir ci-dessus) —
-`find_symbol` ne les trouvera jamais, avec ou sans ce paramètre.
+uniquement les types — re-vérifié sur PlantUML (`find_symbol
+getStringBounder` → 15 déclarations `[method]` à travers tout le projet).
+Toujours aucune piste côté champs (voir ci-dessus) — `find_symbol` ne les
+trouvera jamais, avec ou sans ce paramètre.
 
 **`find_reference` sur une méthode d'interface fonctionne correctement à
 travers le polymorphisme** — vérifié sur le même mini-projet (test fait à
@@ -794,5 +813,6 @@ persistant d'une session à l'autre.
   section 2).
 - Attendre réellement la fin d'indexation (`language/status` →
   `Started`/`ServiceReady`) plutôt que le délai fixe actuel dans
-  `JdtlsSession.waitForServiceReady` — suffisant sur un petit projet comme
-  clide, à revalider sur PlantUML.
+  `JdtlsSession.waitForServiceReady` — le délai fixe s'est avéré suffisant
+  aussi sur PlantUML (3600 fichiers, build complet au démarrage du daemon),
+  mais l'attente réelle resterait plus propre.
