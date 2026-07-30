@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 import clide.Main;
+import clide.PrintMode;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
@@ -51,10 +52,12 @@ public final class ClideDaemon {
 
 	private final Path projectRoot;
 	private final Collection<Command> commands;
+	private final PrintMode printMode;
 
-	public ClideDaemon(final Path projectRoot, Collection<Command> commands) {
+	public ClideDaemon(final Path projectRoot, Collection<Command> commands, PrintMode printMode) {
 		this.projectRoot = projectRoot;
 		this.commands = commands;
+		this.printMode = printMode;
 	}
 
 	/** Entry point for the daemon process itself - see the class doc above. */
@@ -63,7 +66,7 @@ public final class ClideDaemon {
 		if (projectRoot == null)
 			return;
 
-		new ClideDaemon(projectRoot, Main.commands).run();
+		new ClideDaemon(projectRoot, Main.commands, Main.printMode).run();
 	}
 
 	public void run() throws IOException, InterruptedException, TimeoutException {
@@ -120,8 +123,10 @@ public final class ClideDaemon {
 	private void runSession(final BufferedReader reader, final PrintStream out, final ClideContext context)
 			throws IOException {
 		while (context.isShutdownRequested() == false) {
-			out.println();
-			out.println("> READY");
+			if (printMode == PrintMode.HUMAN) {
+				out.println();
+				out.println("> READY");
+			}
 			final String line = reader.readLine();
 			if (line == null)
 				return; // this client is done, the daemon keeps running for the next one
@@ -136,10 +141,11 @@ public final class ClideDaemon {
 				continue;
 			}
 
-			if (command.paramSize() == 0)
-				out.println("> Get '" + keyword + "'. No parameter expected");
-			else
-				out.println("> Get '" + keyword + "' expecting now " + command.paramSize() + " parameter(s).");
+			if (printMode == PrintMode.HUMAN)
+				if (command.paramSize() == 0)
+					out.println("> Get '" + keyword + "'. No parameter expected");
+				else
+					out.println("> Get '" + keyword + "' expecting now " + command.paramSize() + " parameter(s).");
 
 			final String[] params = readParams(reader, out, command);
 			if (params == null) {
@@ -195,16 +201,16 @@ public final class ClideDaemon {
 	}
 
 	/**
-	 * Reads command.paramSize() parameters, one prompt per parameter, in the
-	 * order command.getParamTypes() declares them. Every type but MULTI_LINE is
-	 * read as a single trimmed line (see readSingleLineParam()); MULTI_LINE reads
-	 * a whole block instead (see readMultiLineParam()) - a Java method body, or
-	 * any other chunk of code a client wants to send as one parameter, doesn't
-	 * fit the "one token per line" protocol's usual one-line-per-parameter rule
-	 * (see CLAUDE.md). Returns null - the whole array, not just the offending
-	 * entry - the moment any parameter (or, for MULTI_LINE, its terminator, or
-	 * the block itself) hits EOF before being fully read: an incomplete command
-	 * is not a command, whichever parameter it broke on.
+	 * Reads command.paramSize() parameters, one prompt per parameter, in the order
+	 * command.getParamTypes() declares them. Every type but MULTI_LINE is read as a
+	 * single trimmed line (see readSingleLineParam()); MULTI_LINE reads a whole
+	 * block instead (see readMultiLineParam()) - a Java method body, or any other
+	 * chunk of code a client wants to send as one parameter, doesn't fit the "one
+	 * token per line" protocol's usual one-line-per-parameter rule (see CLAUDE.md).
+	 * Returns null - the whole array, not just the offending entry - the moment any
+	 * parameter (or, for MULTI_LINE, its terminator, or the block itself) hits EOF
+	 * before being fully read: an incomplete command is not a command, whichever
+	 * parameter it broke on.
 	 */
 	private String[] readParams(final BufferedReader reader, final PrintStream out, final Command command)
 			throws IOException {
@@ -225,32 +231,34 @@ public final class ClideDaemon {
 	/** Reads one line, prompted with comment, trimmed. Returns null on EOF. */
 	private String readSingleLineParam(final BufferedReader reader, final PrintStream out, final String comment)
 			throws IOException {
-		out.println("> " + comment + " ?");
+		if (printMode == PrintMode.HUMAN)
+			out.println("> " + comment + " ?");
 		final String line = reader.readLine();
 		return line == null ? null : line.trim();
 	}
 
 	/**
-	 * Reads a MULTI_LINE parameter (see ParamType.MULTI_LINE): first a single
-	 * line, the terminator - any discriminant string the client picks, trimmed
-	 * like any other single-line value but otherwise unvalidated - then every
-	 * following line, kept verbatim (no trimming: indentation is part of the
-	 * value, e.g. a tab-indented method body), until a line equal to that
-	 * terminator is read. That line is consumed but excluded from the result;
-	 * every line before it is joined with "\n" (no trailing "\n"; an empty block
-	 * - the terminator on the very first line - returns ""). Returns null on
-	 * EOF, whether it happens while reading the terminator itself or while
-	 * reading the block that follows it.
+	 * Reads a MULTI_LINE parameter (see ParamType.MULTI_LINE): first a single line,
+	 * the terminator - any discriminant string the client picks, trimmed like any
+	 * other single-line value but otherwise unvalidated - then every following
+	 * line, kept verbatim (no trimming: indentation is part of the value, e.g. a
+	 * tab-indented method body), until a line equal to that terminator is read.
+	 * That line is consumed but excluded from the result; every line before it is
+	 * joined with "\n" (no trailing "\n"; an empty block - the terminator on the
+	 * very first line - returns ""). Returns null on EOF, whether it happens while
+	 * reading the terminator itself or while reading the block that follows it.
 	 */
 	private String readMultiLineParam(final BufferedReader reader, final PrintStream out, final String comment)
 			throws IOException {
-		out.println("> " + comment + ": terminator (any string, ends the block) ?");
+		if (printMode == PrintMode.HUMAN)
+			out.println("> " + comment + ": terminator (any string, ends the block) ?");
 		final String terminatorLine = reader.readLine();
 		if (terminatorLine == null)
 			return null;
 
 		final String terminator = terminatorLine.trim();
-		out.println("> " + comment + " - one line at a time, '" + terminator + "' alone on a line to end ?");
+		if (printMode == PrintMode.HUMAN)
+			out.println("> " + comment + " - one line at a time, '" + terminator + "' alone on a line to end ?");
 
 		final StringBuilder block = new StringBuilder();
 		while (true) {
