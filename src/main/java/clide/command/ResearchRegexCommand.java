@@ -23,8 +23,8 @@ public class ResearchRegexCommand extends Command {
 	@Keyword("search_regex")
 	@Help("Searches <initial path> for lines matching <content regex>, in files whose path matches <path regex>.")
 	@Param(type = ParamType.SINGLE_LINE, description = "Initial path")
-	@Param(type = ParamType.SINGLE_LINE, description = "Path regex")
-	@Param(type = ParamType.SINGLE_LINE, description = "Content regex")
+	@Param(type = ParamType.REGEX, description = "Path regex")
+	@Param(type = ParamType.REGEX, description = "Content regex")
 	public ResearchRegexCommand() {
 
 	}
@@ -39,6 +39,10 @@ public class ResearchRegexCommand extends Command {
 	 * path matches the path regex, then greps the content regex line by line in
 	 * those files. Path separators are normalized to '/' before matching the path
 	 * regex so the same regex works whether clide runs on Windows or Linux.
+	 *
+	 * Both regexes are already known to compile - ParamType.REGEX (see
+	 * ClideDaemon.validate()) checked that before this command ever ran - the
+	 * try/catch below stays only as a defensive backstop.
 	 */
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {

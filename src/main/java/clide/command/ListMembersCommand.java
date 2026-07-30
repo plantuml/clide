@@ -1,7 +1,5 @@
 package clide.command;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 
 import clide.annotation.Help;
@@ -11,24 +9,24 @@ import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
+import clide.core.Symbol;
 import clide.jdtls.JdtlsSession;
 
 /**
  * textDocument/documentSymbol: lists the direct members (methods, fields,
- * constructors) of the class/interface/enum named <symbol>, declared at <line>
- * in <file path> - same whole-word-on-line position resolution as goto_* and
- * hover, but here it identifies which type to inspect rather than where to jump
- * or what to explain. Doesn't share GotoPositionCommand for the same reason
- * hover doesn't: a different result shape (a type's member list, not a list of
+ * constructors - not the members of a nested type, only the type itself as a
+ * member) of the class/interface/enum named by <symbol> - <file path>:<line>:
+ * <name> (see Symbol, ParamType.SYMBOL), same notation as goto_* and hover, but
+ * here it identifies which type to inspect rather than where to jump/what to
+ * explain. Doesn't share GotoPositionCommand for the same reason hover
+ * doesn't: a different result shape (a type's member list, not a list of
  * Location).
  */
 public class ListMembersCommand extends Command {
 
 	@Keyword("list_members")
-	@Help("Lists the members (methods, fields, constructors) of the class/interface/enum named <symbol>, declared at <line> in <file path>, locating <symbol> as a whole word on that line.")
-	@Param(type = ParamType.SINGLE_LINE, description = "File path")
-	@Param(type = ParamType.SINGLE_LINE, description = "Line")
-	@Param(type = ParamType.SINGLE_LINE, description = "Symbol")
+	@Help("Lists the members (methods, fields, constructors) of the class/interface/enum named by <symbol> - <symbol> as <file path>:<line>:<name>.")
+	@Param(type = ParamType.SYMBOL, description = "Symbol")
 	public ListMembersCommand() {
 
 	}
@@ -37,26 +35,17 @@ public class ListMembersCommand extends Command {
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final JdtlsSession session = context.getCurrentSession();
 
-		final String pathArgument = params[0];
-		if (pathArgument.isEmpty())
-			return CommandResult.error(usage());
-
-		final int line;
+		final Symbol symbol;
 		try {
-			line = Integer.parseInt(params[1].trim());
-		} catch (final NumberFormatException e) {
-			return CommandResult.error("Invalid line number: " + params[1]);
+			symbol = Symbol.parse(params[0], context.getProjectRoot());
+		} catch (final IllegalArgumentException e) {
+			return CommandResult.error(e.getMessage());
 		}
 
-		final String symbol = params[2];
-		if (symbol.isEmpty())
-			return CommandResult.error(usage());
-
-		final Path file = Paths.get(pathArgument).toAbsolutePath().normalize();
 		try {
-			final List<String> members = session.listMembers(file, line, symbol);
+			final List<String> members = session.listMembers(symbol);
 			if (members.isEmpty())
-				return CommandResult.ok("list_members: " + symbol + " has no members");
+				return CommandResult.ok("list_members: " + symbol.name() + " has no members");
 
 			final StringBuilder output = new StringBuilder();
 			output.append("list_members: ").append(members.size()).append(" member(s)\n");
@@ -67,10 +56,6 @@ public class ListMembersCommand extends Command {
 		} catch (final Exception e) {
 			return CommandResult.error("list_members failed: " + e.getMessage());
 		}
-	}
-
-	private String usage() {
-		return "Usage: list_members <file path> <line> <symbol>";
 	}
 
 }

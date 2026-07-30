@@ -11,12 +11,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 import clide.Main;
+import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
 import clide.core.CommandStatus;
+import clide.core.Symbol;
 import clide.jdtls.JdtlsLauncher;
 import clide.jdtls.JdtlsSession;
 import clide.jdtls.LspClient.TimeoutException;
@@ -77,7 +81,7 @@ public final class ClideDaemon {
 		session.build();
 		System.out.println(" [OK]");
 
-		final ClideContext context = new ClideContext(session, commands);
+		final ClideContext context = new ClideContext(projectRoot, session, commands);
 
 		final ServerSocket serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
 		DaemonLock.write(projectRoot, serverSocket.getLocalPort());
@@ -138,6 +142,12 @@ public final class ClideDaemon {
 				return; // this client's input ended mid-command
 			}
 
+			final String paramError = validateParams(command, params, context.getProjectRoot());
+			if (paramError != null) {
+				out.println("?SYNTAX ERROR: " + paramError);
+				continue; // surface-invalid parameter - back to READY, the command never runs
+			}
+
 			if (command.needsJdtlsSession()) {
 				final CommandResult restartFailure = ensureSessionReady(out, context);
 				if (restartFailure != null) {
@@ -191,6 +201,50 @@ public final class ClideDaemon {
 			params[i] = paramLine.trim();
 		}
 		return params;
+	}
+
+	/**
+	 * Runs validate() over every parameter, in order, before the command they
+	 * belong to ever executes - the "surface" check ParamType.SYMBOL/REGEX exist
+	 * for (see CLAUDE.md, ParamType). Returns the first error message found, or
+	 * null once every parameter has passed.
+	 */
+	private String validateParams(final Command command, final String[] params, final Path projectRoot) {
+		final ParamType[] types = command.getParamTypes();
+		for (int i = 0; i < params.length; i++) {
+			final String error = validate(types[i], params[i], projectRoot);
+			if (error != null)
+				return error;
+		}
+		return null;
+	}
+
+	/**
+	 * Surface-level check for one parameter's raw text, run purely on that text -
+	 * REGEX must compile (java.util.regex.Pattern), SYMBOL must parse as a real
+	 * file/line/word (see Symbol.parse()). Every other ParamType has nothing to
+	 * check here. Returns null when value is acceptable, or an error message fit
+	 * to send back to the client as-is otherwise.
+	 */
+	private String validate(final ParamType type, final String value, final Path projectRoot) {
+		switch (type) {
+		case REGEX:
+			try {
+				Pattern.compile(value);
+			} catch (final PatternSyntaxException e) {
+				return "Invalid regex '" + value + "': " + e.getMessage();
+			}
+			return null;
+		case SYMBOL:
+			try {
+				Symbol.parse(value, projectRoot);
+			} catch (final IllegalArgumentException e) {
+				return e.getMessage();
+			}
+			return null;
+		default:
+			return null;
+		}
 	}
 
 	private void printResult(final PrintStream out, final CommandResult result) {

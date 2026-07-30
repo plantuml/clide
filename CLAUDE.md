@@ -105,9 +105,10 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     extrait, self-test — `clide` sur lui-même) : `find_symbol JdtlsSession`
     renvoie bien `[class] src/main/java/clide/jdtls/JdtlsSession.java:34: public
     class JdtlsSession {`.
-  - `goto_definition <chemin fichier> <ligne> <symbole>` → où est réellement
+  - `goto_definition <symbole>` (notation `<chemin fichier>:<ligne>:<nom>`,
+    voir la section dédiée plus bas) → où est réellement
     définie la déclaration du symbole (pas juste un usage). `goto_type_definition`
-    même signature → où est définie la classe/interface du type déclaré du
+    même paramètre unique `<symbole>` → où est définie la classe/interface du type déclaré du
     symbole (pas la déclaration du symbole lui-même, et pas son type
     d'exécution : le LSP ne connaît que le type statique déclaré). La ligne est
     1-based (comme affichée en lisant le fichier) ; le symbole est cherché comme
@@ -135,8 +136,8 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     clide ; à revalider sur un projet de la taille de PlantUML). Cas d'erreur
     (symbole absent de la ligne donnée) : message clair,
     `Symbol 'foobar' not found on line 55 of ...`.
-  - `goto_implementation <chemin fichier> <ligne> <symbole>` → mêmes
-    paramètres et même comportement que `goto_definition`/`goto_type_definition`
+  - `goto_implementation <symbole>` → mêmes
+    paramètre et même comportement que `goto_definition`/`goto_type_definition`
     (troisième sous-classe de `GotoPositionCommand`, aucune logique
     supplémentaire) mais interroge `textDocument/implementation` : quelles
     classes/méthodes implémentent réellement le symbole visé — typiquement une
@@ -154,7 +155,7 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     `PrintDiagnosticsCommand`, `ResearchRegexCommand`, `TerminateCommand`),
     sans bruit (ni la déclaration abstraite, ni les sites d'appel
     `command.executeCommand(...)` qu'un grep aurait remontés).
-  - `goto_references <chemin fichier> <ligne> <symbole>` → mêmes paramètres
+  - `goto_references <symbole>` → même paramètre
     que les trois autres `goto_*` (quatrième sous-classe de
     `GotoPositionCommand`), mais interroge `textDocument/references` :
     partout où `symbole` est réellement utilisé dans le projet — l'inverse de
@@ -176,7 +177,7 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     `getCurrentSession` (déclarée ligne 40 de `ClideContext.java`) renvoie
     exactement ses 6 sites d'appel réels, sans la déclaration elle-même —
     confirme que `includeDeclaration: false` fonctionne comme prévu.
-  - `hover <chemin fichier> <ligne> <symbole>` → signature/Javadoc que jdtls
+  - `hover <symbole>` → signature/Javadoc que jdtls
     connaît pour ce symbole précis, à cet endroit précis (pas un autre
     emplacement comme `goto_*` — `hover` explique le symbole où il se trouve).
     Même résolution de position que `goto_*` (mot entier sur la ligne, colonne
@@ -187,7 +188,7 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     de symbole). Répond au besoin noté dans `TODO.md` (retiré une fois cette
     commande faite) : reconstituer à la main la signature d'une classe externe
     (TeaVM/OpenPDF/Ant) en grepant ses appels.
-  - `list_members <chemin fichier> <ligne> <symbole>` → liste les membres
+  - `list_members <symbole>` → liste les membres
     directs (méthodes, champs, constructeurs — pas les membres d'un type
     imbriqué, seulement le type lui-même en tant que membre) de la
     classe/interface/enum `symbole`, déclarée à cette ligne de ce fichier.
@@ -239,6 +240,72 @@ foo\w+
 print_diagnostics
 all
 ```
+
+### Notation `<chemin fichier>:<ligne>:<nom>` (paramètre unique, remplace le triplet)
+
+`goto_definition`, `goto_type_definition`, `goto_implementation`,
+`goto_references`, `hover` et `list_members` prenaient chacune trois
+paramètres séparés (`<chemin fichier>`, `<ligne>`, `<symbole>`), demandés sur
+trois échanges distincts — répétitif côté client, et rien ne garantissait avant
+l'exécution que le triplet désignait bien quelque chose de réel. Remplacé par
+un paramètre unique `<symbole>`, écrit `<chemin fichier>:<ligne>:<nom>` (ex.
+`src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession`) — un
+seul échange au lieu de trois, et la notation détermine forcément un symbole
+plutôt que trois valeurs à corréler soi-même côté client. `<chemin fichier>`
+est **toujours relatif au projet ouvert** (`ClideContext.getProjectRoot()`),
+jamais au répertoire courant du process daemon — qui n'a de toute façon
+aucune signification stable pour le client (le daemon est lancé en
+arrière-plan par `ClideClient`, voir plus haut).
+
+Réifié en une classe `clide.core.Symbol` (chemin absolu, ligne 1-based, nom,
+colonne 0-based déjà résolue) : `Symbol.parse(token, projectRoot)` est
+l'unique point de construction — tout `Symbol` obtenu a donc forcément déjà
+été validé (fichier existant, ligne dans les bornes, nom présent comme mot
+entier `\bnom\b` sur cette ligne). Approche objet, comme demandé : `Symbol`
+porte `retrieveJavadoc(JdtlsSession)`, un simple appel à `session.hover(this)`
+(voir `HoverCommand`) plutôt que de manipuler le triplet à la main à chaque
+site d'appel. `JdtlsSession.goToPosition`/`hover`/`listMembers` prennent
+désormais un `Symbol` directement — `wholeWordColumn`/`findWholeWordColumn`
+ont disparu de `JdtlsSession`, cette logique de résolution vit désormais
+uniquement dans `Symbol`.
+
+`ParamType.SYMBOL` (déjà présent dans l'énum, jusqu'ici jamais relié à une
+vérification) est ce qui déclenche ce contrôle de surface **avant même que la
+commande ne parte en exécution** : `ClideDaemon.readParams()` lit d'abord les
+N lignes attendues, puis un nouveau `ClideDaemon.validate()` relit chaque
+valeur selon son `ParamType` (nouveau `Command.getParamTypes()`, miroir de
+`getDescriptionParam()`) — pour `SYMBOL`, ça revient à appeler `Symbol.parse()`
+et à renvoyer directement son message d'erreur si ça échoue. Aucun appel jdtls
+n'a lieu tant que cette étape n'a pas réussi : une commande sur un fichier
+inexistant ou une ligne hors bornes échoue immédiatement (`?SYNTAX ERROR:
+...`), sans jamais atteindre `ensureSessionReady()`/`executeCommand()`.
+
+Même principe pour `ParamType.REGEX`, désormais réellement utilisé par
+`search_regex` (`<chemin regex>`/`<contenu regex>`, jusqu'ici déclarés en
+`SINGLE_LINE`) : la validation compile le texte via
+`java.util.regex.Pattern.compile()` et renvoie l'erreur de syntaxe telle
+quelle si ça échoue, avant même que `ResearchRegexCommand` ne soit invoquée
+(le `try`/`catch` qu'elle fait elle-même autour du même `Pattern.compile()`
+reste en place par défense en profondeur, mais devient redondant en
+pratique).
+
+`ParamType.TEXT_BLOCK` reste, pour l'instant, lu comme une seule ligne par
+`ClideDaemon.readParams()` — aucune commande ne l'utilise encore ; le
+supporter réellement sur plusieurs lignes est un chantier séparé.
+
+**Testé de bout en bout** (clone GitHub frais, jdtls extrait de l'archive
+commitée, build Ant, `clide` sur lui-même) : `hover`, `goto_implementation` et
+`list_members` avec la nouvelle notation à paramètre unique (ex.
+`src/main/java/clide/core/Command.java:56:needsJdtlsSession`) renvoient
+exactement les mêmes résultats qu'avant ce refactor (respectivement le
+Javadoc de la méthode, ses 6 implémentations concrètes réelles, et les 10
+membres de `Command` — `getParamTypes()` inclus, la nouvelle méthode) ;
+`goto_definition` sur un chemin inexistant échoue en `?SYNTAX ERROR: Not a
+file: ...` et sur un symbole absent de la ligne donnée en `?SYNTAX ERROR:
+Symbol '...' not found on line ...`, dans les deux cas sans qu'aucune requête
+LSP ne parte ; `search_regex` avec un `<chemin regex>` syntaxiquement
+invalide (`[invalid(`) échoue en `?SYNTAX ERROR: Invalid regex '...'` avant
+même que `search_regex` ne commence à parcourir les fichiers.
 
 ### Architecture des commandes (pattern Command)
 

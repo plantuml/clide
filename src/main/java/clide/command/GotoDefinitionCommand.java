@@ -13,10 +13,8 @@ import clide.annotation.ParamType;
 public class GotoDefinitionCommand extends GotoPositionCommand {
 
 	@Keyword("goto_definition")
-	@Help("Finds where a symbol is really defined (its declaration), not just used, at <line> in <file path>, locating <symbol> as a whole word on that line.")
-	@Param(type = ParamType.SINGLE_LINE, description = "File path")
-	@Param(type = ParamType.SINGLE_LINE, description = "Line")
-	@Param(type = ParamType.SINGLE_LINE, description = "Symbol")
+	@Help("Finds where a symbol is really defined (its declaration), not just used - <symbol> as <file path>:<line>:<name>.")
+	@Param(type = ParamType.SYMBOL, description = "Symbol")
 	@Manual("""
 			This is a long explanation.
 			On several lines

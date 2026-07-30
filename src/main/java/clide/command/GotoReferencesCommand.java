@@ -20,10 +20,8 @@ import clide.annotation.ParamType;
 public class GotoReferencesCommand extends GotoPositionCommand {
 
 	@Keyword("goto_references")
-	@Help("Finds every real usage of a symbol across the whole project (not its own declaration), at <line> in <file path>, locating <symbol> as a whole word on that line.")
-	@Param(type = ParamType.SINGLE_LINE, description = "File path")
-	@Param(type = ParamType.SINGLE_LINE, description = "Line")
-	@Param(type = ParamType.SINGLE_LINE, description = "Symbol")
+	@Help("Finds every real usage of a symbol across the whole project (not its own declaration) - <symbol> as <file path>:<line>:<name>.")
+	@Param(type = ParamType.SYMBOL, description = "Symbol")
 	public GotoReferencesCommand() {
 
 	}

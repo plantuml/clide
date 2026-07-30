@@ -13,10 +13,8 @@ import clide.annotation.ParamType;
 public class GotoImplementationCommand extends GotoPositionCommand {
 
 	@Keyword("goto_implementation")
-	@Help("Finds classes or methods that implement/override a symbol (e.g. an interface or abstract method), at <line> in <file path>, locating <symbol> as a whole word on that line.")
-	@Param(type = ParamType.SINGLE_LINE, description = "File path")
-	@Param(type = ParamType.SINGLE_LINE, description = "Line")
-	@Param(type = ParamType.SINGLE_LINE, description = "Symbol")
+	@Help("Finds classes or methods that implement/override a symbol (e.g. an interface or abstract method) - <symbol> as <file path>:<line>:<name>.")
+	@Param(type = ParamType.SYMBOL, description = "Symbol")
 	public GotoImplementationCommand() {
 
 	}

@@ -14,9 +14,9 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
+
+import clide.core.Symbol;
 
 /**
  * Drives a full jdtls session end-to-end: LSP handshake (with Gradle/Maven
@@ -198,13 +198,17 @@ public class JdtlsSession {
 	}
 
 	/**
-	 * Resolves symbolText as a whole word on the given (1-based) line of file, then
-	 * sends lspMethod ("textDocument/definition", "textDocument/typeDefinition", or
-	 * "textDocument/implementation") at that position against this session. Shared
-	 * by GotoDefinitionCommand, GotoTypeDefinitionCommand and
+	 * Sends lspMethod ("textDocument/definition", "textDocument/typeDefinition",
+	 * or "textDocument/implementation") at symbol's position against this
+	 * session. Shared by GotoDefinitionCommand, GotoTypeDefinitionCommand and
 	 * GotoImplementationCommand - only the LSP method name differs between them.
 	 * See the other overload for requests that also need an LSP request-level
 	 * "context" object (currently only textDocument/references does).
+	 *
+	 * symbol is already known to name a real file/line/word - it can only have
+	 * come from Symbol.parse(), which validated all of that up front (see
+	 * ParamType.SYMBOL, ClideDaemon.validate()) - so no re-validation happens
+	 * here.
 	 *
 	 * No textDocument/didOpen is sent first: this relies on jdtls already having
 	 * the file in its compiled model from the last build() (see JDTLS.md, section
@@ -214,9 +218,9 @@ public class JdtlsSession {
 	 * Returns one formatted "path:line: line content" entry per location in the
 	 * response, in server order; an empty list if the response was empty/null.
 	 */
-	public List<String> goToPosition(final String lspMethod, final Path file, final int oneBasedLine,
-			final String symbolText) throws IOException, InterruptedException, LspClient.TimeoutException {
-		return goToPosition(lspMethod, file, oneBasedLine, symbolText, null);
+	public List<String> goToPosition(final String lspMethod, final Symbol symbol)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		return goToPosition(lspMethod, symbol, null);
 	}
 
 	/**
@@ -225,16 +229,13 @@ public class JdtlsSession {
 	 * GotoReferencesCommand: textDocument/references is the one goto_* request
 	 * that needs one ({"includeDeclaration": false} - only real usages matter,
 	 * not the declaration itself, which is this command's own input already); the
-	 * other three goto_* commands keep going through the 4-arg overload above,
+	 * other three goto_* commands keep going through the 2-arg overload above,
 	 * which passes null here.
 	 */
-	public List<String> goToPosition(final String lspMethod, final Path file, final int oneBasedLine,
-			final String symbolText, final Map<String, Object> context)
+	public List<String> goToPosition(final String lspMethod, final Symbol symbol, final Map<String, Object> context)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final int column = wholeWordColumn(file, oneBasedLine, symbolText);
-
 		final Map<String, Object> response = client.request(lspMethod,
-				positionParams(file, oneBasedLine, column, context), 30);
+				positionParams(symbol.file(), symbol.line(), symbol.column(), context), 30);
 		if (response.containsKey("error"))
 			throw new IOException(lspMethod + " failed: " + response.get("error"));
 
@@ -242,21 +243,17 @@ public class JdtlsSession {
 	}
 
 	/**
-	 * textDocument/hover: the signature/Javadoc jdtls knows for symbolText itself
-	 * (same whole-word-on-line position resolution as goToPosition()) - as opposed
-	 * to goToPosition(), which locates some *other* place (a definition,
-	 * an implementation), hover explains this exact symbol where it stands.
-	 * Returns jdtls' hover text verbatim (already Markdown, printed as-is - not
-	 * reformatted), or "<no hover info>" if jdtls had nothing to say (e.g. the
-	 * symbol's type can't be resolved - no matching jar in .clide - or hover just
-	 * doesn't apply to this kind of symbol).
+	 * textDocument/hover: the signature/Javadoc jdtls knows for symbol itself -
+	 * as opposed to goToPosition(), which locates some *other* place (a
+	 * definition, an implementation), hover explains this exact symbol where it
+	 * stands. Returns jdtls' hover text verbatim (already Markdown, printed as-is
+	 * - not reformatted), or "<no hover info>" if jdtls had nothing to say (e.g.
+	 * the symbol's type can't be resolved - no matching jar in .clide - or hover
+	 * just doesn't apply to this kind of symbol).
 	 */
-	public String hover(final Path file, final int oneBasedLine, final String symbolText)
-			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final int column = wholeWordColumn(file, oneBasedLine, symbolText);
-
+	public String hover(final Symbol symbol) throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Map<String, Object> response = client.request("textDocument/hover",
-				positionParams(file, oneBasedLine, column), 30);
+				positionParams(symbol.file(), symbol.line(), symbol.column()), 30);
 		if (response.containsKey("error"))
 			throw new IOException("textDocument/hover failed: " + response.get("error"));
 
@@ -266,21 +263,19 @@ public class JdtlsSession {
 	/**
 	 * textDocument/documentSymbol: lists the direct members (methods, fields,
 	 * constructors - not further-nested inner types' own members) of the
-	 * class/interface/enum named symbolText, declared at oneBasedLine of file -
-	 * same whole-word-on-line resolution as goToPosition()/hover(), but here it
-	 * picks which type to inspect rather than where to jump/what to explain.
-	 * Requires hierarchicalDocumentSymbolSupport (see initializeParams()) - without
-	 * declaring it, jdtls falls back to a flat SymbolInformation[] with no
-	 * "children" at all, and this could never find any member.
+	 * class/interface/enum named symbol.name(), declared at symbol.line() of
+	 * symbol.file() - here symbol picks which type to inspect rather than where
+	 * to jump/what to explain. Requires hierarchicalDocumentSymbolSupport (see
+	 * initializeParams()) - without declaring it, jdtls falls back to a flat
+	 * SymbolInformation[] with no "children" at all, and this could never find
+	 * any member.
 	 *
 	 * Returns one "[kind] path:line: line content" entry per member, in
 	 * documentSymbol's own order.
 	 */
-	public List<String> listMembers(final Path file, final int oneBasedLine, final String symbolText)
+	public List<String> listMembers(final Symbol symbol)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		wholeWordColumn(file, oneBasedLine, symbolText); // same fast, clear validation as goToPosition()/hover()
-
-		final String uri = file.toUri().toString();
+		final String uri = symbol.file().toUri().toString();
 		final Map<String, Object> textDocument = new LinkedHashMap<>();
 		textDocument.put("uri", uri);
 		final Map<String, Object> params = new LinkedHashMap<>();
@@ -290,40 +285,17 @@ public class JdtlsSession {
 		if (response.containsKey("error"))
 			throw new IOException("textDocument/documentSymbol failed: " + response.get("error"));
 
-		final Map<String, Object> typeNode = findTypeNode(asList(response.get("result")), symbolText,
-				oneBasedLine - 1);
+		final Map<String, Object> typeNode = findTypeNode(asList(response.get("result")), symbol.name(),
+				symbol.line() - 1);
 		if (typeNode == null)
-			throw new IOException("No class/interface/enum named '" + symbolText + "' declared at line " + oneBasedLine
-					+ " of " + file + " (list_members only inspects types, not methods/fields)");
+			throw new IOException("No class/interface/enum named '" + symbol.name() + "' declared at line "
+					+ symbol.line() + " of " + symbol.file()
+					+ " (list_members only inspects types, not methods/fields)");
 
 		return formatMembers(uri, asList(typeNode.get("children")));
 	}
 
-	/**
-	 * Validates file/oneBasedLine and finds symbolText as a whole word on that
-	 * line - shared by every command resolving a position from a (file, line,
-	 * symbol) triple: goToPosition() (goto_definition/goto_type_definition/
-	 * goto_implementation), hover(), and listMembers(). Returns the (0-based)
-	 * column of the match; same error messages goToPosition() always had, for a
-	 * bad file, an out-of-range line, or a symbol that isn't actually there.
-	 */
-	private int wholeWordColumn(final Path file, final int oneBasedLine, final String symbolText) throws IOException {
-		if (Files.isRegularFile(file) == false)
-			throw new IOException("Not a file: " + file);
-
-		final List<String> fileLines = Files.readAllLines(file, StandardCharsets.UTF_8);
-		if (oneBasedLine < 1 || oneBasedLine > fileLines.size())
-			throw new IOException(
-					"Line " + oneBasedLine + " out of range (file has " + fileLines.size() + " line(s)): " + file);
-
-		final int column = findWholeWordColumn(fileLines.get(oneBasedLine - 1), symbolText);
-		if (column < 0)
-			throw new IOException("Symbol '" + symbolText + "' not found on line " + oneBasedLine + " of " + file);
-
-		return column;
-	}
-
-	/** textDocument/position request params, for a position already resolved by wholeWordColumn(). */
+	/** textDocument/position request params, for a position already resolved by Symbol.parse(). */
 	private Map<String, Object> positionParams(final Path file, final int oneBasedLine, final int column) {
 		return positionParams(file, oneBasedLine, column, null);
 	}
@@ -444,8 +416,8 @@ public class JdtlsSession {
 	 * Recursively searches a documentSymbol tree (nodes, and each node's own
 	 * "children") for a type-kind node (see TYPE_SYMBOL_KINDS) named name and
 	 * declared at zeroBasedLine (its own selectionRange, i.e. just the name token -
-	 * matches oneBasedLine-1 the same way findWholeWordColumn() validated it
-	 * upstream). Returns the first match found (depth-first), or null.
+	 * matches symbol.line()-1, already whole-word-validated by Symbol.parse()).
+	 * Returns the first match found (depth-first), or null.
 	 */
 	@SuppressWarnings("unchecked")
 	private Map<String, Object> findTypeNode(final List<Object> nodes, final String name, final int zeroBasedLine) {
@@ -550,12 +522,6 @@ public class JdtlsSession {
 		}
 
 		return null;
-	}
-
-	/** Column (0-based) of the first whole-word match of symbol on line, or -1. */
-	private int findWholeWordColumn(final String line, final String symbol) {
-		final Matcher matcher = Pattern.compile("\\b" + Pattern.quote(symbol) + "\\b").matcher(line);
-		return matcher.find() ? matcher.start() : -1;
 	}
 
 	/**

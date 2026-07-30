@@ -6,6 +6,7 @@ import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
 import clide.annotation.Param;
+import clide.annotation.ParamType;
 
 /**
  * A single clide command: identified by a @Keyword, documented by @Help,
@@ -15,8 +16,8 @@ import clide.annotation.Param;
  * plain, stateless, no-arg-constructible class while still describing itself.
  *
  * Convention followed by every command, so help output and the interactive
- * prompts (see Main.readParams, which prints each @Param value verbatim as ">
- * <value> ?") stay consistent as commands are added:
+ * prompts (see Main.readParams, which prints each @Param value verbatim as "&gt;
+ * &lt;value&gt; ?") stay consistent as commands are added:
  * <ul>
  * <li>Annotation order on the constructor: @Keyword, then @Help, then one
  *
@@ -94,6 +95,24 @@ public abstract class Command implements Comparable<Command> {
 			descriptions[i] = params[i].description();
 
 		return descriptions;
+	}
+
+	/**
+	 * Same order/length as getDescriptionParam() - the ParamType each parameter
+	 * expects, used by ClideDaemon to run each one's surface check (see
+	 * ParamType, ClideDaemon.validate()) before this command ever runs.
+	 */
+	public ParamType[] getParamTypes() {
+		final Constructor<?> ctor = noArgConstructor();
+		if (ctor == null)
+			return new ParamType[0];
+
+		final Param[] params = ctor.getAnnotationsByType(Param.class);
+		final ParamType[] types = new ParamType[params.length];
+		for (int i = 0; i < params.length; i++)
+			types[i] = params[i].type();
+
+		return types;
 	}
 
 	public int paramSize() {

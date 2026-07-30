@@ -1,5 +1,6 @@
 package clide.core;
 
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Map;
 import java.util.TreeMap;
@@ -8,8 +9,11 @@ import clide.jdtls.JdtlsSession;
 
 /**
  * State shared across every command execution for the lifetime of the clide
- * daemon: the single jdtls session for this project, the list of registered
- * commands (for help), and the two distinct ways a client interaction can end:
+ * daemon: the project's root (what a ParamType.SYMBOL notation's relative file
+ * path resolves against - see Symbol.parse() - never the daemon process' own
+ * current directory), the single jdtls session for this project, the list of
+ * registered commands (for help), and the two distinct ways a client
+ * interaction can end:
  * <ul>
  * <li>"exit"/"quit" (see DisconnectCommand) - stop the jdtls session and end
  * only the current connection. The daemon and its .clide.lock stay up; the next
@@ -26,11 +30,13 @@ public class ClideContext {
 
 	private final Map<String, Command> commandsByKeywords = new TreeMap<>();
 
+	private final Path projectRoot;
 	private final JdtlsSession session;
 	private boolean shutdownRequested;
 	private boolean disconnectRequested;
 
-	public ClideContext(final JdtlsSession session, Collection<Command> commands) {
+	public ClideContext(final Path projectRoot, final JdtlsSession session, Collection<Command> commands) {
+		this.projectRoot = projectRoot;
 		this.session = session;
 
 		for (final Command command : commands) {
@@ -53,6 +59,15 @@ public class ClideContext {
 
 	public Command getCommand(String keyword) {
 		return commandsByKeywords.get(keyword);
+	}
+
+	/**
+	 * Root of the project this daemon owns - every relative file path in a
+	 * ParamType.SYMBOL notation (see Symbol.parse()) resolves against this, never
+	 * against the daemon process' own current directory.
+	 */
+	public Path getProjectRoot() {
+		return projectRoot;
 	}
 
 	public JdtlsSession getCurrentSession() {

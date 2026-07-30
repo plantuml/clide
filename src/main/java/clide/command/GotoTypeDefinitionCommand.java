@@ -13,10 +13,8 @@ import clide.annotation.ParamType;
 public class GotoTypeDefinitionCommand extends GotoPositionCommand {
 
 	@Keyword("goto_type_definition")
-	@Help("Finds where the declared type of a symbol is defined (its class or interface), at <line> in <file path>, locating <symbol> as a whole word on that line.")
-	@Param(type = ParamType.SINGLE_LINE, description = "File path")
-	@Param(type = ParamType.SINGLE_LINE, description = "Line")
-	@Param(type = ParamType.SINGLE_LINE, description = "Symbol")
+	@Help("Finds where the declared type of a symbol is defined (its class or interface) - <symbol> as <file path>:<line>:<name>.")
+	@Param(type = ParamType.SYMBOL, description = "Symbol")
 	public GotoTypeDefinitionCommand() {
 
 	}
