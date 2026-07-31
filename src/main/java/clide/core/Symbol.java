@@ -89,7 +89,7 @@ public final class Symbol {
 					"Invalid symbol '" + token + "' - expected <file path>:<line>:<name>");
 
 		final String pathArgument = notation.group(1);
-		final Path file = resolveFile(pathArgument, projectRoot);
+		final Path file = resolvePath(pathArgument, projectRoot);
 		if (Files.isRegularFile(file) == false)
 			throw new IllegalArgumentException("Not a file: " + pathArgument);
 
@@ -115,19 +115,32 @@ public final class Symbol {
 	}
 
 	/**
-	 * Resolves the &lt;file path&gt; half of the notation. Accepts two forms:
-	 * a plain path, resolved against projectRoot - never the daemon's own
-	 * current directory (see class doc); or a "file:" URI, taken as an
-	 * absolute location as-is - this is the form find_symbol, goto_*, hover and
-	 * list_members results are themselves printed in (see
+	 * What a &lt;path&gt; typed by a client means, for every command that takes
+	 * one - not just the &lt;file path&gt; half of this class' own notation.
+	 * Accepts two forms: a plain path, resolved against projectRoot - never the
+	 * daemon's own current directory (see class doc); or a "file:" URI, taken as
+	 * an absolute location as-is - this is the form find_symbol, find_*, hover
+	 * and list_members results are themselves printed in (see
 	 * JdtlsSession.formatLocation()), so a result copied straight out of one
-	 * of those and fed back into a SYMBOL parameter works without editing.
+	 * of those and fed back as a path works without editing.
 	 * projectRoot.resolve() alone can't be used for a URI: on Windows,
 	 * "file:///C:/..." isn't a valid Windows path string (the colon after the
 	 * drive letter - or after "file" - trips the Windows path parser), so the
-	 * URI form needs java.net.URI/Paths.get(URI) instead.
+	 * URI form needs java.net.URI/Paths.get(URI) instead. An already-absolute
+	 * plain path is returned unchanged, since Path.resolve() of an absolute path
+	 * is that path - so passing one keeps working exactly as before.
+	 *
+	 * Public and static because it is the single definition of that rule:
+	 * search_regex resolves its &lt;initial path&gt; through this too, so
+	 * "src/main/java" designates the same directory whichever command reads it.
+	 * It used to call Paths.get().toAbsolutePath() instead, i.e. resolve against
+	 * the daemon's working directory - which is wherever the very first "clide
+	 * &lt;project&gt;" of that daemon happened to be typed from. On a daemon
+	 * started from a clide checkout, "search_regex src/main/java" against a
+	 * PlantUML project therefore silently searched clide's own sources and
+	 * reported matches from the wrong project entirely.
 	 */
-	private static Path resolveFile(final String pathArgument, final Path projectRoot) {
+	public static Path resolvePath(final String pathArgument, final Path projectRoot) {
 		if (isFileUri(pathArgument)) {
 			try {
 				return Paths.get(URI.create(pathArgument)).normalize();

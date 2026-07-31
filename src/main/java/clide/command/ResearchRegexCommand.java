@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -18,6 +17,7 @@ import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
+import clide.core.Symbol;
 
 public class ResearchRegexCommand extends Command {
 
@@ -35,19 +35,36 @@ public class ResearchRegexCommand extends Command {
 
 			DESCRIPTION
 				Walks every file under <initial path>, keeps the ones whose
-				path - normalized to forward slashes, so the same regex
-				matches whether clide runs on Windows or Linux - matches
-				<path regex>, then searches each of those files line by line
-				for <content regex>. Every match is printed as
+				path matches <path regex>, then searches each of those files
+				line by line for <content regex>. Every match is printed as
 				"<path>:<line>: <text>", followed by a summary line
 				"search_regex: <n> match(es) in <n> file(s)". A file that
 				can't be read as UTF-8 text - a binary, typically - is
 				silently skipped, not reported as an error.
 
+				<initial path> is relative to the project root, exactly like
+				the <file path> half of a <symbol> - never to whatever
+				directory the daemon was started from. An absolute path, or
+				a "file:" URI, also works and is taken as-is.
+
+				Paths are matched against <path regex>, and printed, in that
+				same project-relative form with forward slashes - so the
+				same <path regex> works whether clide runs on Windows or
+				Linux and whoever the machine belongs to, and a result can
+				be pasted straight into a <symbol> parameter of
+				find_declaration, find_reference, find_implementation, hover
+				or list_members.
+
 				Doesn't touch jdtls: this is a plain filesystem/text search,
 				not a language-server query. Use find_symbol instead when
 				jdtls' own (typically fuzzy/camelCase) name matching is
 				wanted rather than a literal regex over file contents.
+
+			ERRORS
+				<initial path> must resolve to an existing directory; the
+				error names both what was given and what it resolved to.
+				Both regexes must compile - ParamType.REGEX rejects a
+				malformed one before this command ever runs.
 
 			SEE ALSO
 				find_symbol(1)
@@ -70,12 +87,23 @@ public class ResearchRegexCommand extends Command {
 	 * Both regexes are already known to compile - ParamType.REGEX (see
 	 * ClideDaemon.validate()) checked that before this command ever ran - the
 	 * try/catch below stays only as a defensive backstop.
+	 *
+	 * &lt;initial path&gt; goes through Symbol.resolvePath(), the same rule every
+	 * other command's path follows: relative to the project root, never to the
+	 * daemon's working directory. Paths are then matched and printed relative to
+	 * that root as well, so &lt;path regex&gt; never has to mention a machine-
+	 * specific prefix and a result can be pasted straight into a &lt;symbol&gt;
+	 * parameter. Anything outside the project root - only reachable by passing an
+	 * absolute &lt;initial path&gt; - keeps its absolute form, there being nothing
+	 * to make it relative to.
 	 */
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
-		final Path initialPath = Paths.get(params[0]).toAbsolutePath().normalize();
+		final Path projectRoot = context.getProjectRoot();
+		final Path initialPath = Symbol.resolvePath(params[0], projectRoot);
 		if (Files.isDirectory(initialPath) == false)
-			return CommandResult.error("Not a directory: " + initialPath);
+			return CommandResult.error("Not a directory: '" + params[0] + "' (resolved against the project root "
+					+ projectRoot + ", giving " + initialPath + ")");
 
 		final Pattern pathPattern;
 		final Pattern contentPattern;
@@ -92,7 +120,7 @@ public class ResearchRegexCommand extends Command {
 		try (Stream<Path> walk = Files.walk(initialPath)) {
 			final List<Path> files = walk.filter(Files::isRegularFile).toList();
 			for (final Path file : files) {
-				final String normalizedPath = file.toString().replace('\\', '/');
+				final String normalizedPath = displayPath(file, projectRoot);
 				if (pathPattern.matcher(normalizedPath).find() == false)
 					continue;
 
@@ -122,6 +150,18 @@ public class ResearchRegexCommand extends Command {
 		output.append("search_regex: ").append(matchingLines).append(" match(es) in ").append(matchingFiles)
 				.append(" file(s)");
 		return CommandResult.ok(output.toString().strip());
+	}
+
+	/**
+	 * file as the client should see it: relative to projectRoot, forward slashes
+	 * - the same shape find_symbol, find_declaration, find_reference,
+	 * find_implementation, hover and list_members print, and the same shape a
+	 * &lt;symbol&gt; parameter expects. Falls back to the absolute path for a
+	 * file outside the project root.
+	 */
+	private String displayPath(final Path file, final Path projectRoot) {
+		final Path relative = file.startsWith(projectRoot) ? projectRoot.relativize(file) : file;
+		return relative.toString().replace('\\', '/');
 	}
 
 }
