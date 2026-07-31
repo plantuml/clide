@@ -21,6 +21,7 @@ import clide.command.ManualCommand;
 import clide.command.OpenTransactionCommand;
 import clide.command.PrintDiagnosticsCommand;
 import clide.command.QuitCommand;
+import clide.command.RebuildCommand;
 import clide.command.ResearchRegexCommand;
 import clide.command.RestoreFileCommand;
 import clide.command.RollbackTransactionCommand;
@@ -43,7 +44,8 @@ public class Main {
 	public static PrintMode printMode = PrintMode.AI;
 
 	public static final List<Command> commands = List.of(new HelpCommand(), new ManualCommand(), new HelpAiCommand(),
-			new ExitCommand(), new QuitCommand(), new TerminateCommand(), new PrintDiagnosticsCommand(),
+			new ExitCommand(), new QuitCommand(), new TerminateCommand(), new RebuildCommand(),
+			new PrintDiagnosticsCommand(),
 			new ResearchRegexCommand(), new FindSymbolCommand(), new HoverCommand(), new ListMembersCommand(),
 			new FindDeclarationCommand(), new FindImplementationCommand(), new FindReferenceCommand(),
 			new OpenTransactionCommand(), new CommitTransactionCommand(), new RollbackTransactionCommand(),

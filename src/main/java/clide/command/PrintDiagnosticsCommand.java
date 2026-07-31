@@ -32,18 +32,23 @@ public class PrintDiagnosticsCommand extends Command {
 
 			DESCRIPTION
 				Reports the diagnostics jdtls collected during this project's
-				last build - the one that runs once, automatically, at
-				daemon startup. print_diagnostics never triggers a new
-				build itself, it only reports what the last one already
-				found. <filter> is one of two literal values: "all" reports
-				every diagnostic, "errors" reports only those at error
-				severity.
+				last build - the one that runs automatically at daemon
+				startup, or the most recent rebuild since then.
+				print_diagnostics never triggers a build itself, it only
+				reports what the last one already found, so a file edited
+				since is still described as it was at that build. Use
+				rebuild to compile again and get a current answer.
+				<filter> is one of two literal values: "all" reports every
+				diagnostic, "errors" reports only those at error severity.
 
 			ERRORS
 				Only the exact literal "errors" filters down to
 				error-severity diagnostics; any other value for <filter> -
 				including "all", or a typo - reports everything.
 				print_diagnostics never rejects its argument.
+
+			SEE ALSO
+				rebuild(1)
 			""")
 	public PrintDiagnosticsCommand() {
 

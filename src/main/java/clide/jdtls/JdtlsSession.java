@@ -46,12 +46,22 @@ public class JdtlsSession {
 	 */
 	private static final String JARS_DIR = ".clide";
 
+	/**
+	 * Directories currentSourceFiles() never walks into - no sources there, and
+	 * on a project like PlantUML they hold far more files than the sources do.
+	 */
+	private static final List<String> SKIPPED_DIRECTORIES = List.of(".git", "bin", "build", "target", "out", "jdtls",
+			"node_modules", ".gradle", ".clide");
+
 	private final JdtlsLauncher launcher;
 	private final Path projectRoot;
 	private LspClient client;
 	private Thread notificationThread;
 	private volatile boolean ready;
 	private final Map<String, List<Map<String, Object>>> diagnosticsByUri = new ConcurrentHashMap<>();
+
+	/** Absolute path -&gt; mtime, as of the end of the last build() - see refreshChangedFiles(). */
+	private final Map<String, Long> sourceFileTimestamps = new ConcurrentHashMap<>();
 
 	public JdtlsSession(final JdtlsLauncher launcher, final Path projectRoot) {
 		this.launcher = launcher;
@@ -191,6 +201,10 @@ public class JdtlsSession {
 
 	/** Triggers a full project build via jdtls and waits for the result. */
 	public void build() throws IOException, InterruptedException, LspClient.TimeoutException {
+		// Snapshotted before the build, not after: a file edited while the build
+		// is running would otherwise be recorded with its new timestamp and
+		// counted as already built, and the next rebuild would skip it.
+		snapshotSourceFiles();
 		diagnosticsByUri.clear();
 		final Map<String, Object> response = client.request("java/buildWorkspace", Boolean.TRUE, 300);
 		if (response.containsKey("error"))
@@ -199,6 +213,115 @@ public class JdtlsSession {
 		// Diagnostics for files with problems arrive as notifications around
 		// the same time as the response - give them a moment to land.
 		Thread.sleep(2000);
+	}
+
+	/**
+	 * Tells jdtls which .java files changed on disk since the last build, so the
+	 * build that follows compiles what is actually there now. Returns how many
+	 * files were reported.
+	 *
+	 * Needed because jdtls' model is not a view of the filesystem: it is an
+	 * Eclipse workspace, which only learns of a change made outside its own
+	 * editing session when someone tells it. clide never opens files
+	 * (textDocument/didOpen) - it builds the whole project instead, on purpose,
+	 * because opening PlantUML's 3600 files one by one takes minutes (see
+	 * JDTLS.md), so nothing else here would ever tell jdtls a file moved on.
+	 *
+	 * Measured on PlantUML, what a forced java/buildWorkspace does and does not
+	 * catch on its own, without this notification:
+	 *
+	 * - an edit to a file that already existed at the last build: caught. The
+	 *   forced build re-reads it.
+	 * - a newly created .java file: NOT caught. A new file that doesn't compile
+	 *   at all was reported as "0 errors" - the worst possible answer, since it
+	 *   reads exactly like success.
+	 *
+	 * So this exists for the second case (and symmetrically for deletions,
+	 * whose diagnostics would otherwise linger after the file is gone). Sending
+	 * events for edits too costs nothing and keeps one code path.
+	 *
+	 * The comparison is a plain path/mtime snapshot taken at the end of every
+	 * build(), diffed against the tree as it stands now: a file whose timestamp
+	 * moved is Changed(2), one absent from the snapshot is Created(1), one gone
+	 * from disk is Deleted(3).
+	 */
+	public int refreshChangedFiles() throws IOException {
+		final Map<String, Long> current = currentSourceFiles();
+		final List<Object> events = new ArrayList<>();
+
+		for (final Map.Entry<String, Long> entry : current.entrySet()) {
+			final Long previous = sourceFileTimestamps.get(entry.getKey());
+			if (previous == null)
+				events.add(fileEvent(entry.getKey(), 1));
+			else if (previous.equals(entry.getValue()) == false)
+				events.add(fileEvent(entry.getKey(), 2));
+		}
+		for (final String path : sourceFileTimestamps.keySet())
+			if (current.containsKey(path) == false)
+				events.add(fileEvent(path, 3));
+
+		if (events.isEmpty())
+			return 0;
+
+		final Map<String, Object> params = new LinkedHashMap<>();
+		params.put("changes", events);
+		client.notify("workspace/didChangeWatchedFiles", params);
+
+		// One-way notification: jdtls refreshes the affected resources when it
+		// gets to it, and says nothing when it's done. Without this pause the
+		// build below can start against the model as it was.
+		try {
+			Thread.sleep(1000);
+		} catch (final InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+
+		return events.size();
+	}
+
+	private Map<String, Object> fileEvent(final String path, final int type) {
+		final Map<String, Object> event = new LinkedHashMap<>();
+		event.put("uri", Paths.get(path).toUri().toString());
+		event.put("type", type);
+		return event;
+	}
+
+	private void snapshotSourceFiles() {
+		try {
+			sourceFileTimestamps.clear();
+			sourceFileTimestamps.putAll(currentSourceFiles());
+		} catch (final IOException e) {
+			// Best effort: a failure here just means the next
+			// refreshChangedFiles() reports more files than strictly changed.
+		}
+	}
+
+	/**
+	 * Absolute path -&gt; last-modified time of every .java file under the
+	 * project, skipping the directories that hold no sources but do hold
+	 * thousands of files (.git, build output, the extracted jdtls itself).
+	 */
+	private Map<String, Long> currentSourceFiles() throws IOException {
+		final Map<String, Long> files = new LinkedHashMap<>();
+		try (Stream<Path> walk = Files.walk(projectRoot)) {
+			walk.filter(path -> path.toString().endsWith(".java")).filter(path -> isSkipped(path) == false)
+					.forEach(path -> {
+						try {
+							files.put(path.toString(), Files.getLastModifiedTime(path).toMillis());
+						} catch (final IOException e) {
+							// vanished between the walk and the stat - treat as absent
+						}
+					});
+		}
+		return files;
+	}
+
+	private boolean isSkipped(final Path path) {
+		for (final Path segment : projectRoot.relativize(path))
+			if (SKIPPED_DIRECTORIES.contains(segment.toString()))
+				return true;
+
+		return false;
 	}
 
 	/**
