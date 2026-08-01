@@ -92,7 +92,7 @@ public class JdtlsSession {
 
 		final Truc response = client.request("initialize", initializeParams(), 120);
 		if (response.containsKey("error"))
-			throw new IOException("jdtls initialize failed: " + response.getString("error"));
+			throw new IOException("jdtls initialize failed: " + response.getObject("error"));
 
 		client.notify("initialized", new Truc());
 		ready = true;
@@ -211,7 +211,7 @@ public class JdtlsSession {
 		diagnosticsByUri.clear();
 		final Truc response = client.request("java/buildWorkspace", Boolean.TRUE, 300);
 		if (response.containsKey("error"))
-			throw new IOException("java/buildWorkspace failed: " + response.getString("error"));
+			throw new IOException("java/buildWorkspace failed: " + response.getObject("error"));
 
 		// Diagnostics for files with problems arrive as notifications around
 		// the same time as the response - give them a moment to land.
@@ -365,9 +365,9 @@ public class JdtlsSession {
 		final Truc response = client.request(lspMethod,
 				positionParams(symbol.file(), symbol.line(), symbol.column(), context), 30);
 		if (response.containsKey("error"))
-			throw new IOException(lspMethod + " failed: " + response.getString("error"));
+			throw new IOException(lspMethod + " failed: " + response.getObject("error"));
 
-		return formatLocations(response.getString("result"));
+		return formatLocations(response.getObject("result"));
 	}
 
 	/**
@@ -383,9 +383,9 @@ public class JdtlsSession {
 		final Truc response = client.request("textDocument/hover",
 				positionParams(symbol.file(), symbol.line(), symbol.column()), 30);
 		if (response.containsKey("error"))
-			throw new IOException("textDocument/hover failed: " + response.getString("error"));
+			throw new IOException("textDocument/hover failed: " + response.getObject("error"));
 
-		return formatHover(response.getString("result"));
+		return formatHover(response.getObject("result"));
 	}
 
 	/**
@@ -410,7 +410,7 @@ public class JdtlsSession {
 					"No class/interface/enum named '" + symbol.name() + "' declared at line " + symbol.line() + " of "
 							+ symbol.file() + " (list_members only inspects types, not methods/fields)");
 
-		return formatMembers(uri, asList(typeNode.getString("children")));
+		return formatMembers(uri, typeNode.getList("children"));
 	}
 
 	/** Raw textDocument/documentSymbol tree for uri - empty on any error. */
@@ -423,9 +423,9 @@ public class JdtlsSession {
 
 		final Truc response = client.request("textDocument/documentSymbol", params, 30);
 		if (response.containsKey("error"))
-			throw new IOException("textDocument/documentSymbol failed: " + response.getString("error"));
+			throw new IOException("textDocument/documentSymbol failed: " + response.getObject("error"));
 
-		return asList(response.getString("result"));
+		return asList(response.getObject("result"));
 	}
 
 	/**
@@ -473,7 +473,7 @@ public class JdtlsSession {
 		final Truc response = client.request("textDocument/implementation",
 				positionParams(symbol.file(), symbol.line(), symbol.column(), null), 30);
 		if (response.containsKey("error"))
-			throw new IOException("textDocument/implementation failed: " + response.getString("error"));
+			throw new IOException("textDocument/implementation failed: " + response.getObject("error"));
 
 		final List<Truc> merged = new ArrayList<>(rawLocations(response.getTruc("result")));
 		final Set<String> seen = new LinkedHashSet<>();
@@ -518,7 +518,7 @@ public class JdtlsSession {
 		if (declaresTypeParameters(declaration) == false && isGenericType(declaringType) == false)
 			return List.of();
 
-		final Truc start = startOf(declaringType.getString("selectionRange"));
+		final Truc start = startOf(declaringType.getObject("selectionRange"));
 		if (start == null)
 			return List.of();
 
@@ -528,7 +528,7 @@ public class JdtlsSession {
 			return List.of();
 
 		final List<Truc> found = new ArrayList<>();
-		for (final Truc subtype : rawLocations(response.getString("result")))
+		for (final Truc subtype : rawLocations(response.getObject("result")))
 			collectDeclaredMethods(subtype, symbol.name(), arity, found);
 
 		return found;
@@ -550,12 +550,12 @@ public class JdtlsSession {
 		if (typeNode == null)
 			return;
 
-		for (final Object item : asList(typeNode.getString("children"))) {
+		for (final Object item : typeNode.getList("children")) {
 			if (item instanceof Map == false)
 				continue;
 
 			final Truc member = castToMap(item);
-			final Truc memberStart = startOf(member.getString("selectionRange"));
+			final Truc memberStart = startOf(member.getObject("selectionRange"));
 			if (memberStart == null)
 				continue;
 
@@ -572,7 +572,7 @@ public class JdtlsSession {
 
 			final Truc location = new Truc();
 			location.putString("uri", uri);
-			location.putString("range", member.getString("selectionRange"));
+			location.putObject("range", member.getObject("selectionRange"));
 			found.add(location);
 		}
 	}
@@ -609,7 +609,7 @@ public class JdtlsSession {
 	 * same way a generic method's erasure override does.
 	 */
 	private boolean isGenericType(final Truc typeNode) {
-		final Object rawName = typeNode.getString("name");
+		final Object rawName = typeNode.getObject("name");
 		return rawName instanceof String && ((String) rawName).indexOf('<') >= 0;
 	}
 
@@ -670,7 +670,7 @@ public class JdtlsSession {
 			if (coversLine(node, zeroBasedLine) == false)
 				continue;
 
-			final Truc deeper = enclosingTypeNode(asList(node.getString("children")), zeroBasedLine);
+			final Truc deeper = enclosingTypeNode(node.getList("children"), zeroBasedLine);
 			if (deeper != null)
 				return deeper;
 
@@ -687,11 +687,11 @@ public class JdtlsSession {
 				continue;
 
 			final Truc node = castToMap(item);
-			final Truc start = startOf(node.getString("selectionRange"));
+			final Truc start = startOf(node.getObject("selectionRange"));
 			if (isTypeKind(node) && start != null && lineOf(start) == zeroBasedLine)
 				return node;
 
-			final Truc deeper = typeNodeAt(asList(node.getString("children")), zeroBasedLine);
+			final Truc deeper = typeNodeAt(node.getList("children"), zeroBasedLine);
 			if (deeper != null)
 				return deeper;
 		}
@@ -699,12 +699,12 @@ public class JdtlsSession {
 	}
 
 	private boolean coversLine(final Truc node, final int zeroBasedLine) {
-		final Truc range = castToMap(node.getString("range"));
+		final Truc range = castToMap(node.getObject("range"));
 		if (range == null)
 			return false;
 
 		final Truc start = startOf(range);
-		final Truc end = castToMap(range.getString("end"));
+		final Truc end = castToMap(range.getObject("end"));
 		if (start == null || end == null)
 			return false;
 
@@ -717,9 +717,8 @@ public class JdtlsSession {
 	}
 
 	private Truc startOf(final Object range) {
-		final Truc asMap = range instanceof Map ? castToMap(range) : null;
-		final Object start = asMap == null ? null : asMap.getString("start");
-		return start instanceof Map ? castToMap(start) : null;
+		final Truc asMap = castToMap(range);
+		return asMap == null ? null : castToMap(asMap.getObject("start"));
 	}
 
 	private int lineOf(final Truc position) {
@@ -731,13 +730,13 @@ public class JdtlsSession {
 	}
 
 	private String uriOf(final Truc location) {
-		final Object uri = location.getString("uri") != null ? location.getString("uri") : location.getString("targetUri");
-		return uri instanceof String ? (String) uri : null;
+		final String uri = location.getString("uri");
+		return uri != null ? uri : location.getString("targetUri");
 	}
 
 	private Truc rangeOf(final Truc location) {
-		final Object range = location.getString("range") != null ? location.getString("range")
-				: location.getString("targetSelectionRange");
+		final Object range = location.getObject("range") != null ? location.getObject("range")
+				: location.getObject("targetSelectionRange");
 		return range instanceof Map ? castToMap(range) : null;
 	}
 
@@ -752,11 +751,11 @@ public class JdtlsSession {
 	 */
 	@SuppressWarnings("unchecked")
 	private List<Truc> rawLocations(final Object result) {
-		final List<Truc> items;
+		final List<Object> items;
 		if (result instanceof List)
-			items = (List<Truc>) result;
+			items = (List<Object>) result;
 		else if (result instanceof Map)
-			items = List.of(Truc.fromMap((Map<String, Object>) result));
+			items = List.of(result);
 		else
 			items = List.of();
 
@@ -812,9 +811,9 @@ public class JdtlsSession {
 
 		final Truc response = client.request("workspace/symbol", params, 30);
 		if (response.containsKey("error"))
-			throw new IOException("workspace/symbol failed: " + response.getString("error"));
+			throw new IOException("workspace/symbol failed: " + response.getObject("error"));
 
-		return formatSymbols(response.getString("result"));
+		return formatSymbols(response.getObject("result"));
 	}
 
 	/** Accepts either a SymbolInformation[], or null/absent. */
@@ -824,8 +823,8 @@ public class JdtlsSession {
 
 		final List<String> formatted = new ArrayList<>();
 		for (final Object item : rawSymbols)
-			if (item instanceof Truc)
-				formatted.add(formatSymbol((Truc) item));
+			if (item instanceof Map)
+				formatted.add(formatSymbol(castToMap(item)));
 
 		return formatted;
 	}
@@ -842,7 +841,7 @@ public class JdtlsSession {
 		final String locationText = location == null ? String.valueOf(symbol.getString("name")) + ": <no location>"
 				: formatLocation(location);
 
-		return "[" + symbolKindLabel(symbol.getString("kind")) + "] " + locationText;
+		return "[" + symbolKindLabel(symbol.getObject("kind")) + "] " + locationText;
 	}
 
 	/**
@@ -905,7 +904,7 @@ public class JdtlsSession {
 			if (isMatchingTypeNode(node, name, zeroBasedLine))
 				return node;
 
-			final Truc foundInChildren = findTypeNode(asList(node.getString("children")), name, zeroBasedLine);
+			final Truc foundInChildren = findTypeNode(node.getList("children"), name, zeroBasedLine);
 			if (foundInChildren != null)
 				return foundInChildren;
 		}
@@ -914,7 +913,7 @@ public class JdtlsSession {
 
 	@SuppressWarnings("unchecked")
 	private boolean isMatchingTypeNode(final Truc node, final String name, final int zeroBasedLine) {
-		final Object kind = node.getString("kind");
+		final Object kind = node.getObject("kind");
 		final long kindCode = kind instanceof Number ? ((Number) kind).longValue() : -1;
 		if (TYPE_SYMBOL_KINDS.contains((int) kindCode) == false)
 			return false;
@@ -923,7 +922,7 @@ public class JdtlsSession {
 		// bare name - Symbol.parse() matched it as a whole word on the line. An
 		// equals() on the raw name therefore never matched a generic type, and
 		// list_members failed on every one of them.
-		if (name.equals(withoutTypeParameters(node.getString("name"))) == false)
+		if (name.equals(withoutTypeParameters(node.getObject("name"))) == false)
 			return false;
 
 		final Truc selectionRange = node.getTruc("selectionRange");
@@ -965,14 +964,22 @@ public class JdtlsSession {
 	private String formatMember(final String uri, final Truc member) {
 		final Truc location = new Truc();
 		location.putString("uri", uri);
-		location.putString("range", member.getString("selectionRange"));
+		location.putObject("range", member.getObject("selectionRange"));
 
-		return "[" + symbolKindLabel(member.getString("kind")) + "] " + formatLocation(location);
+		return "[" + symbolKindLabel(member.getObject("kind")) + "] " + formatLocation(location);
 	}
 
+	/**
+	 * Wraps one node of the parsed response. Truc.fromMap() only wraps the root:
+	 * everything nested underneath is still a plain Map, so every step down the
+	 * tree goes through here. null (absent key, wrong shape) stays null.
+	 */
 	@SuppressWarnings("unchecked")
 	private Truc castToMap(final Object value) {
-		return Truc.fromMap((Map<String, Object>) value);
+		if (value instanceof Truc)
+			return (Truc) value;
+
+		return value instanceof Map ? Truc.fromMap((Map<String, Object>) value) : null;
 	}
 
 	/**
@@ -985,7 +992,7 @@ public class JdtlsSession {
 		if (result instanceof Map == false)
 			return "<no hover info>";
 
-		final String text = hoverText(castToMap(result).getString("contents"));
+		final String text = hoverText(castToMap(result).getObject("contents"));
 		return text == null || text.isBlank() ? "<no hover info>" : text.strip();
 	}
 
@@ -995,7 +1002,7 @@ public class JdtlsSession {
 			return (String) contents;
 
 		if (contents instanceof Map) {
-			final Object value = castToMap(contents).getString("value");
+			final Object value = castToMap(contents).getObject("value");
 			return value == null ? null : value.toString();
 		}
 
@@ -1031,8 +1038,8 @@ public class JdtlsSession {
 
 		final List<String> formatted = new ArrayList<>();
 		for (final Object item : rawLocations)
-			if (item instanceof Truc)
-				formatted.add(formatLocation((Truc) item));
+			if (item instanceof Map)
+				formatted.add(formatLocation(castToMap(item)));
 
 		return formatted;
 	}
@@ -1044,8 +1051,8 @@ public class JdtlsSession {
 	 */
 	@SuppressWarnings("unchecked")
 	private String formatLocation(final Truc location) {
-		final String uri = location.getString("uri") != null ? (String) location.getString("uri")
-				: (String) location.getString("targetUri");
+		final String uri = location.getString("uri") != null ? location.getString("uri")
+				: location.getString("targetUri");
 		final Truc range = location.getTruc("range") != null ? location.getTruc("range")
 				: location.getTruc("targetSelectionRange");
 
@@ -1103,7 +1110,7 @@ public class JdtlsSession {
 			filesWithIssues++;
 			boolean headerPrinted = false;
 			for (final Truc diagnostic : diagnostics) {
-				final Object severity = diagnostic.getString("severity");
+				final Object severity = diagnostic.getObject("severity");
 				final long severityCode = severity instanceof Number ? ((Number) severity).longValue() : 0;
 				if (severityCode == 1)
 					errorCount++;
@@ -1131,7 +1138,7 @@ public class JdtlsSession {
 
 	@SuppressWarnings("unchecked")
 	private String formatDiagnostic(final Truc diagnostic) {
-		final Object severity = diagnostic.getString("severity");
+		final Object severity = diagnostic.getObject("severity");
 		final long severityCode = severity instanceof Number ? ((Number) severity).longValue() : 0;
 		final String severityLabel = severityCode == 1 ? "error" : severityCode == 2 ? "warning" : "info";
 		final Truc range = diagnostic.getTruc("range");
@@ -1182,7 +1189,7 @@ public class JdtlsSession {
 				if ("textDocument/publishDiagnostics".equals(method)) {
 					final Truc params = notification.getTruc("params");
 					if (params != null) {
-						final String uri = (String) params.getString("uri");
+						final String uri = params.getString("uri");
 						final List<Object> rawDiagnostics = (List<Object>) params.getOrDefault("diagnostics",
 								List.of());
 						final List<Truc> diagnostics = new ArrayList<>();
