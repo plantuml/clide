@@ -37,6 +37,7 @@
     <property name="fatjar.dir" value="${build.dir}/fatjar"/>
     <property name="main.class" value="clide.Main"/>
     <property name="jar.file" value="clide.jar"/>
+    <property name="jdtls.zip" value="jdt-language-server-latest.zip"/>
 
     <!--
         Ant re-logs the forked JVM's output through its own PrintStream, built on
@@ -275,6 +276,32 @@
         <delete dir="${fatjar.dir}"/>
     </target>
 
+    <!--
+        Same as "dist", but additionally bundles ${jdtls.zip} into the jar
+        under a top-level "resource/" directory (e.g. resource/jdt-language-server-latest.zip),
+        so it ships inside clide.jar rather than needing to sit next to it on disk.
+    -->
+    <target name="-check-jdtls-zip">
+        <available file="${jdtls.zip}" property="jdtls.zip.present"/>
+        <fail unless="jdtls.zip.present" message="Cannot find ${jdtls.zip} - fetch it first or override the path with -Djdtls.zip=&lt;path&gt;"/>
+    </target>
+
+    <target name="dist-with-jdtls" depends="compile,-merge-services,-check-jdtls-zip"
+            description="Build clide.jar like dist, but also bundle ${jdtls.zip} under resource/ in the jar">
+        <jar jarfile="${jar.file}" duplicate="fail">
+            <fileset dir="${classes.dir}"/>
+            <fileset dir="${fatjar.dir}/classes"/>
+            <zipfileset file="${jdtls.zip}" fullpath="resource/${jdtls.zip}"/>
+            <manifest>
+                <attribute name="Main-Class" value="${main.class}"/>
+                <!-- See the comment above dist: without this the META-INF/versions/
+                     classes of the bundled multi-release jars are dead weight. -->
+                <attribute name="Multi-Release" value="true"/>
+            </manifest>
+        </jar>
+        <delete dir="${fatjar.dir}"/>
+    </target>
+
 
     <target name="run" depends="compile" description="Run clide on a project - requires -Dproject=&lt;path&gt;">
         <fail unless="project" message="Usage: ant run -Dproject=&lt;path&gt;"/>
@@ -303,6 +330,8 @@ TARGETS
   dist            Build ${jar.file}, a fat jar bundling every jar of lib/.
                   The result runs both clide and its tests on its own.
                   This is the default target, so plain "ant" does this.
+  dist-with-jdtls Same as dist, but also bundles ${jdtls.zip} into
+                  ${jar.file} under a top-level resource/ directory.
   compile         Compile the main classes into ${classes.dir}. No jar.
   test-compile    Compile the unit tests into ${test.classes.dir}.
   test            Compile then run the unit tests of ${test.src.dir}.
@@ -331,7 +360,7 @@ OPTIONS
 
   Overridable paths, should the layout ever move: -Dsrc.dir, -Dtest.src.dir,
   -Dlib.dir, -Dbuild.dir, -Dclasses.dir, -Dtest.classes.dir,
-  -Dtest.reports.dir, -Djar.file, -Dmain.class.
+  -Dtest.reports.dir, -Djar.file, -Dmain.class, -Djdtls.zip.
 
 ENVIRONMENT
   ANT_OPTS=-Dstdout.encoding=UTF-8
