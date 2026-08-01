@@ -47,8 +47,8 @@ public class JdtlsSession {
 	private static final String JARS_DIR = ".clide";
 
 	/**
-	 * Directories currentSourceFiles() never walks into - no sources there, and
-	 * on a project like PlantUML they hold far more files than the sources do.
+	 * Directories currentSourceFiles() never walks into - no sources there, and on
+	 * a project like PlantUML they hold far more files than the sources do.
 	 */
 	private static final List<String> SKIPPED_DIRECTORIES = List.of(".git", "bin", "build", "target", "out", "jdtls",
 			"node_modules", ".gradle", ".clide");
@@ -58,9 +58,12 @@ public class JdtlsSession {
 	private LspClient client;
 	private Thread notificationThread;
 	private volatile boolean ready;
-	private final Map<String, List<Map<String, Object>>> diagnosticsByUri = new ConcurrentHashMap<>();
+	private final Map<String, List<Truc>> diagnosticsByUri = new ConcurrentHashMap<>();
 
-	/** Absolute path -&gt; mtime, as of the end of the last build() - see refreshChangedFiles(). */
+	/**
+	 * Absolute path -&gt; mtime, as of the end of the last build() - see
+	 * refreshChangedFiles().
+	 */
 	private final Map<String, Long> sourceFileTimestamps = new ConcurrentHashMap<>();
 
 	public JdtlsSession(final JdtlsLauncher launcher, final Path projectRoot) {
@@ -87,11 +90,11 @@ public class JdtlsSession {
 		notificationThread.setDaemon(true);
 		notificationThread.start();
 
-		final Map<String, Object> response = client.request("initialize", initializeParams(), 120);
+		final Truc response = client.request("initialize", initializeParams(), 120);
 		if (response.containsKey("error"))
-			throw new IOException("jdtls initialize failed: " + response.get("error"));
+			throw new IOException("jdtls initialize failed: " + response.getString("error"));
 
-		client.notify("initialized", new LinkedHashMap<>());
+		client.notify("initialized", new Truc());
 		ready = true;
 
 		waitForServiceReady(60 * 4);
@@ -206,9 +209,9 @@ public class JdtlsSession {
 		// counted as already built, and the next rebuild would skip it.
 		snapshotSourceFiles();
 		diagnosticsByUri.clear();
-		final Map<String, Object> response = client.request("java/buildWorkspace", Boolean.TRUE, 300);
+		final Truc response = client.request("java/buildWorkspace", Boolean.TRUE, 300);
 		if (response.containsKey("error"))
-			throw new IOException("java/buildWorkspace failed: " + response.get("error"));
+			throw new IOException("java/buildWorkspace failed: " + response.getString("error"));
 
 		// Diagnostics for files with problems arrive as notifications around
 		// the same time as the response - give them a moment to land.
@@ -220,25 +223,24 @@ public class JdtlsSession {
 	 * build that follows compiles what is actually there now. Returns how many
 	 * files were reported.
 	 *
-	 * Needed because jdtls' model is not a view of the filesystem: it is an
-	 * Eclipse workspace, which only learns of a change made outside its own
-	 * editing session when someone tells it. clide never opens files
-	 * (textDocument/didOpen) - it builds the whole project instead, on purpose,
-	 * because opening PlantUML's 3600 files one by one takes minutes (see
-	 * JDTLS.md), so nothing else here would ever tell jdtls a file moved on.
+	 * Needed because jdtls' model is not a view of the filesystem: it is an Eclipse
+	 * workspace, which only learns of a change made outside its own editing session
+	 * when someone tells it. clide never opens files (textDocument/didOpen) - it
+	 * builds the whole project instead, on purpose, because opening PlantUML's 3600
+	 * files one by one takes minutes (see JDTLS.md), so nothing else here would
+	 * ever tell jdtls a file moved on.
 	 *
 	 * Measured on PlantUML, what a forced java/buildWorkspace does and does not
 	 * catch on its own, without this notification:
 	 *
 	 * - an edit to a file that already existed at the last build: caught. The
-	 *   forced build re-reads it.
-	 * - a newly created .java file: NOT caught. A new file that doesn't compile
-	 *   at all was reported as "0 errors" - the worst possible answer, since it
-	 *   reads exactly like success.
+	 * forced build re-reads it. - a newly created .java file: NOT caught. A new
+	 * file that doesn't compile at all was reported as "0 errors" - the worst
+	 * possible answer, since it reads exactly like success.
 	 *
-	 * So this exists for the second case (and symmetrically for deletions,
-	 * whose diagnostics would otherwise linger after the file is gone). Sending
-	 * events for edits too costs nothing and keeps one code path.
+	 * So this exists for the second case (and symmetrically for deletions, whose
+	 * diagnostics would otherwise linger after the file is gone). Sending events
+	 * for edits too costs nothing and keeps one code path.
 	 *
 	 * The comparison is a plain path/mtime snapshot taken at the end of every
 	 * build(), diffed against the tree as it stands now: a file whose timestamp
@@ -247,7 +249,7 @@ public class JdtlsSession {
 	 */
 	public int refreshChangedFiles() throws IOException {
 		final Map<String, Long> current = currentSourceFiles();
-		final List<Object> events = new ArrayList<>();
+		final List<Truc> events = new ArrayList<>();
 
 		for (final Map.Entry<String, Long> entry : current.entrySet()) {
 			final Long previous = sourceFileTimestamps.get(entry.getKey());
@@ -263,8 +265,8 @@ public class JdtlsSession {
 		if (events.isEmpty())
 			return 0;
 
-		final Map<String, Object> params = new LinkedHashMap<>();
-		params.put("changes", events);
+		final Truc params = new Truc();
+		params.putList("changes", events);
 		client.notify("workspace/didChangeWatchedFiles", params);
 
 		// One-way notification: jdtls refreshes the affected resources when it
@@ -279,10 +281,10 @@ public class JdtlsSession {
 		return events.size();
 	}
 
-	private Map<String, Object> fileEvent(final String path, final int type) {
-		final Map<String, Object> event = new LinkedHashMap<>();
-		event.put("uri", Paths.get(path).toUri().toString());
-		event.put("type", type);
+	private Truc fileEvent(final String path, final int type) {
+		final Truc event = new Truc();
+		event.putString("uri", Paths.get(path).toUri().toString());
+		event.putLong("type", type);
 		return event;
 	}
 
@@ -297,9 +299,9 @@ public class JdtlsSession {
 	}
 
 	/**
-	 * Absolute path -&gt; last-modified time of every .java file under the
-	 * project, skipping the directories that hold no sources but do hold
-	 * thousands of files (.git, build output, the extracted jdtls itself).
+	 * Absolute path -&gt; last-modified time of every .java file under the project,
+	 * skipping the directories that hold no sources but do hold thousands of files
+	 * (.git, build output, the extracted jdtls itself).
 	 */
 	private Map<String, Long> currentSourceFiles() throws IOException {
 		final Map<String, Long> files = new LinkedHashMap<>();
@@ -325,17 +327,16 @@ public class JdtlsSession {
 	}
 
 	/**
-	 * Sends lspMethod ("textDocument/definition", "textDocument/typeDefinition",
-	 * or "textDocument/implementation") at symbol's position against this
-	 * session. Shared by GotoDefinitionCommand, GotoTypeDefinitionCommand and
+	 * Sends lspMethod ("textDocument/definition", "textDocument/typeDefinition", or
+	 * "textDocument/implementation") at symbol's position against this session.
+	 * Shared by GotoDefinitionCommand, GotoTypeDefinitionCommand and
 	 * GotoImplementationCommand - only the LSP method name differs between them.
 	 * See the other overload for requests that also need an LSP request-level
 	 * "context" object (currently only textDocument/references does).
 	 *
-	 * symbol is already known to name a real file/line/word - it can only have
-	 * come from Symbol.parse(), which validated all of that up front (see
-	 * ParamType.SYMBOL, ClideDaemon.validate()) - so no re-validation happens
-	 * here.
+	 * symbol is already known to name a real file/line/word - it can only have come
+	 * from Symbol.parse(), which validated all of that up front (see
+	 * ParamType.SYMBOL, ClideDaemon.validate()) - so no re-validation happens here.
 	 *
 	 * No textDocument/didOpen is sent first: this relies on jdtls already having
 	 * the file in its compiled model from the last build() (see JDTLS.md, section
@@ -353,49 +354,49 @@ public class JdtlsSession {
 	/**
 	 * Same as the other overload, with an extra LSP request-level "context" object
 	 * merged into the request params when non-null. Added for
-	 * GotoReferencesCommand: textDocument/references is the one goto_* request
-	 * that needs one ({"includeDeclaration": false} - only real usages matter,
-	 * not the declaration itself, which is this command's own input already); the
-	 * other three goto_* commands keep going through the 2-arg overload above,
-	 * which passes null here.
+	 * GotoReferencesCommand: textDocument/references is the one goto_* request that
+	 * needs one ({"includeDeclaration": false} - only real usages matter, not the
+	 * declaration itself, which is this command's own input already); the other
+	 * three goto_* commands keep going through the 2-arg overload above, which
+	 * passes null here.
 	 */
-	public List<String> goToPosition(final String lspMethod, final Symbol symbol, final Map<String, Object> context)
+	public List<String> goToPosition(final String lspMethod, final Symbol symbol, final Truc context)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final Map<String, Object> response = client.request(lspMethod,
+		final Truc response = client.request(lspMethod,
 				positionParams(symbol.file(), symbol.line(), symbol.column(), context), 30);
 		if (response.containsKey("error"))
-			throw new IOException(lspMethod + " failed: " + response.get("error"));
+			throw new IOException(lspMethod + " failed: " + response.getString("error"));
 
-		return formatLocations(response.get("result"));
+		return formatLocations(response.getString("result"));
 	}
 
 	/**
-	 * textDocument/hover: the signature/Javadoc jdtls knows for symbol itself -
-	 * as opposed to goToPosition(), which locates some *other* place (a
-	 * definition, an implementation), hover explains this exact symbol where it
-	 * stands. Returns jdtls' hover text verbatim (already Markdown, printed as-is
-	 * - not reformatted), or "<no hover info>" if jdtls had nothing to say (e.g.
-	 * the symbol's type can't be resolved - no matching jar in .clide - or hover
-	 * just doesn't apply to this kind of symbol).
+	 * textDocument/hover: the signature/Javadoc jdtls knows for symbol itself - as
+	 * opposed to goToPosition(), which locates some *other* place (a definition, an
+	 * implementation), hover explains this exact symbol where it stands. Returns
+	 * jdtls' hover text verbatim (already Markdown, printed as-is - not
+	 * reformatted), or "<no hover info>" if jdtls had nothing to say (e.g. the
+	 * symbol's type can't be resolved - no matching jar in .clide - or hover just
+	 * doesn't apply to this kind of symbol).
 	 */
 	public String hover(final Symbol symbol) throws IOException, InterruptedException, LspClient.TimeoutException {
-		final Map<String, Object> response = client.request("textDocument/hover",
+		final Truc response = client.request("textDocument/hover",
 				positionParams(symbol.file(), symbol.line(), symbol.column()), 30);
 		if (response.containsKey("error"))
-			throw new IOException("textDocument/hover failed: " + response.get("error"));
+			throw new IOException("textDocument/hover failed: " + response.getString("error"));
 
-		return formatHover(response.get("result"));
+		return formatHover(response.getString("result"));
 	}
 
 	/**
 	 * textDocument/documentSymbol: lists the direct members (methods, fields,
 	 * constructors - not further-nested inner types' own members) of the
 	 * class/interface/enum named symbol.name(), declared at symbol.line() of
-	 * symbol.file() - here symbol picks which type to inspect rather than where
-	 * to jump/what to explain. Requires hierarchicalDocumentSymbolSupport (see
+	 * symbol.file() - here symbol picks which type to inspect rather than where to
+	 * jump/what to explain. Requires hierarchicalDocumentSymbolSupport (see
 	 * initializeParams()) - without declaring it, jdtls falls back to a flat
-	 * SymbolInformation[] with no "children" at all, and this could never find
-	 * any member.
+	 * SymbolInformation[] with no "children" at all, and this could never find any
+	 * member.
 	 *
 	 * Returns one "[kind] path:line: line content" entry per member, in
 	 * documentSymbol's own order.
@@ -403,28 +404,28 @@ public class JdtlsSession {
 	public List<String> listMembers(final Symbol symbol)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final String uri = symbol.file().toUri().toString();
-		final Map<String, Object> typeNode = findTypeNode(documentSymbols(uri), symbol.name(), symbol.line() - 1);
+		final Truc typeNode = findTypeNode(documentSymbols(uri), symbol.name(), symbol.line() - 1);
 		if (typeNode == null)
-			throw new IOException("No class/interface/enum named '" + symbol.name() + "' declared at line "
-					+ symbol.line() + " of " + symbol.file()
-					+ " (list_members only inspects types, not methods/fields)");
+			throw new IOException(
+					"No class/interface/enum named '" + symbol.name() + "' declared at line " + symbol.line() + " of "
+							+ symbol.file() + " (list_members only inspects types, not methods/fields)");
 
-		return formatMembers(uri, asList(typeNode.get("children")));
+		return formatMembers(uri, asList(typeNode.getString("children")));
 	}
 
 	/** Raw textDocument/documentSymbol tree for uri - empty on any error. */
 	private List<Object> documentSymbols(final String uri)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final Map<String, Object> textDocument = new LinkedHashMap<>();
-		textDocument.put("uri", uri);
-		final Map<String, Object> params = new LinkedHashMap<>();
-		params.put("textDocument", textDocument);
+		final Truc textDocument = new Truc();
+		textDocument.putString("uri", uri);
+		final Truc params = new Truc();
+		params.putTruc("textDocument", textDocument);
 
-		final Map<String, Object> response = client.request("textDocument/documentSymbol", params, 30);
+		final Truc response = client.request("textDocument/documentSymbol", params, 30);
 		if (response.containsKey("error"))
-			throw new IOException("textDocument/documentSymbol failed: " + response.get("error"));
+			throw new IOException("textDocument/documentSymbol failed: " + response.getString("error"));
 
-		return asList(response.get("result"));
+		return asList(response.getString("result"));
 	}
 
 	/**
@@ -433,54 +434,58 @@ public class JdtlsSession {
 	 *
 	 * jdtls answers textDocument/implementation on a method by building a JDT
 	 * SearchPattern from the method element and running it over the declaring
-	 * type's hierarchy scope. That pattern compares parameter types by the
-	 * *source spelling* of the declaration, so when the target method declares
-	 * its own type parameter - "&lt;SHAPE extends UShape&gt; void draw(SHAPE
-	 * shape)" - only overrides that spell the type variable identically match.
-	 * Two perfectly legal override forms are therefore dropped without a word:
+	 * type's hierarchy scope. That pattern compares parameter types by the *source
+	 * spelling* of the declaration, so when the target method declares its own type
+	 * parameter - "&lt;SHAPE extends UShape&gt; void draw(SHAPE shape)" - only
+	 * overrides that spell the type variable identically match. Two perfectly legal
+	 * override forms are therefore dropped without a word:
 	 *
-	 * - the erasure form, "void draw(UShape shape)" (a subsignature per JLS
-	 *   8.4.2, which javac accepts without even an -Xlint warning, and which an
-	 *   @Override annotation does not rescue), and
-	 * - the renamed form, "&lt;X extends UShape&gt; void draw(X shape)".
+	 * - the erasure form, "void draw(UShape shape)" (a subsignature per JLS 8.4.2,
+	 * which javac accepts without even an -Xlint warning, and which an
+	 * 
+	 * @Override annotation does not rescue), and - the renamed form, "&lt;X extends
+	 *           UShape&gt; void draw(X shape)".
 	 *
-	 * On PlantUML that means 3 of the 25 real overrides of UGraphic.draw are
-	 * reported - the other 22 look like they don't exist. A caller trusting the
-	 * result would conclude the drawing layer has three implementations.
+	 *           On PlantUML that means 3 of the 25 real overrides of UGraphic.draw
+	 *           are reported - the other 22 look like they don't exist. A caller
+	 *           trusting the result would conclude the drawing layer has three
+	 *           implementations.
 	 *
-	 * The recovery pass asks the question jdtls *does* answer correctly:
-	 * textDocument/implementation on the declaring *type* (44/44 correct on
-	 * PlantUML), then reads each subtype's own documentSymbol tree and keeps the
-	 * members declaring a method of the same name and arity. Both result sets are
-	 * unioned rather than one replacing the other - each finds cases the other
-	 * misses (the pass below cannot see a subtype jdtls' type search didn't
-	 * return, and jdtls sees the same-spelling overrides directly).
+	 *           The recovery pass asks the question jdtls *does* answer correctly:
+	 *           textDocument/implementation on the declaring *type* (44/44 correct
+	 *           on PlantUML), then reads each subtype's own documentSymbol tree and
+	 *           keeps the members declaring a method of the same name and arity.
+	 *           Both result sets are unioned rather than one replacing the other -
+	 *           each finds cases the other misses (the pass below cannot see a
+	 *           subtype jdtls' type search didn't return, and jdtls sees the
+	 *           same-spelling overrides directly).
 	 *
-	 * Arity, not full signature, is what is compared: reconstructing erasure
-	 * from source text would mean resolving every parameter type by hand, which
-	 * is exactly the work jdtls exists to do. Name plus arity within a known
-	 * subtype is precise enough in practice - measured on PlantUML: 25/25
-	 * overrides found, 0 false positives - and any residual imprecision costs an
-	 * extra line, never a missing one.
+	 *           Arity, not full signature, is what is compared: reconstructing
+	 *           erasure from source text would mean resolving every parameter type
+	 *           by hand, which is exactly the work jdtls exists to do. Name plus
+	 *           arity within a known subtype is precise enough in practice -
+	 *           measured on PlantUML: 25/25 overrides found, 0 false positives -
+	 *           and any residual imprecision costs an extra line, never a missing
+	 *           one.
 	 */
 	public List<String> findMethodImplementations(final Symbol symbol)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final Map<String, Object> response = client.request("textDocument/implementation",
+		final Truc response = client.request("textDocument/implementation",
 				positionParams(symbol.file(), symbol.line(), symbol.column(), null), 30);
 		if (response.containsKey("error"))
-			throw new IOException("textDocument/implementation failed: " + response.get("error"));
+			throw new IOException("textDocument/implementation failed: " + response.getString("error"));
 
-		final List<Map<String, Object>> merged = new ArrayList<>(rawLocations(response.get("result")));
+		final List<Truc> merged = new ArrayList<>(rawLocations(response.getTruc("result")));
 		final Set<String> seen = new LinkedHashSet<>();
-		for (final Map<String, Object> location : merged)
+		for (final Truc location : merged)
 			seen.add(locationKey(location));
 
-		for (final Map<String, Object> recovered : overridesJdtlsMisses(symbol))
+		for (final Truc recovered : overridesJdtlsMisses(symbol))
 			if (seen.add(locationKey(recovered)))
 				merged.add(recovered);
 
 		final List<String> formatted = new ArrayList<>();
-		for (final Map<String, Object> location : merged)
+		for (final Truc location : merged)
 			formatted.add(formatLocation(location));
 
 		return formatted;
@@ -488,13 +493,12 @@ public class JdtlsSession {
 
 	/**
 	 * The recovery pass described on findMethodImplementations(): walks the
-	 * declaring type's subtypes and keeps every member declaring symbol.name()
-	 * with the same arity. Best effort throughout - anything unresolvable
-	 * (symbol not inside a type, no subtype, unreadable line) yields an empty
-	 * list rather than an error, so the direct jdtls answer always stands on its
-	 * own.
+	 * declaring type's subtypes and keeps every member declaring symbol.name() with
+	 * the same arity. Best effort throughout - anything unresolvable (symbol not
+	 * inside a type, no subtype, unreadable line) yields an empty list rather than
+	 * an error, so the direct jdtls answer always stands on its own.
 	 */
-	private List<Map<String, Object>> overridesJdtlsMisses(final Symbol symbol)
+	private List<Truc> overridesJdtlsMisses(final Symbol symbol)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final String uri = symbol.file().toUri().toString();
 		final String declaration = readLineSafely(uri, symbol.line());
@@ -502,7 +506,7 @@ public class JdtlsSession {
 		if (arity < 0)
 			return List.of();
 
-		final Map<String, Object> declaringType = enclosingTypeNode(documentSymbols(uri), symbol.line() - 1);
+		final Truc declaringType = enclosingTypeNode(documentSymbols(uri), symbol.line() - 1);
 		if (declaringType == null)
 			return List.of();
 
@@ -514,17 +518,17 @@ public class JdtlsSession {
 		if (declaresTypeParameters(declaration) == false && isGenericType(declaringType) == false)
 			return List.of();
 
-		final Map<String, Object> start = startOf(declaringType.get("selectionRange"));
+		final Truc start = startOf(declaringType.getString("selectionRange"));
 		if (start == null)
 			return List.of();
 
-		final Map<String, Object> response = client.request("textDocument/implementation",
+		final Truc response = client.request("textDocument/implementation",
 				positionParams(symbol.file(), lineOf(start) + 1, characterOf(start), null), 30);
 		if (response.containsKey("error"))
 			return List.of();
 
-		final List<Map<String, Object>> found = new ArrayList<>();
-		for (final Map<String, Object> subtype : rawLocations(response.get("result")))
+		final List<Truc> found = new ArrayList<>();
+		for (final Truc subtype : rawLocations(response.getString("result")))
 			collectDeclaredMethods(subtype, symbol.name(), arity, found);
 
 		return found;
@@ -534,25 +538,24 @@ public class JdtlsSession {
 	 * Adds to found every member of the type declared at subtype's location that
 	 * declares a method named name taking arity parameters.
 	 */
-	private void collectDeclaredMethods(final Map<String, Object> subtype, final String name, final int arity,
-			final List<Map<String, Object>> found)
+	private void collectDeclaredMethods(final Truc subtype, final String name, final int arity, final List<Truc> found)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final String uri = uriOf(subtype);
-		final Map<String, Object> range = rangeOf(subtype);
-		final Map<String, Object> start = startOf(range);
+		final Truc range = rangeOf(subtype);
+		final Truc start = startOf(range);
 		if (uri == null || start == null)
 			return;
 
-		final Map<String, Object> typeNode = typeNodeAt(documentSymbols(uri), lineOf(start));
+		final Truc typeNode = typeNodeAt(documentSymbols(uri), lineOf(start));
 		if (typeNode == null)
 			return;
 
-		for (final Object item : asList(typeNode.get("children"))) {
+		for (final Object item : asList(typeNode.getString("children"))) {
 			if (item instanceof Map == false)
 				continue;
 
-			final Map<String, Object> member = castToMap(item);
-			final Map<String, Object> memberStart = startOf(member.get("selectionRange"));
+			final Truc member = castToMap(item);
+			final Truc memberStart = startOf(member.getString("selectionRange"));
 			if (memberStart == null)
 				continue;
 
@@ -567,9 +570,9 @@ public class JdtlsSession {
 			if (isAbstractDeclaration(declaration))
 				continue;
 
-			final Map<String, Object> location = new LinkedHashMap<>();
-			location.put("uri", uri);
-			location.put("range", member.get("selectionRange"));
+			final Truc location = new Truc();
+			location.putString("uri", uri);
+			location.putString("range", member.getString("selectionRange"));
 			found.add(location);
 		}
 	}
@@ -601,20 +604,20 @@ public class JdtlsSession {
 
 	/**
 	 * Whether the type is generic ("Box&lt;T&gt;"), i.e. jdtls names it with its
-	 * type parameters. A raw implementation of one ("class RawBox implements
-	 * Box") declares its members against the erased types and goes missing in
-	 * exactly the same way a generic method's erasure override does.
+	 * type parameters. A raw implementation of one ("class RawBox implements Box")
+	 * declares its members against the erased types and goes missing in exactly the
+	 * same way a generic method's erasure override does.
 	 */
-	private boolean isGenericType(final Map<String, Object> typeNode) {
-		final Object rawName = typeNode.get("name");
+	private boolean isGenericType(final Truc typeNode) {
+		final Object rawName = typeNode.getString("name");
 		return rawName instanceof String && ((String) rawName).indexOf('<') >= 0;
 	}
 
 	/**
-	 * Number of parameters of the method named name declared on declaration, or
-	 * -1 if declaration doesn't declare one (name absent as a whole word, no
-	 * parameter list, or a parameter list left unclosed on this line - a
-	 * signature wrapped over several lines).
+	 * Number of parameters of the method named name declared on declaration, or -1
+	 * if declaration doesn't declare one (name absent as a whole word, no parameter
+	 * list, or a parameter list left unclosed on this line - a signature wrapped
+	 * over several lines).
 	 */
 	private int arityAfterName(final String declaration, final String name) {
 		if (declaration == null)
@@ -629,8 +632,8 @@ public class JdtlsSession {
 
 	/**
 	 * Counts the parameters of the list opening at openIndex, ignoring commas
-	 * nested inside generics, arrays or nested calls. -1 if the list never
-	 * closes on this line.
+	 * nested inside generics, arrays or nested calls. -1 if the list never closes
+	 * on this line.
 	 */
 	private int arityOfParameterList(final String declaration, final int openIndex) {
 		int depth = 0;
@@ -658,16 +661,16 @@ public class JdtlsSession {
 	}
 
 	/** Innermost type-kind node whose whole range covers zeroBasedLine, or null. */
-	private Map<String, Object> enclosingTypeNode(final List<Object> nodes, final int zeroBasedLine) {
+	private Truc enclosingTypeNode(final List<Object> nodes, final int zeroBasedLine) {
 		for (final Object item : nodes) {
 			if (item instanceof Map == false)
 				continue;
 
-			final Map<String, Object> node = castToMap(item);
+			final Truc node = castToMap(item);
 			if (coversLine(node, zeroBasedLine) == false)
 				continue;
 
-			final Map<String, Object> deeper = enclosingTypeNode(asList(node.get("children")), zeroBasedLine);
+			final Truc deeper = enclosingTypeNode(asList(node.getString("children")), zeroBasedLine);
 			if (deeper != null)
 				return deeper;
 
@@ -678,85 +681,86 @@ public class JdtlsSession {
 	}
 
 	/** Type-kind node whose name token sits on zeroBasedLine, or null. */
-	private Map<String, Object> typeNodeAt(final List<Object> nodes, final int zeroBasedLine) {
+	private Truc typeNodeAt(final List<Object> nodes, final int zeroBasedLine) {
 		for (final Object item : nodes) {
 			if (item instanceof Map == false)
 				continue;
 
-			final Map<String, Object> node = castToMap(item);
-			final Map<String, Object> start = startOf(node.get("selectionRange"));
+			final Truc node = castToMap(item);
+			final Truc start = startOf(node.getString("selectionRange"));
 			if (isTypeKind(node) && start != null && lineOf(start) == zeroBasedLine)
 				return node;
 
-			final Map<String, Object> deeper = typeNodeAt(asList(node.get("children")), zeroBasedLine);
+			final Truc deeper = typeNodeAt(asList(node.getString("children")), zeroBasedLine);
 			if (deeper != null)
 				return deeper;
 		}
 		return null;
 	}
 
-	private boolean coversLine(final Map<String, Object> node, final int zeroBasedLine) {
-		final Map<String, Object> range = castToMap(node.get("range"));
+	private boolean coversLine(final Truc node, final int zeroBasedLine) {
+		final Truc range = castToMap(node.getString("range"));
 		if (range == null)
 			return false;
 
-		final Map<String, Object> start = startOf(range);
-		final Map<String, Object> end = castToMap(range.get("end"));
+		final Truc start = startOf(range);
+		final Truc end = castToMap(range.getString("end"));
 		if (start == null || end == null)
 			return false;
 
 		return lineOf(start) <= zeroBasedLine && zeroBasedLine <= lineOf(end);
 	}
 
-	private boolean isTypeKind(final Map<String, Object> node) {
-		final Object kind = node.get("kind");
-		final long kindCode = kind instanceof Number ? ((Number) kind).longValue() : -1;
+	private boolean isTypeKind(final Truc node) {
+		final long kindCode = node.getAsLongOrMinusOn("kind", -1);
 		return TYPE_SYMBOL_KINDS.contains((int) kindCode);
 	}
 
-	private Map<String, Object> startOf(final Object range) {
-		final Map<String, Object> asMap = range instanceof Map ? castToMap(range) : null;
-		final Object start = asMap == null ? null : asMap.get("start");
+	private Truc startOf(final Object range) {
+		final Truc asMap = range instanceof Map ? castToMap(range) : null;
+		final Object start = asMap == null ? null : asMap.getString("start");
 		return start instanceof Map ? castToMap(start) : null;
 	}
 
-	private int lineOf(final Map<String, Object> position) {
-		return position.get("line") instanceof Number ? ((Number) position.get("line")).intValue() : -1;
+	private int lineOf(final Truc position) {
+		return (int) position.getAsLongOrMinusOn("line", -1);
 	}
 
-	private int characterOf(final Map<String, Object> position) {
-		return position.get("character") instanceof Number ? ((Number) position.get("character")).intValue() : 0;
+	private int characterOf(final Truc position) {
+		return (int) position.getAsLongOrMinusOn("character", 0);
 	}
 
-	private String uriOf(final Map<String, Object> location) {
-		final Object uri = location.get("uri") != null ? location.get("uri") : location.get("targetUri");
+	private String uriOf(final Truc location) {
+		final Object uri = location.getString("uri") != null ? location.getString("uri") : location.getString("targetUri");
 		return uri instanceof String ? (String) uri : null;
 	}
 
-	private Map<String, Object> rangeOf(final Map<String, Object> location) {
-		final Object range = location.get("range") != null ? location.get("range")
-				: location.get("targetSelectionRange");
+	private Truc rangeOf(final Truc location) {
+		final Object range = location.getString("range") != null ? location.getString("range")
+				: location.getString("targetSelectionRange");
 		return range instanceof Map ? castToMap(range) : null;
 	}
 
 	/** "uri:line" - identity of a location for de-duplication purposes. */
-	private String locationKey(final Map<String, Object> location) {
-		final Map<String, Object> start = startOf(rangeOf(location));
+	private String locationKey(final Truc location) {
+		final Truc start = startOf(rangeOf(location));
 		return uriOf(location) + ":" + (start == null ? -1 : lineOf(start));
 	}
 
-	/** Same shapes formatLocations() accepts (Location, Location[], null), left raw. */
+	/**
+	 * Same shapes formatLocations() accepts (Location, Location[], null), left raw.
+	 */
 	@SuppressWarnings("unchecked")
-	private List<Map<String, Object>> rawLocations(final Object result) {
-		final List<Object> items;
+	private List<Truc> rawLocations(final Object result) {
+		final List<Truc> items;
 		if (result instanceof List)
-			items = (List<Object>) result;
+			items = (List<Truc>) result;
 		else if (result instanceof Map)
-			items = List.of(result);
+			items = List.of(Truc.fromMap((Map<String, Object>) result));
 		else
 			items = List.of();
 
-		final List<Map<String, Object>> locations = new ArrayList<>();
+		final List<Truc> locations = new ArrayList<>();
 		for (final Object item : items)
 			if (item instanceof Map)
 				locations.add(castToMap(item));
@@ -764,8 +768,11 @@ public class JdtlsSession {
 		return locations;
 	}
 
-	/** textDocument/position request params, for a position already resolved by Symbol.parse(). */
-	private Map<String, Object> positionParams(final Path file, final int oneBasedLine, final int column) {
+	/**
+	 * textDocument/position request params, for a position already resolved by
+	 * Symbol.parse().
+	 */
+	private Truc positionParams(final Path file, final int oneBasedLine, final int column) {
 		return positionParams(file, oneBasedLine, column, null);
 	}
 
@@ -774,42 +781,40 @@ public class JdtlsSession {
 	 * request params when non-null - see the context-taking goToPosition()
 	 * overload.
 	 */
-	private Map<String, Object> positionParams(final Path file, final int oneBasedLine, final int column,
-			final Map<String, Object> context) {
-		final Map<String, Object> textDocument = new LinkedHashMap<>();
-		textDocument.put("uri", file.toUri().toString());
-		final Map<String, Object> position = new LinkedHashMap<>();
-		position.put("line", oneBasedLine - 1);
-		position.put("character", column);
-		final Map<String, Object> params = new LinkedHashMap<>();
-		params.put("textDocument", textDocument);
-		params.put("position", position);
+	private Truc positionParams(final Path file, final int oneBasedLine, final int column, final Truc context) {
+		final Truc textDocument = new Truc();
+		textDocument.putString("uri", file.toUri().toString());
+		final Truc position = new Truc();
+		position.putLong("line", oneBasedLine - 1);
+		position.putLong("character", column);
+		final Truc params = new Truc();
+		params.putTruc("textDocument", textDocument);
+		params.putTruc("position", position);
 		if (context != null)
-			params.put("context", context);
+			params.putTruc("context", context);
 		return params;
 	}
 
 	/**
-	 * workspace/symbol: finds symbols by name anywhere in the project - the
-	 * lookup goto_* itself needs a file+line to already know. Matching (fuzzy,
-	 * camelCase, exact - whatever jdtls itself implements) is entirely up to the
-	 * server; clide sends query as-is and applies no filtering of its own on the
-	 * results.
+	 * workspace/symbol: finds symbols by name anywhere in the project - the lookup
+	 * goto_* itself needs a file+line to already know. Matching (fuzzy, camelCase,
+	 * exact - whatever jdtls itself implements) is entirely up to the server; clide
+	 * sends query as-is and applies no filtering of its own on the results.
 	 *
 	 * Returns one "[kind] path:line: line content" entry per symbol in the
-	 * response, in server order - see formatSymbol(); an empty list if the
-	 * response was empty/null.
+	 * response, in server order - see formatSymbol(); an empty list if the response
+	 * was empty/null.
 	 */
 	public List<String> findSymbol(final String query)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final Map<String, Object> params = new LinkedHashMap<>();
-		params.put("query", query);
+		final Truc params = new Truc();
+		params.putString("query", query);
 
-		final Map<String, Object> response = client.request("workspace/symbol", params, 30);
+		final Truc response = client.request("workspace/symbol", params, 30);
 		if (response.containsKey("error"))
-			throw new IOException("workspace/symbol failed: " + response.get("error"));
+			throw new IOException("workspace/symbol failed: " + response.getString("error"));
 
-		return formatSymbols(response.get("result"));
+		return formatSymbols(response.getString("result"));
 	}
 
 	/** Accepts either a SymbolInformation[], or null/absent. */
@@ -819,8 +824,8 @@ public class JdtlsSession {
 
 		final List<String> formatted = new ArrayList<>();
 		for (final Object item : rawSymbols)
-			if (item instanceof Map)
-				formatted.add(formatSymbol((Map<String, Object>) item));
+			if (item instanceof Truc)
+				formatted.add(formatSymbol((Truc) item));
 
 		return formatted;
 	}
@@ -832,37 +837,36 @@ public class JdtlsSession {
 	 * find_declaration/find_implementation.
 	 */
 	@SuppressWarnings("unchecked")
-	private String formatSymbol(final Map<String, Object> symbol) {
-		final Map<String, Object> location = (Map<String, Object>) symbol.get("location");
-		final String locationText = location == null ? String.valueOf(symbol.get("name")) + ": <no location>"
+	private String formatSymbol(final Truc symbol) {
+		final Truc location = symbol.getTruc("location");
+		final String locationText = location == null ? String.valueOf(symbol.getString("name")) + ": <no location>"
 				: formatLocation(location);
 
-		return "[" + symbolKindLabel(symbol.get("kind")) + "] " + locationText;
+		return "[" + symbolKindLabel(symbol.getString("kind")) + "] " + locationText;
 	}
 
 	/**
 	 * Human label for an LSP SymbolKind code - only the kinds a Java source file
-	 * can actually produce are named individually, everything else (there
-	 * shouldn't be any, in practice) falls back to "symbol" rather than a bare
-	 * number.
+	 * can actually produce are named individually, everything else (there shouldn't
+	 * be any, in practice) falls back to "symbol" rather than a bare number.
 	 */
 	private String symbolKindLabel(final Object kind) {
 		final long code = kind instanceof Number ? ((Number) kind).longValue() : 0;
 		return switch ((int) code) {
-			case 4 -> "package";
-			case 5 -> "class";
-			case 6 -> "method";
-			case 7 -> "property";
-			case 8 -> "field";
-			case 9 -> "constructor";
-			case 10 -> "enum";
-			case 11 -> "interface";
-			case 12 -> "function";
-			case 13 -> "variable";
-			case 14 -> "constant";
-			case 22 -> "enum member";
-			case 23 -> "struct";
-			default -> "symbol";
+		case 4 -> "package";
+		case 5 -> "class";
+		case 6 -> "method";
+		case 7 -> "property";
+		case 8 -> "field";
+		case 9 -> "constructor";
+		case 10 -> "enum";
+		case 11 -> "interface";
+		case 12 -> "function";
+		case 13 -> "variable";
+		case 14 -> "constant";
+		case 22 -> "enum member";
+		case 23 -> "struct";
+		default -> "symbol";
 		};
 	}
 
@@ -875,7 +879,10 @@ public class JdtlsSession {
 	 */
 	private static final List<Integer> TYPE_SYMBOL_KINDS = List.of(5, 10, 11, 23);
 
-	/** Best-effort cast to List<Object>, empty if value isn't one (missing/null result, wrong shape, ...). */
+	/**
+	 * Best-effort cast to List<Object>, empty if value isn't one (missing/null
+	 * result, wrong shape, ...).
+	 */
 	@SuppressWarnings("unchecked")
 	private List<Object> asList(final Object value) {
 		return value instanceof List ? (List<Object>) value : List.of();
@@ -889,17 +896,16 @@ public class JdtlsSession {
 	 * Returns the first match found (depth-first), or null.
 	 */
 	@SuppressWarnings("unchecked")
-	private Map<String, Object> findTypeNode(final List<Object> nodes, final String name, final int zeroBasedLine) {
+	private Truc findTypeNode(final List<Object> nodes, final String name, final int zeroBasedLine) {
 		for (final Object item : nodes) {
 			if (item instanceof Map == false)
 				continue;
 
-			final Map<String, Object> node = (Map<String, Object>) item;
+			final Truc node = Truc.fromMap((Map<String, Object>) item);
 			if (isMatchingTypeNode(node, name, zeroBasedLine))
 				return node;
 
-			final Map<String, Object> foundInChildren = findTypeNode(asList(node.get("children")), name,
-					zeroBasedLine);
+			final Truc foundInChildren = findTypeNode(asList(node.getString("children")), name, zeroBasedLine);
 			if (foundInChildren != null)
 				return foundInChildren;
 		}
@@ -907,8 +913,8 @@ public class JdtlsSession {
 	}
 
 	@SuppressWarnings("unchecked")
-	private boolean isMatchingTypeNode(final Map<String, Object> node, final String name, final int zeroBasedLine) {
-		final Object kind = node.get("kind");
+	private boolean isMatchingTypeNode(final Truc node, final String name, final int zeroBasedLine) {
+		final Object kind = node.getString("kind");
 		final long kindCode = kind instanceof Number ? ((Number) kind).longValue() : -1;
 		if (TYPE_SYMBOL_KINDS.contains((int) kindCode) == false)
 			return false;
@@ -917,18 +923,19 @@ public class JdtlsSession {
 		// bare name - Symbol.parse() matched it as a whole word on the line. An
 		// equals() on the raw name therefore never matched a generic type, and
 		// list_members failed on every one of them.
-		if (name.equals(withoutTypeParameters(node.get("name"))) == false)
+		if (name.equals(withoutTypeParameters(node.getString("name"))) == false)
 			return false;
 
-		final Map<String, Object> selectionRange = (Map<String, Object>) node.get("selectionRange");
-		final Map<String, Object> start = selectionRange == null ? null
-				: (Map<String, Object>) selectionRange.get("start");
-		final long line = start != null && start.get("line") instanceof Number ? ((Number) start.get("line")).longValue()
-				: -1;
+		final Truc selectionRange = node.getTruc("selectionRange");
+		final Truc start = selectionRange == null ? null : selectionRange.getTruc("start");
+		final long line = start != null ? start.getAsLongOrMinusOn("line", -1) : -1;
 		return line == zeroBasedLine;
 	}
 
-	/** "AbstractUGraphic&lt;O&gt;" -&gt; "AbstractUGraphic"; null unless rawName is a String. */
+	/**
+	 * "AbstractUGraphic&lt;O&gt;" -&gt; "AbstractUGraphic"; null unless rawName is
+	 * a String.
+	 */
 	private String withoutTypeParameters(final Object rawName) {
 		if (rawName instanceof String == false)
 			return null;
@@ -955,17 +962,17 @@ public class JdtlsSession {
 	 * synthetic {"uri":..., "range":...} map lets formatLocation() render it
 	 * exactly the same way regardless.
 	 */
-	private String formatMember(final String uri, final Map<String, Object> member) {
-		final Map<String, Object> location = new LinkedHashMap<>();
-		location.put("uri", uri);
-		location.put("range", member.get("selectionRange"));
+	private String formatMember(final String uri, final Truc member) {
+		final Truc location = new Truc();
+		location.putString("uri", uri);
+		location.putString("range", member.getString("selectionRange"));
 
-		return "[" + symbolKindLabel(member.get("kind")) + "] " + formatLocation(location);
+		return "[" + symbolKindLabel(member.getString("kind")) + "] " + formatLocation(location);
 	}
 
 	@SuppressWarnings("unchecked")
-	private Map<String, Object> castToMap(final Object value) {
-		return (Map<String, Object>) value;
+	private Truc castToMap(final Object value) {
+		return Truc.fromMap((Map<String, Object>) value);
 	}
 
 	/**
@@ -978,7 +985,7 @@ public class JdtlsSession {
 		if (result instanceof Map == false)
 			return "<no hover info>";
 
-		final String text = hoverText(castToMap(result).get("contents"));
+		final String text = hoverText(castToMap(result).getString("contents"));
 		return text == null || text.isBlank() ? "<no hover info>" : text.strip();
 	}
 
@@ -988,7 +995,7 @@ public class JdtlsSession {
 			return (String) contents;
 
 		if (contents instanceof Map) {
-			final Object value = castToMap(contents).get("value");
+			final Object value = castToMap(contents).getString("value");
 			return value == null ? null : value.toString();
 		}
 
@@ -1024,8 +1031,8 @@ public class JdtlsSession {
 
 		final List<String> formatted = new ArrayList<>();
 		for (final Object item : rawLocations)
-			if (item instanceof Map)
-				formatted.add(formatLocation((Map<String, Object>) item));
+			if (item instanceof Truc)
+				formatted.add(formatLocation((Truc) item));
 
 		return formatted;
 	}
@@ -1036,17 +1043,17 @@ public class JdtlsSession {
 	 * (uri/range) - harmless either way since only one shape is ever populated.
 	 */
 	@SuppressWarnings("unchecked")
-	private String formatLocation(final Map<String, Object> location) {
-		final String uri = location.get("uri") != null ? (String) location.get("uri")
-				: (String) location.get("targetUri");
-		final Map<String, Object> range = location.get("range") != null ? (Map<String, Object>) location.get("range")
-				: (Map<String, Object>) location.get("targetSelectionRange");
+	private String formatLocation(final Truc location) {
+		final String uri = location.getString("uri") != null ? (String) location.getString("uri")
+				: (String) location.getString("targetUri");
+		final Truc range = location.getTruc("range") != null ? location.getTruc("range")
+				: location.getTruc("targetSelectionRange");
 
 		long line = -1;
 		if (range != null) {
-			final Map<String, Object> start = (Map<String, Object>) range.get("start");
-			if (start != null && start.get("line") instanceof Number)
-				line = ((Number) start.get("line")).longValue() + 1;
+			final Truc start = range.getTruc("start");
+			if (start != null && start.getAsLongOrMinusOn("line", -1) != -1)
+				line = start.getAsLongOrMinusOn("line", -1) + 1;
 
 		}
 
@@ -1084,19 +1091,19 @@ public class JdtlsSession {
 			return;
 		}
 
-		final Map<String, List<Map<String, Object>>> sorted = new TreeMap<>(diagnosticsByUri);
+		final Map<String, List<Truc>> sorted = new TreeMap<>(diagnosticsByUri);
 		int errorCount = 0;
 		int warningCount = 0;
 		int filesWithIssues = 0;
-		for (final Map.Entry<String, List<Map<String, Object>>> entry : sorted.entrySet()) {
-			final List<Map<String, Object>> diagnostics = entry.getValue();
+		for (final Map.Entry<String, List<Truc>> entry : sorted.entrySet()) {
+			final List<Truc> diagnostics = entry.getValue();
 			if (diagnostics.isEmpty())
 				continue;
 
 			filesWithIssues++;
 			boolean headerPrinted = false;
-			for (final Map<String, Object> diagnostic : diagnostics) {
-				final Object severity = diagnostic.get("severity");
+			for (final Truc diagnostic : diagnostics) {
+				final Object severity = diagnostic.getString("severity");
 				final long severityCode = severity instanceof Number ? ((Number) severity).longValue() : 0;
 				if (severityCode == 1)
 					errorCount++;
@@ -1123,19 +1130,19 @@ public class JdtlsSession {
 	}
 
 	@SuppressWarnings("unchecked")
-	private String formatDiagnostic(final Map<String, Object> diagnostic) {
-		final Object severity = diagnostic.get("severity");
+	private String formatDiagnostic(final Truc diagnostic) {
+		final Object severity = diagnostic.getString("severity");
 		final long severityCode = severity instanceof Number ? ((Number) severity).longValue() : 0;
 		final String severityLabel = severityCode == 1 ? "error" : severityCode == 2 ? "warning" : "info";
-		final Map<String, Object> range = (Map<String, Object>) diagnostic.get("range");
+		final Truc range = diagnostic.getTruc("range");
 		long line = -1;
 		if (range != null) {
-			final Map<String, Object> start = (Map<String, Object>) range.get("start");
-			if (start != null && start.get("line") instanceof Number)
-				line = ((Number) start.get("line")).longValue() + 1;
+			final Truc start = range.getTruc("start");
+			if (start != null && start.getAsLongOrMinusOn("line", -1) != -1)
+				line = start.getAsLongOrMinusOn("line", -1) + 1;
 
 		}
-		return "[" + severityLabel + "] line " + line + ": " + diagnostic.get("message");
+		return "[" + severityLabel + "] line " + line + ": " + diagnostic.getString("message");
 	}
 
 	private String shortName(final String uri) {
@@ -1156,7 +1163,7 @@ public class JdtlsSession {
 		if (client != null && ready) {
 			try {
 				client.request("shutdown", null, 5);
-				client.notify("exit", new LinkedHashMap<>());
+				client.notify("exit", new Truc());
 			} catch (final Exception e) {
 				// best effort - fall through to hard stop below
 			}
@@ -1170,17 +1177,17 @@ public class JdtlsSession {
 	private void processNotifications() {
 		try {
 			while (true) {
-				final Map<String, Object> notification = client.notifications().take();
-				final Object method = notification.get("method");
+				final Truc notification = client.notifications().take();
+				final Object method = notification.getString("method");
 				if ("textDocument/publishDiagnostics".equals(method)) {
-					final Map<String, Object> params = (Map<String, Object>) notification.get("params");
+					final Truc params = notification.getTruc("params");
 					if (params != null) {
-						final String uri = (String) params.get("uri");
+						final String uri = (String) params.getString("uri");
 						final List<Object> rawDiagnostics = (List<Object>) params.getOrDefault("diagnostics",
 								List.of());
-						final List<Map<String, Object>> diagnostics = new ArrayList<>();
+						final List<Truc> diagnostics = new ArrayList<>();
 						for (final Object item : rawDiagnostics)
-							diagnostics.add((Map<String, Object>) item);
+							diagnostics.add(Truc.fromMap((Map<String, Object>) item));
 
 						diagnosticsByUri.put(uri, diagnostics);
 					}
@@ -1200,55 +1207,55 @@ public class JdtlsSession {
 		Thread.sleep(TimeUnit.SECONDS.toMillis(Math.min(timeoutSeconds, 15)));
 	}
 
-	private Map<String, Object> initializeParams() {
+	private Truc initializeParams() {
 		final String rootUri = projectUri();
 
-		final Map<String, Object> workspaceFolder = new LinkedHashMap<>();
-		workspaceFolder.put("uri", rootUri);
-		workspaceFolder.put("name", projectRoot.getFileName().toString());
+		final Truc workspaceFolder = new Truc();
+		workspaceFolder.putString("uri", rootUri);
+		workspaceFolder.putString("name", projectRoot.getFileName().toString());
 
-		final Map<String, Object> gradleSettings = new LinkedHashMap<>();
-		gradleSettings.put("enabled", false);
-		final Map<String, Object> mavenSettings = new LinkedHashMap<>();
-		mavenSettings.put("enabled", false);
-		final Map<String, Object> importSettings = new LinkedHashMap<>();
-		importSettings.put("gradle", gradleSettings);
-		importSettings.put("maven", mavenSettings);
+		final Truc gradleSettings = new Truc();
+		gradleSettings.putBoolean("enabled", false);
+		final Truc mavenSettings = new Truc();
+		mavenSettings.putBoolean("enabled", false);
+		final Truc importSettings = new Truc();
+		importSettings.putTruc("gradle", gradleSettings);
+		importSettings.putTruc("maven", mavenSettings);
 		// Without this, workspace/symbol (and so find_symbol) only ever returns
 		// types (classes/interfaces/enums/records/annotations), never methods -
 		// confirmed empirically (see CLAUDE.md, "Capacites de jdtls"). Does NOT
 		// cover fields: jdtls has no field search in workspace/symbol at all,
 		// with or without this setting.
-		final Map<String, Object> symbolsSettings = new LinkedHashMap<>();
-		symbolsSettings.put("includeSourceMethodDeclarations", true);
-		final Map<String, Object> javaSettings = new LinkedHashMap<>();
-		javaSettings.put("import", importSettings);
-		javaSettings.put("symbols", symbolsSettings);
-		final Map<String, Object> settings = new LinkedHashMap<>();
-		settings.put("java", javaSettings);
-		final Map<String, Object> initializationOptions = new LinkedHashMap<>();
-		initializationOptions.put("settings", settings);
+		final Truc symbolsSettings = new Truc();
+		symbolsSettings.putBoolean("includeSourceMethodDeclarations", true);
+		final Truc javaSettings = new Truc();
+		javaSettings.putTruc("import", importSettings);
+		javaSettings.putTruc("symbols", symbolsSettings);
+		final Truc settings = new Truc();
+		settings.putTruc("java", javaSettings);
+		final Truc initializationOptions = new Truc();
+		initializationOptions.putTruc("settings", settings);
 
-		final Map<String, Object> publishDiagnostics = new LinkedHashMap<>();
-		publishDiagnostics.put("relatedInformation", true);
+		final Truc publishDiagnostics = new Truc();
+		publishDiagnostics.putBoolean("relatedInformation", true);
 		// Without this, jdtls has no signal that clide can handle the nested
 		// DocumentSymbol[] shape (range/selectionRange/children) and falls back to a
 		// flat SymbolInformation[] instead - which has no "children" at all, so
 		// listMembers() could never find any member.
-		final Map<String, Object> documentSymbolCapabilities = new LinkedHashMap<>();
-		documentSymbolCapabilities.put("hierarchicalDocumentSymbolSupport", true);
-		final Map<String, Object> textDocumentCapabilities = new LinkedHashMap<>();
-		textDocumentCapabilities.put("publishDiagnostics", publishDiagnostics);
-		textDocumentCapabilities.put("documentSymbol", documentSymbolCapabilities);
-		final Map<String, Object> capabilities = new LinkedHashMap<>();
-		capabilities.put("textDocument", textDocumentCapabilities);
+		final Truc documentSymbolCapabilities = new Truc();
+		documentSymbolCapabilities.putBoolean("hierarchicalDocumentSymbolSupport", true);
+		final Truc textDocumentCapabilities = new Truc();
+		textDocumentCapabilities.putTruc("publishDiagnostics", publishDiagnostics);
+		textDocumentCapabilities.putTruc("documentSymbol", documentSymbolCapabilities);
+		final Truc capabilities = new Truc();
+		capabilities.putTruc("textDocument", textDocumentCapabilities);
 
-		final Map<String, Object> params = new LinkedHashMap<>();
-		params.put("processId", null);
-		params.put("rootUri", rootUri);
-		params.put("workspaceFolders", List.of(workspaceFolder));
-		params.put("capabilities", capabilities);
-		params.put("initializationOptions", initializationOptions);
+		final Truc params = new Truc();
+		params.putNull("processId");
+		params.putString("rootUri", rootUri);
+		params.putList("workspaceFolders", List.of(workspaceFolder));
+		params.putTruc("capabilities", capabilities);
+		params.putTruc("initializationOptions", initializationOptions);
 		return params;
 	}
 

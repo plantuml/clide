@@ -18,9 +18,9 @@ public final class Json {
 	// Writing
 	// ------------------------------------------------------------------
 
-	public static String write(final Object value) {
+	public static String writeTruc(final Truc value) {
 		final StringBuilder out = new StringBuilder();
-		writeValue(value, out);
+		writeValue(value.getInternalMap(), out);
 		return out.toString();
 	}
 
@@ -34,6 +34,8 @@ public final class Json {
 			out.append(value.toString());
 		else if (value instanceof Map)
 			writeObject((Map<String, Object>) value, out);
+		else if (value instanceof Truc)
+			writeObject(((Truc) value).getInternalMap(), out);
 		else if (value instanceof List)
 			writeArray((List<Object>) value, out);
 		else

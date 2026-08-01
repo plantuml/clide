@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -24,8 +23,8 @@ public class LspClient {
 	private final OutputStream serverInput;
 	private final InputStream serverOutput;
 	private final AtomicLong nextId = new AtomicLong(1);
-	private final Map<Long, BlockingQueue<Map<String, Object>>> pendingResponses = new ConcurrentHashMap<>();
-	private final BlockingQueue<Map<String, Object>> notifications = new ArrayBlockingQueue<>(1000);
+	private final Map<Long, BlockingQueue<Truc>> pendingResponses = new ConcurrentHashMap<>();
+	private final BlockingQueue<Truc> notifications = new ArrayBlockingQueue<>(1000);
 	private final Thread readerThread;
 	private volatile boolean closed;
 
@@ -41,21 +40,21 @@ public class LspClient {
 	// Outgoing
 	// ------------------------------------------------------------------
 
-	public Map<String, Object> request(final String method, final Object params, final long timeoutSeconds)
+	public Truc request(final String method, final Object params, final long timeoutSeconds)
 			throws IOException, InterruptedException, TimeoutException {
 		final long id = nextId.getAndIncrement();
-		final BlockingQueue<Map<String, Object>> queue = new ArrayBlockingQueue<>(1);
+		final BlockingQueue<Truc> queue = new ArrayBlockingQueue<>(1);
 		pendingResponses.put(id, queue);
 
-		final Map<String, Object> message = new LinkedHashMap<>();
-		message.put("jsonrpc", "2.0");
-		message.put("id", id);
-		message.put("method", method);
-		message.put("params", params);
+		final Truc message = new Truc();
+		message.putString("jsonrpc", "2.0");
+		message.putLong("id", id);
+		message.putString("method", method);
+		message.putObject("params", params);
 		send(message);
 
 		try {
-			final Map<String, Object> response = queue.poll(timeoutSeconds, TimeUnit.SECONDS);
+			final Truc response = queue.poll(timeoutSeconds, TimeUnit.SECONDS);
 			if (response == null)
 				throw new TimeoutException(
 						"No response for " + method + " (id=" + id + ") after " + timeoutSeconds + "s");
@@ -66,16 +65,16 @@ public class LspClient {
 		}
 	}
 
-	public void notify(final String method, final Object params) throws IOException {
-		final Map<String, Object> message = new LinkedHashMap<>();
-		message.put("jsonrpc", "2.0");
-		message.put("method", method);
-		message.put("params", params);
+	public void notify(final String method, final Truc params) throws IOException {
+		final Truc message = new Truc();
+		message.putString("jsonrpc", "2.0");
+		message.putString("method", method);
+		message.putTruc("params", params);
 		send(message);
 	}
 
-	private synchronized void send(final Map<String, Object> message) throws IOException {
-		final byte[] body = Json.write(message).getBytes(StandardCharsets.UTF_8);
+	private synchronized void send(final Truc message) throws IOException {
+		final byte[] body = Json.writeTruc(message).getBytes(StandardCharsets.UTF_8);
 		final String header = "Content-Length: " + body.length + "\r\n\r\n";
 		serverInput.write(header.getBytes(StandardCharsets.UTF_8));
 		serverInput.write(body);
@@ -87,7 +86,7 @@ public class LspClient {
 	// ------------------------------------------------------------------
 
 	/** Notifications received from the server (method + params), FIFO order. */
-	public BlockingQueue<Map<String, Object>> notifications() {
+	public BlockingQueue<Truc> notifications() {
 		return notifications;
 	}
 
@@ -112,7 +111,7 @@ public class LspClient {
 				if (parsed instanceof Map == false)
 					continue;
 
-				final Map<String, Object> message = (Map<String, Object>) parsed;
+				final Truc message = Truc.fromMap((Map<String, Object>) parsed);
 				dispatch(message);
 			}
 		} catch (final IOException e) {
@@ -120,12 +119,10 @@ public class LspClient {
 		}
 	}
 
-	private void dispatch(final Map<String, Object> message) {
+	private void dispatch(final Truc message) {
 		if (message.containsKey("id") && (message.containsKey("result") || message.containsKey("error"))) {
-			final Object idValue = message.get("id");
-			final long id = idValue instanceof Number ? ((Number) idValue).longValue()
-					: Long.parseLong(idValue.toString());
-			final BlockingQueue<Map<String, Object>> queue = pendingResponses.get(id);
+			final long id = message.getAsLongOrMinusOn("id", -1);
+			final BlockingQueue<Truc> queue = pendingResponses.get(id);
 			if (queue != null)
 				queue.offer(message);
 
