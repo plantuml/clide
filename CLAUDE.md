@@ -23,6 +23,11 @@ Ce qui compte réellement, par ordre de priorité :
    interface, où est la vraie définition — typiquement via un moteur comme
    Eclipse JDT Language Server (jdtls), piloté en ligne de commande.
 
+État de ces trois points : le 1 est couvert par la commande `rebuild` (non
+détaillée dans ce document — voir `TESTS.md`, campagne 3), le 2 par
+`run_test`/`run_tests` (voir « Lancer les tests du projet ouvert » plus bas),
+le 3 par les commandes `find_*`/`hover`/`list_members`.
+
 ## Conventions de code
 
 - Indentation : tabulations, pas d'espaces.
@@ -53,7 +58,12 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
   marqueur `__CREATED_BY_JAVA_LANGUAGE_SERVER__` dans le filtre du `.project`
   généré) — dossiers sources détectés depuis l'arborescence (`src/main/java`,
   `src/main/resources`, `src/test/...`), et chaque jar déposé dans `.clide/`
-  à la racine du projet ajouté comme bibliothèque. Le daemon le signale dans
+  à la racine du projet ajouté comme bibliothèque. Les dossiers de test
+  (`src/test/java`, `src/test/resources`) sont marqués `test="true"` et
+  reçoivent leur propre dossier de sortie `bin/test`, le code de production
+  allant dans le `bin/main` par défaut — voir « Le `.classpath` généré et les
+  dossiers de test » plus bas, où l'on explique pourquoi ce détail n'en est
+  pas un. Le daemon le signale dans
   sa trace de démarrage : `(4/4) Building project ... [OK] (generated
   .project/.classpath from src/**/java and .clide/*.jar)` — la ligne reste un
   simple `[OK]` quand les fichiers existaient déjà. Vérifié sur PlantUML —
@@ -237,6 +247,19 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
     lui-même) ; `list_members` sur ce même `Command` renvoie exactement ses 8
     méthodes déclarées, dans l'ordre du fichier, aucun faux positif/négatif
     (la classe n'a aucun champ — cohérent avec le résultat).
+
+  - `run_test <symbole>` → lance le test que `symbole` désigne : toute la
+    classe quand `symbole` nomme la classe de test, cette seule méthode
+    sinon. Prend un `ParamType.SYMBOL` plutôt qu'un nom de classe pleinement
+    qualifié, pour que la réponse de `find_symbol` se recopie sans retouche —
+    l'enchaînement « résultat → commande suivante » que `TESTS.md` identifie
+    comme le point fort de l'outil. Voir « Lancer les tests du projet
+    ouvert ».
+  - `run_tests <all|failures>` → lance tous les tests du projet. `failures`
+    ne liste que les tests en échec (sur une suite de taille réelle, c'est la
+    seule partie lisible) ; toute autre valeur liste tout. Les totaux sont
+    affichés dans les deux cas — même convention littérale que `rebuild` et
+    `print_diagnostics`.
 
 ### Harmonisation find_declaration/find_reference/find_implementation (remplace goto_*)
 
@@ -633,6 +656,179 @@ Build :
 ```
 puis taper `help` au prompt.
 
+### Tests unitaires de clide (`ant test`)
+
+À ne pas confondre avec `run_test`/`run_tests`, qui lancent les tests **du
+projet ouvert par clide**. Ici il s'agit des tests de clide lui-même.
+
+- Sources dans `src/test/java`, JUnit 5 (Jupiter 5.10.1). Les jars sont
+  **commités dans `lib/`** plutôt que téléchargés : Maven Central n'est pas
+  accessible depuis la sandbox Claude (voir « Contrainte réseau »), et le
+  principe est le même que pour l'archive jdtls — ce qui est commité est
+  disponible partout. `scripts/fetch_junit.py` les récupère ou les rafraîchit
+  (bibliothèque standard seule, empreinte SHA-1 vérifiée, idempotent).
+- `ant test` compile puis exécute tout ; `ant test -Dtest=<FQCN>` une seule
+  classe. `ant help` documente les cibles et les options.
+- Le lanceur est `junit-platform-console-standalone`, présent dans `lib/`. Il
+  repackage toute la plateforme JUnit, donc il est volontairement **exclu** du
+  classpath de compilation des tests (sinon chaque classe JUnit s'y trouverait
+  en double, avec deux versions en concurrence) et il est le **seul** jar
+  JUnit du classpath d'exécution.
+- Un piège d'encodage, spécifique à Ant : Ant re-journalise la sortie du JVM
+  qu'il forke à travers son propre `PrintStream`, construit sur le charset du
+  JVM d'Ant. Un enfant en UTF-8 sort donc quand même en `?` si Ant lui-même
+  n'a pas démarré en UTF-8. D'où un thème ASCII par défaut, et
+  `ANT_OPTS=-Dstdout.encoding=UTF-8 ant test -Dtest.theme=unicode` pour le
+  rendu complet.
+
+Deux conventions se sont dégagées en écrivant ces tests, et elles valent
+d'être suivies :
+
+**Un oracle externe plutôt que le comportement observé.** Les attendus de
+`UnifiedDiffTest` sont la sortie de `diff -u` de GNU diffutils sur les mêmes
+entrées, relevée et collée telle quelle. `UnifiedDiff` s'est révélé identique
+octet pour octet, cas limites du format compris (`@@ -0,0`, fusion de deux
+hunks séparés par exactement `2*CONTEXT` lignes). Ces tests ne gravent donc
+pas des conventions maison : un écart futur est un bug, pas un choix.
+
+**Vérifier que les tests servent à quelque chose.** « Ils passent » ne dit
+rien. On injecte des bugs délibérés dans le code testé et on regarde si la
+suite les attrape. C'est ce qui a démasqué un test de `TestSelector` qui
+passait pour une mauvaise raison : il vérifiait qu'un en-tête de licence ne se
+fait pas passer pour la déclaration `package`, mais les lignes d'un en-tête
+commencent par ` * `, que l'ancrage `^\s*package` écarte déjà — le mécanisme
+qu'on croyait tester (l'effacement des commentaires) pouvait être supprimé
+sans faire échouer quoi que ce soit. Le seul cas qui trompe réellement
+l'expression régulière est un `package` commenté **en colonne 0**, et c'est
+lui qu'il fallait écrire.
+
+### Le `.classpath` généré et les dossiers de test
+
+`JdtlsSession.buildDotClasspath()` marque les dossiers de test `test="true"`
+et leur donne leur propre sortie, comme le ferait `gradlew eclipse` :
+
+```xml
+<classpathentry kind="src" path="src/main/java"/>
+<classpathentry kind="src" output="bin/test" path="src/test/java">
+    <attributes>
+        <attribute name="test" value="true"/>
+    </attributes>
+</classpathentry>
+<classpathentry kind="output" path="bin/main"/>
+```
+
+Sans cet attribut, JDT traite le code de test comme du code de production, et
+trois choses cassent plus loin : `java.project.isTestFile()` répond `false`
+sur un fichier qui en est manifestement un, `java.project.getClasspaths()`
+renvoie strictement la même chose pour les scopes `test` et `runtime`, et tous
+les `.class` atterrissent dans un dossier unique sans moyen de distinguer les
+tests du reste. Mesuré avant/après sur un projet cible :
+
+| | avant | après |
+|---|---|---|
+| `isTestFile` sur un test | `false` | `true` |
+| scope `test` | `bin` + jars | `bin/test` + `bin/main` + jars |
+| scope `runtime` | identique au précédent | `bin/main` + jars |
+
+**Le code de production n'a pas d'attribut `output=`** : il va dans la sortie
+par défaut, déclarée `bin/main`. Nommer un troisième dossier (`bin/default`,
+comme le fait Gradle) déclare une sortie où rien n'est jamais écrit — et
+`getClasspaths()` rapporte alors un dossier de sortie jamais créé comme un
+chemin de workspace Eclipse (`/projet/bin/default`) au lieu d'un chemin de
+fichier, soit une entrée bidon à filtrer dans chaque classpath pour toujours.
+Constaté en sondant, pas déduit en lisant.
+
+Les jars de `.clide/` restent non marqués, donc visibles aussi depuis le code
+de production : rien ici ne sait distinguer une dépendance de test d'une vraie,
+et se tromper dans ce sens fait juste rater le signalement d'un import
+douteux, alors que se tromper dans l'autre casserait une compilation qui
+marchait.
+
+**Attention** : `ensureDotFilesPresent()` n'écrit que si le fichier manque. Un
+projet déjà ouvert par clide garde son ancien `.classpath` — il faut le
+supprimer pour obtenir le nouveau.
+
+### Lancer les tests du projet ouvert (`run_test`, `run_tests`)
+
+C'est la priorité n°2 du projet. Aucun build system n'est sollicité : jdtls
+connaît déjà le classpath de test du projet (il vient de le compiler), donc
+clide forke un JVM sur ce classpath **plus son propre jar** — qui embarque la
+plateforme JUnit, les deux moteurs et le lanceur. Gradle ou Maven voudraient
+dire un démon à réveiller et un build system à détecter ; ici c'est un
+démarrage de processus.
+
+C'est aussi la deuxième raison d'être du fat-jar : `clide.jar` contient
+`junit-platform-console-standalone`, donc le moteur de test est déjà là, sans
+rien demander au projet cible.
+
+**Découpage.** `clide.test.TestRunnerMain` tourne dans le JVM forké et parle un
+protocole de lignes volontairement bête (`SUMMARY`/`PASS`/`FAIL`/`SKIP`/
+`NOCLASS`, champs séparés par tabulation et échappés) vers clide — c'est clide
+qui a jdtls sous la main pour résoudre un chemin, pas lui.
+`clide.test.ProjectTests` compose le classpath, forke, lit et met en forme.
+`clide.test.TestSelector` traduit la notation `chemin:ligne:nom` en sélecteur
+— logique pure, donc testable sans montage.
+
+**Format de sortie**, le même `chemin:ligne:` que toutes les commandes
+`find_*`, pour que chaque ligne se recopie dans `hover` ou `find_reference` :
+
+```
+run_test: 4 test(s), 2 passed, 2 failed in 570 ms
+[failed] src/test/java/demo/CalcTest.java:22: deliberatelyFails
+    expected: <99> but was: <5>
+[passed] demo.CalcTest.addWorks
+[failed] src/test/java/demo/CalcTest.java:27: deliberatelyBlowsUp
+    java.lang.ArithmeticException: / by zero
+    thrown at src/main/java/demo/Calc.java:9
+```
+
+Le `thrown at` vient de `java.project.resolveStackTraceLocation` : quand
+l'exception ne vient pas de la ligne du test, les deux endroits sont nommés.
+
+**Décisions prises, et pourquoi.**
+
+- *Ordre du classpath* : le projet d'abord, `clide.jar` en dernier. Un projet
+  qui embarque son propre JUnit garde le sien ; clide ne fournit que ce qui
+  manque.
+- *Pas de recompilation implicite.* `run_test` rapporte l'état du dernier
+  build, pas celui des fichiers sur le disque. C'est un choix assumé (le
+  rebuild coûte 9 à 12 s sur PlantUML), mais il rend une erreur probable :
+  écrire un test puis le lancer avant `rebuild`. D'où un contrôle explicite —
+  la classe est cherchée sur le classpath avant toute découverte, et son
+  absence donne `demo.BrandNewTest is not in the compiled output - run rebuild
+  first...` plutôt que le `TestEngine with ID 'junit-jupiter' failed to
+  discover tests` de JUnit, qui envoie chercher au mauvais endroit.
+- *Zéro test trouvé est une erreur*, pas un succès vide — un sélecteur mal
+  orthographié serait sinon indiscernable d'une suite verte. Même raison que
+  le `--fail-if-no-tests` de la cible `ant test`.
+- *Timeouts* : 120 s pour `run_test`, 600 s pour `run_tests`, puis
+  `destroyForcibly()`. Le message dit explicitement qu'il s'agit d'un timeout
+  et non d'un échec de test.
+- *Découverte limitée aux dossiers de sortie du projet*, pas au classpath
+  entier : un scan complet parcourrait chaque jar, et pourrait rapporter les
+  tests d'une dépendance comme étant ceux du projet.
+- *Multi-modules refusé*, avec les modules listés. `java.project.getAll` les
+  donne ; en choisir un au hasard lancerait les tests du mauvais module et
+  rapporterait une suite propre.
+- *JUnit 3 et 4 fonctionnent* (moteur Vintage embarqué), TestNG non.
+
+**Conséquence à assumer** : `TestRunnerMain` pilote l'API Launcher, donc clide
+compile désormais contre la **plateforme** JUnit (`junit-platform-launcher`,
+`-engine`, `-commons`). Ce n'est plus de l'outillage de test mais une
+dépendance de compilation de clide — présente dans le classpath principal côté
+Ant, en `compileOnly` côté Gradle. Jupiter en est volontairement exclu, pour
+qu'un `@Test` ne s'importe pas par accident dans du code de production. La
+formule « clide, zéro dépendance » mérite désormais cette nuance.
+
+**Testé de bout en bout** sur un projet cible jetable (deux classes, quatre
+tests dont deux en échec volontaire, JUnit dans `.clide/`) : `run_test` sur la
+classe, sur une méthode qui passe, sur une méthode qui échoue ; `run_tests all`
+et `run_tests failures` ; un test tout neuf lancé sans `rebuild` (message
+explicite), puis après `rebuild` (vert) ; une méthode qui n'est pas un test
+(« no test found »). **Pas encore vérifié sur PlantUML** — il reste à
+confirmer que l'ordre du classpath tient face aux jars JUnit du projet, et que
+la suite complète reste sous les 600 s.
+
 ### jdtls (Eclipse JDT Language Server)
 
 `jdtls` n'est pas une dépendance Gradle : c'est un serveur autonome distribué
@@ -769,6 +965,42 @@ navigable « qui appelle ceci » / « qu'est-ce que ceci appelle ». Aucune
 commande clide ne l'utilise encore ; piste pour une future commande,
 distincte de `find_reference`.
 
+**jdtls expose des commandes hors LSP, via `workspace/executeCommand`** —
+enregistrées par `JDTDelegateCommandHandler` dans `org.eclipse.jdt.ls.core`.
+Trois sont utilisées par `run_test`/`run_tests` :
+
+| Commande | Signature | Ce qu'elle rend |
+|---|---|---|
+| `java.project.getClasspaths` | `(uri, {scope:"test"})` | `{projectRoot, classpaths[], modulepaths[]}` |
+| `java.project.isTestFile` | `(uri)` | `boolean` |
+| `java.project.resolveStackTraceLocation` | `(frame, projectNames)` | l'URI du fichier source |
+
+La liste complète, relevée dans le bytecode, comprend aussi
+`java.project.getAll`, `listSourcePaths`, `updateClassPaths`, `java.decompile`,
+`java.getFullyQualifiedName`, `java.edit.organizeImports`,
+`java.navigate.openTypeHierarchy`, `java.vm.getAllInstalls` — piste pour de
+futures commandes.
+
+**Piège qui vaut une heure à qui ne l'a pas lu** : un argument qui est un objet
+JSON doit être envoyé comme une *chaîne* JSON.
+
+```
+✗ arguments: [uri, {"scope":"test"}]     → -32001, Cannot read field "scope" because "options" is null
+✓ arguments: [uri, "{\"scope\":\"test\"}"]
+```
+
+jdtls passe chaque argument à `JSONUtility.toModel()`, qui comprend un
+`JsonElement`, une instance de la classe cible, ou une `String` qu'il parse
+comme du JSON — et rend `null` pour tout le reste. Or lsp4j a déjà transformé
+l'objet JSON en `Map` nue à ce moment-là. D'où le `null`, d'où le
+`NullPointerException` emballé en erreur `-32001`.
+
+**jdtls compile bien les sources de test** — vérifié : après `build()`,
+`bin/test/demo/CalcTest.class` est présent. Et la boucle d'édition est propre :
+créer un fichier de test puis `refreshChangedFiles()` + `build()` fait
+apparaître son `.class`, le supprimer le fait disparaître. Pas de `.class`
+fantôme, donc pas de test effacé qui continue de tourner.
+
 Pour mémoire, l'équivalent côté IHM Eclipse de `find_reference`/
 `find_declaration`/`find_implementation` est « Find References » / « Open
 Declaration », qui opèrent toujours à partir d'une occurrence sélectionnée
@@ -800,11 +1032,19 @@ contient de base qu'un JRE 21 sans `javac` ; il faut `apt-get update &&
 apt-get install -y openjdk-21-jdk-headless ant` avant de builder — pas encore
 persistant d'une session à l'autre.
 
+**Maven Central (`repo1.maven.org`) n'est pas accessible non plus** depuis la
+sandbox Claude — ni directement, ni via les releases GitHub du projet JUnit.
+C'est la raison pour laquelle les jars JUnit sont commités dans `lib/` plutôt
+que résolus au build : même raisonnement que pour l'archive jdtls. Côté Gradle,
+`mavenCentral()` fonctionne normalement sur une machine de développement.
+
 ## Prochaines étapes envisagées (non implémentées)
 
 - Commande de compilation d'un projet cible (ex. via Ant pour PlantUML, qui ne
   nécessite pas de téléchargement de dépendances).
-- Commande de lancement d'un test unique.
+- ~~Commande de lancement d'un test unique.~~ Faite : `run_test`/`run_tests`,
+  voir plus haut. Reste à valider sur PlantUML, et à décider si un paramètre de
+  module doit être ajouté pour les dépôts multi-modules.
 - Requêtes sémantiques supplémentaires via `JdtlsSession`/`LspClient` :
   `callHierarchy` (confirmé supporté par jdtls — voir « Capacités de jdtls »
   ci-dessus), `typeHierarchy`, etc. (`definition`/`typeDefinition`/

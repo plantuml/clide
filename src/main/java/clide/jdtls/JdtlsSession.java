@@ -1318,6 +1318,96 @@ public class JdtlsSession {
 	 * Path.toUri() adds a trailing slash for directories; stripped here so the
 	 * result matches what jdtls expects and what shortName() strips against.
 	 */
+	// ------------------------------------------------------------------
+	// workspace/executeCommand - jdtls' own commands, beyond plain LSP
+	// ------------------------------------------------------------------
+
+	/**
+	 * Invokes one of the commands jdtls registers on top of the LSP protocol (see
+	 * JDTDelegateCommandHandler in org.eclipse.jdt.ls.core). Returns the raw
+	 * "result" - each caller below knows the shape it expects.
+	 *
+	 * A trap worth an hour of anyone's time: an argument that is a JSON *object*
+	 * has to be sent as a JSON *string*. jdtls hands each argument to
+	 * JSONUtility.toModel(), which understands a JsonElement, an instance of the
+	 * target class, or a String it parses as JSON - and returns null for anything
+	 * else. lsp4j has already turned the JSON object into a plain Map by then, so
+	 * sending {"scope":"test"} yields a null options object and a
+	 * NullPointerException wrapped as error -32001. Sending "{\"scope\":\"test\"}"
+	 * works.
+	 */
+	private Object executeWorkspaceCommand(final String command, final List<Object> arguments,
+			final long timeoutSeconds) throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Truc params = new Truc();
+		params.putString("command", command);
+		params.putObject("arguments", arguments);
+
+		final Truc response = client.request("workspace/executeCommand", params, timeoutSeconds);
+		if (response.containsKey("error"))
+			throw new IOException(command + " failed: " + response.getObject("error"));
+
+		return response.getObject("result");
+	}
+
+	/**
+	 * The classpath to run this project's tests on, as jdtls knows it: the output
+	 * folders plus every jar of .clide/. Entries that do not exist on disk are
+	 * dropped - jdtls reports an output folder nothing was ever written to as an
+	 * Eclipse workspace path rather than a filesystem one.
+	 *
+	 * The "test" scope only differs from "runtime" when the test source folders
+	 * are marked as such in .classpath - see buildDotClasspath().
+	 */
+	public List<String> testClasspath() throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Object result = executeWorkspaceCommand("java.project.getClasspaths",
+				List.of(projectUri(), "{\"scope\":\"test\"}"), 60);
+		if (result instanceof Map == false)
+			throw new IOException("java.project.getClasspaths returned no classpath: " + result);
+
+		final List<String> entries = new ArrayList<>();
+		for (final Object entry : Truc.fromMap(castToStringMap(result)).getList("classpaths"))
+			if (entry instanceof String && Files.exists(Paths.get((String) entry)))
+				entries.add((String) entry);
+
+		return entries;
+	}
+
+	/**
+	 * URIs of the java projects jdtls holds - one for a plain checkout, several
+	 * for a multi-module repository.
+	 */
+	public List<String> projectUris() throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Object result = executeWorkspaceCommand("java.project.getAll", List.of(), 30);
+		final List<String> uris = new ArrayList<>();
+		for (final Object uri : asList(result))
+			if (uri instanceof String)
+				uris.add((String) uri);
+
+		return uris;
+	}
+
+	/**
+	 * Turns a stack frame - "at demo.Calc.div(Calc.java:9)", exactly as a stack
+	 * trace prints it - into the URI of the source file it points at, or null when
+	 * jdtls cannot place it (a frame from a jar with no sources, typically). This
+	 * is what lets a test failure be reported at a path the client can feed
+	 * straight back into hover or find_reference.
+	 */
+	public String resolveStackTraceLocation(final String frame) {
+		try {
+			final Object result = executeWorkspaceCommand("java.project.resolveStackTraceLocation",
+					List.of(frame, List.of()), 15);
+			return result instanceof String ? (String) result : null;
+		} catch (final Exception unresolvable) {
+			return null;
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> castToStringMap(final Object value) {
+		return (Map<String, Object>) value;
+	}
+
 	private String projectUri() {
 		final String uri = projectRoot.toAbsolutePath().toUri().toString();
 		return uri.endsWith("/") ? uri.substring(0, uri.length() - 1) : uri;

@@ -25,6 +25,8 @@ import clide.command.RebuildCommand;
 import clide.command.ResearchRegexCommand;
 import clide.command.RestoreFileCommand;
 import clide.command.RollbackTransactionCommand;
+import clide.command.RunTestCommand;
+import clide.command.RunTestsCommand;
 import clide.command.TerminateCommand;
 import clide.core.Command;
 import clide.daemon.ClideClient;
@@ -47,7 +49,8 @@ public class Main {
 			new ExitCommand(), new QuitCommand(), new TerminateCommand(), new RebuildCommand(),
 			new PrintDiagnosticsCommand(),
 			new ResearchRegexCommand(), new FindSymbolCommand(), new HoverCommand(), new ListMembersCommand(),
-			new FindDeclarationCommand(), new FindImplementationCommand(), new FindReferenceCommand());
+			new FindDeclarationCommand(), new FindImplementationCommand(), new FindReferenceCommand(),
+			new RunTestCommand(), new RunTestsCommand());
 
 //			new OpenTransactionCommand(), new CommitTransactionCommand(), new RollbackTransactionCommand(),
 //			new DiffTransactionCommand(), new RestoreFileCommand());

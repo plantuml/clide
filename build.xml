@@ -84,9 +84,30 @@
         </fileset>
     </path>
 
+    <!--
+        clide's own code compiles against the JUnit *platform* - and only the
+        platform. clide.test.TestRunnerMain drives the Launcher API to run the
+        open project's tests (see run_test), so the launcher, the engine SPI and
+        their two tiny dependencies are compile-time dependencies of clide
+        itself now, not test tooling. Jupiter is deliberately NOT here: clide
+        writes no JUnit 5 test of its own in src/main, and leaving it out keeps
+        an @Test from being imported into production code by accident.
+    -->
+    <path id="main.compile.classpath">
+        <fileset dir="${lib.dir}">
+            <include name="junit-platform-launcher-*.jar"/>
+            <include name="junit-platform-engine-*.jar"/>
+            <include name="junit-platform-commons-*.jar"/>
+            <include name="opentest4j-*.jar"/>
+            <include name="apiguardian-api-*.jar"/>
+        </fileset>
+    </path>
+
     <target name="compile" description="Compile the main classes into build/classes - no jar">
         <mkdir dir="${classes.dir}"/>
-        <javac srcdir="${src.dir}" destdir="${classes.dir}" release="21" debug="on" encoding="UTF-8" includeantruntime="false"/>
+        <javac srcdir="${src.dir}" destdir="${classes.dir}" release="21" debug="on" encoding="UTF-8" includeantruntime="false">
+            <classpath refid="main.compile.classpath"/>
+        </javac>
     </target>
 
     <target name="test-compile" depends="compile" description="Compile the unit tests into build/test-classes">
@@ -285,7 +306,9 @@ TARGETS
   compile         Compile the main classes into ${classes.dir}. No jar.
   test-compile    Compile the unit tests into ${test.classes.dir}.
   test            Compile then run the unit tests of ${test.src.dir}.
-                  A failing test fails the build.
+                  A failing test fails the build. These are clide's own
+                  tests; the tests of a project clide has OPEN are run
+                  from inside clide, with run_test and run_tests.
   run             Build, then run clide on a project. Needs -Dproject.
   clean           Delete ${build.dir} and ${jar.file}.
   help            Show this message.

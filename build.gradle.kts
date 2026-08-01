@@ -22,8 +22,20 @@ repositories {
 }
 
 dependencies {
-	// clide lui-même reste sans dépendance (voir CLAUDE.md) : rien en
-	// "implementation". Seuls les tests en ont.
+	// clide compile désormais contre la *plateforme* JUnit - et rien qu'elle.
+	// clide.test.TestRunnerMain pilote l'API Launcher pour exécuter les tests du
+	// projet ouvert (voir la commande run_test), donc le lanceur et le SPI des
+	// moteurs sont des dépendances de compilation de clide lui-même, plus de
+	// l'outillage de test. compileOnly et non implementation : le fat jar les
+	// embarque déjà par testRuntimeClasspath, inutile de les compter deux fois.
+	//
+	// Jupiter est volontairement absent d'ici : clide n'écrit aucun test JUnit 5
+	// dans src/main, et l'exclure empêche qu'un @Test s'importe par accident
+	// dans du code de production.
+	compileOnly("org.junit.platform:junit-platform-launcher:1.10.1")
+	compileOnly("org.junit.platform:junit-platform-engine:1.10.1")
+	compileOnly("org.junit.platform:junit-platform-commons:1.10.1")
+
 	//
 	// Ces coordonnées reprennent volontairement les versions des .jar commités
 	// dans lib/ pour le build Ant (voir scripts/fetch_junit.py) : les deux

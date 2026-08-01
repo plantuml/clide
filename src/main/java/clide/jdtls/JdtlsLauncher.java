@@ -79,7 +79,13 @@ public class JdtlsLauncher {
 
 	}
 
-	private String javaExecutable() {
+	/**
+	 * The java binary of the JVM clide itself runs on, falling back to whatever
+	 * "java" resolves to on PATH. Public and static because forking jdtls is no
+	 * longer the only reason clide starts a JVM - see clide.test.ProjectTests,
+	 * which runs a project's tests in one.
+	 */
+	public static String javaExecutable() {
 		final String javaHome = System.getProperty("java.home");
 		if (javaHome == null)
 			return "java";
@@ -200,15 +206,15 @@ public class JdtlsLauncher {
 		return candidate;
 	}
 
-	private boolean isWindows() {
+	private static boolean isWindows() {
 		return osName().contains("win");
 	}
 
-	private boolean isMac() {
+	private static boolean isMac() {
 		return osName().contains("mac");
 	}
 
-	private String osName() {
+	private static String osName() {
 		return System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
 	}
 
