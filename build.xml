@@ -9,8 +9,13 @@
     scripts/fetch_junit.py to fetch or refresh them).
 
     Usage:
-        ant                          -> builds clide.jar (default target: dist)
+        ant help                     -> full usage: every target, every -D option
+        ant -p                       -> the same target list, straight from Ant
+
+        ant                          -> builds clide.jar, a fat jar bundling lib/
+                                        (default target: dist)
         ant compile                  -> compiles main classes only, no jar
+        ant test-compile             -> compiles the unit tests only
         ant test                     -> runs every unit test under src/test/java
         ant test -Dtest=<FQCN>       -> runs a single test class
         ant run -Dproject=<path>     -> builds and runs clide on <path> (interactive stdin)
@@ -29,6 +34,7 @@
     <property name="classes.dir" value="${build.dir}/classes"/>
     <property name="test.classes.dir" value="${build.dir}/test-classes"/>
     <property name="test.reports.dir" value="${build.dir}/test-reports"/>
+    <property name="fatjar.dir" value="${build.dir}/fatjar"/>
     <property name="main.class" value="clide.Main"/>
     <property name="jar.file" value="clide.jar"/>
 
@@ -78,12 +84,12 @@
         </fileset>
     </path>
 
-    <target name="compile">
+    <target name="compile" description="Compile the main classes into build/classes - no jar">
         <mkdir dir="${classes.dir}"/>
         <javac srcdir="${src.dir}" destdir="${classes.dir}" release="21" debug="on" encoding="UTF-8" includeantruntime="false"/>
     </target>
 
-    <target name="test-compile" depends="compile">
+    <target name="test-compile" depends="compile" description="Compile the unit tests into build/test-classes">
         <mkdir dir="${test.classes.dir}"/>
         <javac srcdir="${test.src.dir}" destdir="${test.classes.dir}" release="21" debug="on" encoding="UTF-8" includeantruntime="false">
             <classpath refid="test.compile.classpath"/>
@@ -106,7 +112,8 @@
         <property name="test.selector.value" value="clide"/>
     </target>
 
-    <target name="test" depends="test-compile,-select-one-test,-select-all-tests">
+    <target name="test" depends="test-compile,-select-one-test,-select-all-tests"
+            description="Run the unit tests - add -Dtest=&lt;FQCN&gt; for a single class">
         <mkdir dir="${test.reports.dir}"/>
         <!--
             fork="true" is required: ConsoleLauncher ends on System.exit(), which
@@ -136,27 +143,119 @@
         </java>
     </target>
 
-    <target name="dist" depends="compile">
-        <jar jarfile="${jar.file}">
-            <fileset dir="${classes.dir}"/>
-            <!--
-                Fat jar: every runtime dependency is unpacked into clide.jar, so
-                that "java -jar clide.jar" needs nothing else on the classpath.
-                clide is dependency-free today (see CLAUDE.md), so lib/runtime/
-                does not exist yet and this fileset matches nothing — dropping a
-                jar in there is all it takes to bundle it.
+    <!--
+        ====================================================================
+        Fat jar
+        ====================================================================
+        clide.jar embeds every jar of lib/, so that a single file both runs
+        clide (java -jar clide.jar) and runs its tests, with nothing else on
+        the classpath:
 
-                lib/ itself is NOT bundled: it holds the test tooling only, which
-                has no business shipping inside the distributed jar.
-            -->
-            <zipgroupfileset dir="${lib.dir}" includes="runtime/*.jar" erroronmissingdir="false"/>
-            <manifest>
-                <attribute name="Main-Class" value="${main.class}"/>
-            </manifest>
-        </jar>
+            java -jar clide.jar <project path>
+            java -cp clide.jar org.junit.platform.console.ConsoleLauncher execute (select-package) clide
+
+        Merging jars is not a plain concatenation - three entry kinds need
+        care, and getting them wrong fails silently rather than loudly:
+
+        - META-INF/services/*: two jars declaring providers for the SAME
+          service must have their declarations *concatenated*. Overwriting
+          one with the other loses providers with no warning at all. Handled
+          by the merge-services target below.
+        - module-info.class: only one module descriptor can sit at a jar's
+          root. Ignored on the classpath, but keeping a random dependency's
+          one is meaningless, so they all go.
+        - META-INF/versions/*: junit-platform-console-standalone and
+          junit-platform-commons are multi-release jars. Their versioned
+          classes are silently ignored unless the *enclosing* jar is itself
+          flagged Multi-Release, hence the manifest attribute below.
+
+        The discrete JUnit jars are excluded: console-standalone repackages
+        all of them (plus the launcher and the console runner), so bundling
+        both would mean shipping every JUnit class twice.
+    -->
+    <patternset id="fatjar.redundant.jars">
+        <exclude name="junit-jupiter-*.jar"/>
+        <exclude name="junit-platform-commons-*.jar"/>
+        <exclude name="junit-platform-engine-*.jar"/>
+        <exclude name="junit-platform-launcher-*.jar"/>
+        <exclude name="opentest4j-*.jar"/>
+        <exclude name="apiguardian-api-*.jar"/>
+    </patternset>
+
+    <target name="-explode-libs">
+        <delete dir="${fatjar.dir}"/>
+        <mkdir dir="${fatjar.dir}/classes"/>
+        <unzip dest="${fatjar.dir}/classes">
+            <fileset dir="${lib.dir}" includes="*.jar">
+                <patternset refid="fatjar.redundant.jars"/>
+            </fileset>
+            <patternset>
+                <exclude name="META-INF/MANIFEST.MF"/>
+                <exclude name="META-INF/*.SF"/>
+                <exclude name="META-INF/*.DSA"/>
+                <exclude name="META-INF/*.RSA"/>
+                <exclude name="META-INF/*.EC"/>
+                <!-- Merged below instead: a plain extract would overwrite. -->
+                <exclude name="META-INF/services/**"/>
+                <exclude name="**/module-info.class"/>
+            </patternset>
+        </unzip>
     </target>
 
-    <target name="run" depends="compile">
+    <!--
+        Concatenating the service declarations. Ant has no equivalent of a
+        shade plugin's ServiceFileTransformer, so each service type declared by
+        more than one bundled jar is merged explicitly - today only
+        TestExecutionListener, declared by both console-standalone and
+        junit-pioneer.
+
+        WHEN ADDING A JAR TO lib/, check what it declares:
+
+            unzip -l lib/<new>.jar | grep META-INF/services
+
+        and if one of those types is already declared by another bundled jar,
+        add a <concat> for it here. Skipping that step does not break the
+        build - it silently drops providers from clide.jar.
+    -->
+    <target name="-merge-services" depends="-explode-libs">
+        <mkdir dir="${fatjar.dir}/services"/>
+        <unzip dest="${fatjar.dir}/services">
+            <fileset dir="${lib.dir}" includes="*.jar">
+                <patternset refid="fatjar.redundant.jars"/>
+            </fileset>
+            <patternset includes="META-INF/services/**"/>
+        </unzip>
+
+        <concat destfile="${fatjar.dir}/classes/META-INF/services/org.junit.platform.launcher.TestExecutionListener" fixlastline="true">
+            <zipfileset src="${lib.dir}/junit-platform-console-standalone-1.10.1.jar"
+                        includes="META-INF/services/org.junit.platform.launcher.TestExecutionListener"/>
+            <zipfileset src="${lib.dir}/junit-pioneer-2.3.0.jar"
+                        includes="META-INF/services/org.junit.platform.launcher.TestExecutionListener"/>
+        </concat>
+
+        <!-- The non-colliding ones are copied as-is, without clobbering the merge. -->
+        <copy todir="${fatjar.dir}/classes/META-INF/services" overwrite="false">
+            <fileset dir="${fatjar.dir}/services/META-INF/services"/>
+        </copy>
+    </target>
+
+    <target name="dist" depends="compile,-merge-services"
+            description="Build clide.jar, a fat jar bundling every jar of lib/ (default)">
+        <jar jarfile="${jar.file}" duplicate="fail">
+            <fileset dir="${classes.dir}"/>
+            <fileset dir="${fatjar.dir}/classes"/>
+            <manifest>
+                <attribute name="Main-Class" value="${main.class}"/>
+                <!-- See the comment above: without this the META-INF/versions/
+                     classes of the bundled multi-release jars are dead weight. -->
+                <attribute name="Multi-Release" value="true"/>
+            </manifest>
+        </jar>
+        <delete dir="${fatjar.dir}"/>
+    </target>
+
+
+    <target name="run" depends="compile" description="Run clide on a project - requires -Dproject=&lt;path&gt;">
         <fail unless="project" message="Usage: ant run -Dproject=&lt;path&gt;"/>
         <java classname="${main.class}" classpath="${classes.dir}" fork="true">
             <!-- fork="true" so stdin is properly connected to the JVM's console -->
@@ -164,7 +263,79 @@
         </java>
     </target>
 
-    <target name="clean">
+    <!--
+        "ant -p" lists the targets and their description="..." attributes on its
+        own; this target exists for what -p cannot show: the -D options, the
+        environment variables and the files each target produces.
+    -->
+    <target name="help" description="Show this help">
+        <echo>
+clide build - Apache Ant
+
+  Fallback build for environments that cannot run the Gradle wrapper. Needs a
+  JDK 21 and Ant, nothing else: the JUnit jars are committed under lib/.
+
+USAGE
+  ant [target] [-Dname=value ...]
+
+TARGETS
+  dist            Build ${jar.file}, a fat jar bundling every jar of lib/.
+                  The result runs both clide and its tests on its own.
+                  This is the default target, so plain "ant" does this.
+  compile         Compile the main classes into ${classes.dir}. No jar.
+  test-compile    Compile the unit tests into ${test.classes.dir}.
+  test            Compile then run the unit tests of ${test.src.dir}.
+                  A failing test fails the build.
+  run             Build, then run clide on a project. Needs -Dproject.
+  clean           Delete ${build.dir} and ${jar.file}.
+  help            Show this message.
+
+OPTIONS
+  -Dtest=&lt;FQCN&gt;
+        With "test": run that single class instead of every test under the
+        clide package. Example: -Dtest=clide.util.UnifiedDiffTest
+        Default: every test found in package "clide".
+
+  -Dtest.theme=ascii|unicode
+        Characters used to draw the test result tree. "unicode" is nicer but
+        only renders correctly on a console Ant itself opened in UTF-8 (see
+        ANT_OPTS below).
+        Default: ascii.
+
+  -Dproject=&lt;path&gt;
+        Required by "run": the project clide should open. Interactive - clide
+        reads its commands on standard input.
+
+  Overridable paths, should the layout ever move: -Dsrc.dir, -Dtest.src.dir,
+  -Dlib.dir, -Dbuild.dir, -Dclasses.dir, -Dtest.classes.dir,
+  -Dtest.reports.dir, -Djar.file, -Dmain.class.
+
+ENVIRONMENT
+  ANT_OPTS=-Dstdout.encoding=UTF-8
+        Ant re-encodes the output of the JVM it forks with its own charset, so
+        accented test names print as "?" unless Ant itself runs in UTF-8. Set
+        this to read them, and -Dtest.theme=unicode along with it.
+        Windows:  set ANT_OPTS=-Dstdout.encoding=UTF-8
+
+OUTPUT
+  ${jar.file}
+        Fat jar. Runnable two ways:
+          java -jar ${jar.file} &lt;project path&gt;
+          java -cp ${jar.file} org.junit.platform.console.ConsoleLauncher ...
+  ${classes.dir}        main classes
+  ${test.classes.dir}   test classes
+  ${test.reports.dir}   JUnit XML reports, written by every "test" run
+
+EXAMPLES
+  ant                                      build the fat jar
+  ant clean dist                           rebuild it from scratch
+  ant test                                 run every unit test
+  ant test -Dtest=clide.util.UnifiedDiffTest    run one test class
+  ant run -Dproject=C:\github\plantuml     open clide on PlantUML
+  ant -p                                   short target list, from Ant itself</echo>
+    </target>
+
+    <target name="clean" description="Remove the build directory and clide.jar">
         <delete dir="${build.dir}"/>
         <delete file="${jar.file}"/>
     </target>

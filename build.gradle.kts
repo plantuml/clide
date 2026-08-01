@@ -33,6 +33,11 @@ dependencies {
 	testImplementation("org.junit.jupiter:junit-jupiter-params:5.10.1")
 	testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.1")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.1")
+	// Le lanceur en ligne de commande, pour que le fat jar sache aussi exécuter
+	// les tests. C'est ce que lib/junit-platform-console-standalone apporte au
+	// build Ant - ici la version non-repackagée, sinon toutes les classes JUnit
+	// se retrouveraient en double dans le jar.
+	testRuntimeOnly("org.junit.platform:junit-platform-console:1.10.1")
 }
 
 tasks.named<JavaExec>("run") {
@@ -52,16 +57,47 @@ tasks.test {
 }
 
 /*
- * Fat jar : l'équivalent Gradle de la cible "dist" de build.xml. Le jar produit
- * se lance seul (java -jar build/libs/clide.jar), sans rien d'autre sur le
- * classpath.
+ * ============================================================================
+ * Fat jar - l'équivalent Gradle de la cible "dist" de build.xml
+ * ============================================================================
+ * Un seul fichier qui lance clide *et* ses tests, sans rien d'autre sur le
+ * classpath :
  *
- * clide n'ayant aujourd'hui aucune dépendance d'exécution, runtimeClasspath est
- * vide et le résultat ne contient que les classes du projet — le jour où une
- * dépendance apparaît, elle est absorbée sans rien changer ici.
+ *     java -jar build/libs/clide.jar <chemin projet>
+ *     java -cp build/libs/clide.jar org.junit.platform.console.ConsoleLauncher \
+ *          execute --select-package clide
  *
- * Les signatures des jars absorbés sont écartées : conservées, la JVM refuserait
- * le jar au motif que son contenu ne correspond plus à ce qui avait été signé.
+ * clide n'a aucune dépendance d'exécution (voir CLAUDE.md) : tout ce qui est
+ * absorbé ici vient de testRuntimeClasspath, c'est-à-dire JUnit. Le jour où une
+ * dépendance d'exécution apparaît, elle est absorbée sans rien changer.
+ *
+ * Trois détails de fusion, les mêmes que côté Ant :
+ *
+ *   - Multi-Release : junit-platform-commons est un jar multi-release. Ses
+ *     classes sous META-INF/versions/ sont ignorées si le jar englobant ne
+ *     porte pas lui-même l'attribut.
+ *   - module-info.class : un seul descripteur de module peut vivre à la racine
+ *     d'un jar. Ignoré sur le classpath, mais garder celui d'une dépendance au
+ *     hasard n'a pas de sens.
+ *   - signatures : conservées, la JVM refuserait le jar, son contenu ne
+ *     correspondant plus à ce qui avait été signé.
+ *
+ * RESTE À FAIRE, et c'est volontaire : la fusion des META-INF/services. Deux
+ * jars déclarant des fournisseurs pour le *même* service doivent voir leurs
+ * déclarations concaténées ; ici DuplicatesStrategy.EXCLUDE en garde une seule.
+ * Aujourd'hui le seul cas est TestExecutionListener (platform-launcher et
+ * platform-reporting) : on y perd un listener de reporting optionnel, pas
+ * l'exécution des tests. build.xml, lui, fait la concaténation.
+ *
+ * Si Gradle doit devenir le build de référence, la vraie réponse n'est pas de
+ * réécrire cette fusion à la main mais d'ajouter le plugin Shadow, qui la fait
+ * correctement (ServiceFileTransformer) :
+ *
+ *     plugins { id("com.gradleup.shadow") version "8.3.5" }
+ *
+ * et de prendre shadowJar à la place de ce bloc.
+ *
+ * Ce fichier n'a pas été exécuté - le sandbox n'atteint pas Maven Central.
  */
 tasks.jar {
 	archiveFileName.set("clide.jar")
@@ -70,16 +106,24 @@ tasks.jar {
 	manifest {
 		attributes(
 			"Main-Class" to application.mainClass.get(),
+			"Multi-Release" to true,
 			"Implementation-Title" to project.name,
 			"Implementation-Version" to project.version,
 		)
 	}
 
 	from({
-		configurations.runtimeClasspath.get()
+		(configurations.runtimeClasspath.get() + configurations.testRuntimeClasspath.get())
 			.filter { it.name.endsWith(".jar") }
 			.map { zipTree(it) }
 	}) {
-		exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/MANIFEST.MF")
+		exclude(
+			"META-INF/MANIFEST.MF",
+			"META-INF/*.SF",
+			"META-INF/*.DSA",
+			"META-INF/*.RSA",
+			"META-INF/*.EC",
+			"**/module-info.class",
+		)
 	}
 }
