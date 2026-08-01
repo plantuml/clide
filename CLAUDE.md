@@ -53,20 +53,27 @@ Gradle (Kotlin DSL), calqué sur la configuration du wrapper de PlantUML
   tourne en arrière-plan et reste up pour les lancements suivants) : il n'y a
   pas de commande séparée à taper pour l'ouvrir, ni de notion de « projet
   courant » à changer.
-- Un projet cible **sans** `.project`/`.classpath` est pris en charge tel
-  quel : jdtls les génère lui-même au premier build (« invisible project »,
-  marqueur `__CREATED_BY_JAVA_LANGUAGE_SERVER__` dans le filtre du `.project`
-  généré) — dossiers sources détectés depuis l'arborescence (`src/main/java`,
+- clide génère systématiquement son propre `.project`/`.classpath` à chaque
+  démarrage de daemon (« invisible project », marqueur
+  `__CREATED_BY_JAVA_LANGUAGE_SERVER__` dans le filtre du `.project` généré)
+  — dossiers sources détectés depuis l'arborescence (`src/main/java`,
   `src/main/resources`, `src/test/...`), et chaque jar déposé dans `.clide/`
   à la racine du projet ajouté comme bibliothèque. Les dossiers de test
   (`src/test/java`, `src/test/resources`) sont marqués `test="true"` et
   reçoivent leur propre dossier de sortie `bin/test`, le code de production
   allant dans le `bin/main` par défaut — voir « Le `.classpath` généré et les
   dossiers de test » plus bas, où l'on explique pourquoi ce détail n'en est
-  pas un. Le daemon le signale dans
-  sa trace de démarrage : `(4/4) Building project ... [OK] (generated
-  .project/.classpath from src/**/java and .clide/*.jar)` — la ligne reste un
-  simple `[OK]` quand les fichiers existaient déjà. Vérifié sur PlantUML —
+  pas un. Si le projet avait déjà son propre `.project`/`.classpath`, il est
+  remis en place tel quel une fois le build initial terminé — jamais modifié
+  ni écrasé sur disque, seulement mis de côté le temps de l'import ; voir
+  « `.project`/`.classpath` : ne jamais toucher aux fichiers du projet » plus
+  bas pour le mécanisme (`EclipseProjectFiles`) et pourquoi c'est sans risque.
+  Le daemon le signale dans sa trace de démarrage : `(4/4) Building project
+  ... [OK] (imported via a temporary .project/.classpath from src/**/java and
+  .clide/*.jar, removed afterward - none existed before)` quand rien
+  n'existait avant, ou `... [OK] (imported via a temporary .project/.classpath,
+  the project's own restored afterward - see .clide/tmp/ for what was
+  actually used)` sinon. Vérifié sur PlantUML —
   voir « Test sur PlantUML » plus bas.
 - Commandes implémentées :
   - `help` → liste toutes les commandes enregistrées (mot-clé, paramètres,
@@ -744,9 +751,110 @@ et se tromper dans ce sens fait juste rater le signalement d'un import
 douteux, alors que se tromper dans l'autre casserait une compilation qui
 marchait.
 
-**Attention** : `ensureDotFilesPresent()` n'écrit que si le fichier manque. Un
-projet déjà ouvert par clide garde son ancien `.classpath` — il faut le
-supprimer pour obtenir le nouveau.
+**`ensureDotFilesPresent()` a disparu, remplacée par `EclipseProjectFiles`** —
+voir la section suivante : ce n'est plus vrai qu'un `.classpath` déjà là
+survit tel quel d'un démarrage à l'autre, et l'avertissement ci-dessus (« il
+faut le supprimer pour obtenir le nouveau ») ne s'applique plus.
+
+### `.project`/`.classpath` : ne jamais toucher aux fichiers du projet (`EclipseProjectFiles`)
+
+Avant ce chantier, `ensureDotFilesPresent()` n'écrivait `.project`/`.classpath`
+que s'ils manquaient, et les laissait sinon strictement intacts — pratique en
+apparence, mais avec deux défauts. D'abord, un `.classpath` généré une fois
+restait ensuite pour toujours : rien ne le régénérait quand un jar était
+ajouté dans `.clide/`, il fallait le supprimer à la main (voir la section
+précédente) et relancer le daemon pour que le nouveau jar soit vu. Ensuite et
+surtout, un `.classpath` déjà présent — fait main, produit par
+`gradlew eclipse`, ou simplement d'une autre origine — était utilisé tel
+quel : correct pour ne pas l'écraser, mais ça voulait dire que le vrai
+descripteur du projet ne contenait ni les dossiers de test marqués
+`test="true"` ni les jars de `.clide/`, puisque ce sont précisément les deux
+choses que `buildDotClasspath()` ajoute.
+
+**Le principe retenu** : clide n'utilise plus jamais le `.project`/`.classpath`
+du projet pour l'import jdtls, qu'il existe ou non — il écrit systématiquement
+les siens. Mais il ne les laisse jamais traîner sur disque une fois le projet
+importé : le fichier d'origine (s'il y en avait un) est restauré identique une
+fois le build initial terminé ; s'il n'y en avait pas, le fichier généré par
+clide est supprimé. Dans les deux cas, un `git status` sur le projet ouvert
+ne voit jamais passer ni modification ni fichier nouveau à sa racine à cause
+de clide.
+
+**Mécanique (`clide.jdtls.EclipseProjectFiles`)**, appelée depuis
+`JdtlsSession.start()`/`restoreEclipseFiles()` :
+
+1. `stage(projectXml, classpathXml)`, appelée avant le handshake LSP : déplace
+   `.project` et `.classpath` (s'ils existent) vers `.clide/tmp/`, dossier créé
+   au besoin, puis écrit le contenu que clide vient de construire à leur
+   place. Une copie de ce contenu est aussi écrite dans
+   `.clide/tmp/.project.clide`/`.clide/tmp/.classpath.clide` — jamais relue
+   par la suite, seulement là pour inspecter après coup ce que jdtls a
+   réellement importé.
+2. jdtls importe et build le projet avec les fichiers de clide en place.
+3. `unstage()`, appelée seulement une fois ce build initial terminé (pas juste
+   après `initialize`/`initialized` — voir plus bas pourquoi) : remet en place
+   le fichier original s'il y en avait un (un seul déplacement atomique,
+   remplaçant directement le fichier de clide plutôt que le supprimer puis
+   replacer l'original en deux étapes séparées — un crash pile entre les deux
+   ne doit jamais laisser aucun des deux fichiers en place), ou supprime
+   simplement le fichier de clide sinon.
+
+**Pourquoi attendre la fin du build, pas seulement la fin du handshake LSP.**
+L'import jdtls est asynchrone (c'est pour ça que `waitForServiceReady` existe,
+avec son délai faute de signal fiable — voir plus bas) : remettre le fichier
+original en place trop tôt risquerait une course contre jdtls encore en train
+de le lire. `start()` place donc le staging, mais c'est
+`ClideDaemon.run()`/`ensureSessionReady()` qui appellent `restoreEclipseFiles()`
+juste après `session.build()` (la construction initiale, dans un
+`try`/`finally` commun aux deux appels : `restoreEclipseFiles()` doit tourner
+que `build()` réussisse ou lève, sinon un daemon qui échoue à démarrer
+laisserait le fichier original coincé dans `.clide/tmp/`).
+
+**Vérifié empiriquement que ceci est sûr** : `.classpath` modifié sur disque
+(jars retirés) sous un daemon PlantUML déjà démarré et stable — ni une
+attente passive (`print_diagnostics`), ni même un `rebuild` explicite (une
+vraie recompilation, 12,5 s) n'ont changé quoi que ce soit au classpath
+réellement utilisé par jdtls (`run_test` continuait de résoudre les mêmes
+jars). jdtls ne relit donc jamais ces fichiers une fois le projet importé —
+ni passivement (pas de file watcher qui réagit), ni sur demande explicite de
+rebuild. Remettre le fichier d'origine en place juste après le build initial
+est donc sans risque : plus rien ne le surveille.
+
+**Garde anti-crash, même principe que `TransactionStack.refuseIfDirty()`** :
+si le daemon plante entre `stage()` et `unstage()`, le fichier original reste
+coincé dans `.clide/tmp/` au lieu d'être à la racine. `EclipseProjectFiles.
+refuseIfDirty()`, appelée à l'étape `(1/4)` du démarrage juste après celle de
+`TransactionStack`, refuse de démarrer si `.clide/tmp/.project` ou
+`.clide/tmp/.classpath` existe déjà — jamais les copies `.clide` de debug,
+qui elles sont censées survivre d'un démarrage à l'autre. Deviner comment
+remettre un fichier stocké dans cet état risquerait de le perdre si la
+supposition est fausse ; le nettoyage reste à la charge de l'utilisateur,
+comme pour les transactions.
+
+**Conséquence pratique** : un jar ajouté dans `.clide/` est maintenant pris en
+compte dès le prochain démarrage du daemon, sans plus jamais avoir à supprimer
+`.classpath` à la main au préalable — `stage()` régénère systématiquement son
+propre contenu à chaque démarrage.
+
+**Testé** : suite dédiée `EclipseProjectFilesTest` (répertoires temporaires
+réels, aucun montage jdtls nécessaire — toute la logique est pure système de
+fichiers) — aller-retour identique à l'octet près sur un `.project`/
+`.classpath` préexistant, aucune trace laissée quand rien n'existait avant,
+copies de debug toujours écrites et jamais relues, `stage()` deux fois de
+suite sans `unstage()` refusé, `unstage()` sans `stage()` préalable
+inoffensif, `refuseIfDirty()` qui distingue un fichier original coincé (lève)
+d'une simple copie de debug qui traîne (ne lève pas). Vérifié qu'un bug
+injecté délibérément (`unstage()` qui ne restaure plus jamais l'original)
+fait bien échouer deux tests sur huit — les deux qui portent justement sur la
+restauration. Rejoué ensuite de bout en bout sur PlantUML (branche `clide`) :
+cas sans fichiers préexistants (message « removed afterward - none existed
+before », rien à la racine après coup, copies de debug seules dans
+`.clide/tmp/`) et cas avec un `.project`/`.classpath` fait main plantés
+exprès (restaurés identiques à l'octet près, `sha256sum` à l'appui, alors que
+`run_test` tournait bien avec le classpath de clide entre-temps) ; garde
+anti-crash déclenchée pour de vrai en laissant un `.clide/tmp/.project`
+résiduel avant un démarrage - refus propre avec un message explicite, daemon
+non démarré.
 
 ### Lancer les tests du projet ouvert (`run_test`, `run_tests`)
 

@@ -24,6 +24,7 @@ import clide.core.CommandResult;
 import clide.core.CommandStatus;
 import clide.core.Symbol;
 import clide.core.TransactionStack;
+import clide.jdtls.EclipseProjectFiles;
 import clide.jdtls.JdtlsLauncher;
 import clide.jdtls.JdtlsSession;
 import clide.jdtls.LspClient.TimeoutException;
@@ -75,6 +76,7 @@ public final class ClideDaemon {
 
 		System.out.print("(1/4) Checking for a leftover transaction state ...");
 		TransactionStack.refuseIfDirty(projectRoot);
+		EclipseProjectFiles.refuseIfDirty(projectRoot);
 		System.out.println(" [OK]");
 
 		final boolean eclipseFilesWereMissing = hasEclipseFiles() == false;
@@ -85,15 +87,27 @@ public final class ClideDaemon {
 		System.out.println(" [OK]");
 
 		System.out.print("(3/4) Starting session ...");
-		session.start();
-		System.out.println(" [OK]");
-
-		System.out.print("(4/4) Building project ...");
-		session.build();
-		if (eclipseFilesWereMissing && hasEclipseFiles())
-			System.out.println(" [OK] (generated .project/.classpath from src/**/java and .clide/*.jar)");
-		else
+		// start()+build() together in one try/finally: whatever happens - both
+		// succeed, or either throws - restoreEclipseFiles() must run before this
+		// method returns or propagates, so a project's own .project/.classpath (if
+		// any) is never left stranded in .clide/tmp/ - see EclipseProjectFiles.
+		try {
+			session.start();
 			System.out.println(" [OK]");
+
+			System.out.print("(4/4) Building project ...");
+			session.build();
+		} finally {
+			session.restoreEclipseFiles();
+		}
+
+		if (eclipseFilesWereMissing)
+			System.out.println(
+					" [OK] (imported via a temporary .project/.classpath from src/**/java and .clide/*.jar, "
+							+ "removed afterward - none existed before)");
+		else
+			System.out.println(" [OK] (imported via a temporary .project/.classpath, "
+					+ "the project's own restored afterward - see .clide/tmp/ for what was actually used)");
 
 		final ClideContext context = new ClideContext(projectRoot, session, commands);
 
@@ -198,8 +212,15 @@ public final class ClideDaemon {
 
 		out.println("jdtls session was stopped (exit/quit) - restarting it ...");
 		try {
-			session.start();
-			session.build();
+			// Same try/finally shape as run()'s initial start+build, and for the same
+			// reason: restoreEclipseFiles() must run whichever of the two throws, or
+			// not, so a re-staged .project/.classpath never outlives this restart.
+			try {
+				session.start();
+				session.build();
+			} finally {
+				session.restoreEclipseFiles();
+			}
 			return null;
 		} catch (final Exception e) {
 			return CommandResult.error("Failed to restart jdtls session: " + e.getMessage());
