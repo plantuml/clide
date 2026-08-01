@@ -13,6 +13,7 @@
         ant -p                       -> the same target list, straight from Ant
 
         ant                          -> builds clide.jar, a fat jar bundling lib/
+                                        and jdt-language-server-latest.zip
                                         (default target: dist)
         ant compile                  -> compiles main classes only, no jar
         ant test-compile             -> compiles the unit tests only
@@ -261,40 +262,27 @@
         </copy>
     </target>
 
-    <target name="dist" depends="compile,-merge-services"
-            description="Build clide.jar, a fat jar bundling every jar of lib/ (default)">
-        <jar jarfile="${jar.file}" duplicate="fail">
-            <fileset dir="${classes.dir}"/>
-            <fileset dir="${fatjar.dir}/classes"/>
-            <manifest>
-                <attribute name="Main-Class" value="${main.class}"/>
-                <!-- See the comment above: without this the META-INF/versions/
-                     classes of the bundled multi-release jars are dead weight. -->
-                <attribute name="Multi-Release" value="true"/>
-            </manifest>
-        </jar>
-        <delete dir="${fatjar.dir}"/>
-    </target>
-
     <!--
-        Same as "dist", but additionally bundles ${jdtls.zip} into the jar
-        under a top-level "resource/" directory (e.g. resource/jdt-language-server-latest.zip),
-        so it ships inside clide.jar rather than needing to sit next to it on disk.
+        Also bundles ${jdtls.zip} into the jar under a top-level "resource/"
+        directory (e.g. resource/jdt-language-server-latest.zip), so jdtls
+        ships inside clide.jar rather than needing to sit next to it on disk -
+        see JdtlsLauncher.ensureExtracted(), which falls back to that
+        classpath resource when the zip isn't found next to jdtlsHome.
     -->
     <target name="-check-jdtls-zip">
         <available file="${jdtls.zip}" property="jdtls.zip.present"/>
         <fail unless="jdtls.zip.present" message="Cannot find ${jdtls.zip} - fetch it first or override the path with -Djdtls.zip=&lt;path&gt;"/>
     </target>
 
-    <target name="dist-with-jdtls" depends="compile,-merge-services,-check-jdtls-zip"
-            description="Build clide.jar like dist, but also bundle ${jdtls.zip} under resource/ in the jar">
+    <target name="dist" depends="compile,-merge-services,-check-jdtls-zip"
+            description="Build clide.jar, a fat jar bundling every jar of lib/ plus ${jdtls.zip} under resource/ (default)">
         <jar jarfile="${jar.file}" duplicate="fail">
             <fileset dir="${classes.dir}"/>
             <fileset dir="${fatjar.dir}/classes"/>
             <zipfileset file="${jdtls.zip}" fullpath="resource/${jdtls.zip}"/>
             <manifest>
                 <attribute name="Main-Class" value="${main.class}"/>
-                <!-- See the comment above dist: without this the META-INF/versions/
+                <!-- See the comment above: without this the META-INF/versions/
                      classes of the bundled multi-release jars are dead weight. -->
                 <attribute name="Multi-Release" value="true"/>
             </manifest>
@@ -327,11 +315,11 @@ USAGE
   ant [target] [-Dname=value ...]
 
 TARGETS
-  dist            Build ${jar.file}, a fat jar bundling every jar of lib/.
-                  The result runs both clide and its tests on its own.
+  dist            Build ${jar.file}, a fat jar bundling every jar of lib/
+                  plus ${jdtls.zip} under a top-level resource/ directory.
+                  The result runs both clide and its tests on its own, and
+                  needs nothing else sitting next to it on disk.
                   This is the default target, so plain "ant" does this.
-  dist-with-jdtls Same as dist, but also bundles ${jdtls.zip} into
-                  ${jar.file} under a top-level resource/ directory.
   compile         Compile the main classes into ${classes.dir}. No jar.
   test-compile    Compile the unit tests into ${test.classes.dir}.
   test            Compile then run the unit tests of ${test.src.dir}.
