@@ -4,11 +4,15 @@
     ========================================================================
     Fallback build for environments that cannot run the Gradle wrapper
     (typically: no network access to services.gradle.org, e.g. Claude's
-    sandbox). Requires only a JDK and Ant — no dependency download.
+    sandbox). Requires only a JDK and Ant — no dependency download: the
+    JUnit jars the tests need are committed under lib/ (see
+    scripts/fetch_junit.py to fetch or refresh them).
 
     Usage:
         ant                          -> builds clide.jar (default target: dist)
-        ant compile                  -> compiles classes only, no jar
+        ant compile                  -> compiles main classes only, no jar
+        ant test                     -> runs every unit test under src/test/java
+        ant test -Dtest=<FQCN>       -> runs a single test class
         ant run -Dproject=<path>     -> builds and runs clide on <path> (interactive stdin)
         ant clean                    -> removes the build directory and the jar
     ========================================================================
@@ -19,18 +23,133 @@
     </description>
 
     <property name="src.dir" value="src/main/java"/>
+    <property name="test.src.dir" value="src/test/java"/>
+    <property name="lib.dir" value="lib"/>
     <property name="build.dir" value="build"/>
     <property name="classes.dir" value="${build.dir}/classes"/>
+    <property name="test.classes.dir" value="${build.dir}/test-classes"/>
+    <property name="test.reports.dir" value="${build.dir}/test-reports"/>
     <property name="main.class" value="clide.Main"/>
     <property name="jar.file" value="clide.jar"/>
+
+    <!--
+        Ant re-logs the forked JVM's output through its own PrintStream, built on
+        the charset of the JVM *Ant* runs in - so a UTF-8 child still prints "?"
+        for every non-ASCII character unless Ant itself was started in UTF-8.
+        The ASCII tree keeps the report readable everywhere by default. For the
+        nicer box-drawing one (accented @DisplayName included):
+
+            ANT_OPTS="-Dstdout.encoding=UTF-8" ant test -Dtest.theme=unicode
+            set ANT_OPTS=-Dstdout.encoding=UTF-8   (Windows)
+    -->
+    <property name="test.theme" value="ascii"/>
+
+    <!--
+        Compiling the tests: the discrete JUnit jars. The console-standalone one
+        is deliberately left out here — it repackages all of them, and having
+        both on a single classpath means duplicate classes, with whichever
+        version comes first winning.
+    -->
+    <path id="test.compile.classpath">
+        <pathelement location="${classes.dir}"/>
+        <fileset dir="${lib.dir}">
+            <include name="*.jar"/>
+            <exclude name="junit-platform-console-standalone-*.jar"/>
+        </fileset>
+    </path>
+
+    <!--
+        Running the tests: console-standalone brings the launcher, both engines
+        and everything they depend on. The exclusions below are exactly what it
+        already contains — any other jar dropped into lib/ (mocking, assertion
+        or matcher libraries...) is picked up with no change needed here.
+    -->
+    <path id="test.runtime.classpath">
+        <pathelement location="${classes.dir}"/>
+        <pathelement location="${test.classes.dir}"/>
+        <fileset dir="${lib.dir}">
+            <include name="*.jar"/>
+            <exclude name="junit-jupiter-*.jar"/>
+            <exclude name="junit-platform-commons-*.jar"/>
+            <exclude name="junit-platform-engine-*.jar"/>
+            <exclude name="junit-platform-launcher-*.jar"/>
+            <exclude name="opentest4j-*.jar"/>
+            <exclude name="apiguardian-api-*.jar"/>
+        </fileset>
+    </path>
 
     <target name="compile">
         <mkdir dir="${classes.dir}"/>
         <javac srcdir="${src.dir}" destdir="${classes.dir}" release="21" debug="on" encoding="UTF-8" includeantruntime="false"/>
     </target>
 
+    <target name="test-compile" depends="compile">
+        <mkdir dir="${test.classes.dir}"/>
+        <javac srcdir="${test.src.dir}" destdir="${test.classes.dir}" release="21" debug="on" encoding="UTF-8" includeantruntime="false">
+            <classpath refid="test.compile.classpath"/>
+        </javac>
+    </target>
+
+    <!--
+        Test selection. Ant properties are write-once, so exactly one of the two
+        targets below gets to set them: -Dtest=<FQCN> narrows the run down to a
+        single class (CLAUDE.md, priority 2 — running one targeted test),
+        otherwise the whole clide package is scanned.
+    -->
+    <target name="-select-one-test" if="test">
+        <property name="test.selector.flag" value="--select-class"/>
+        <property name="test.selector.value" value="${test}"/>
+    </target>
+
+    <target name="-select-all-tests" unless="test">
+        <property name="test.selector.flag" value="--select-package"/>
+        <property name="test.selector.value" value="clide"/>
+    </target>
+
+    <target name="test" depends="test-compile,-select-one-test,-select-all-tests">
+        <mkdir dir="${test.reports.dir}"/>
+        <!--
+            fork="true" is required: ConsoleLauncher ends on System.exit(), which
+            would take Ant down with it. failonerror="true" turns a failing test
+            into a failing build.
+        -->
+        <java classname="org.junit.platform.console.ConsoleLauncher" fork="true" failonerror="true">
+            <classpath refid="test.runtime.classpath"/>
+            <!--
+                Make the forked JVM emit UTF-8 whatever the platform charset is
+                (cp1252 on Windows, US-ASCII under a POSIX locale). This is what
+                the XML reports under build/test-reports depend on; the console
+                needs one more thing, see test.theme below.
+            -->
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <arg value="execute"/>
+            <arg value="${test.selector.flag}"/>
+            <arg value="${test.selector.value}"/>
+            <arg value="--details=tree"/>
+            <arg value="--details-theme=${test.theme}"/>
+            <arg value="--disable-banner"/>
+            <!-- An empty run means a broken selector, not a success. -->
+            <arg value="--fail-if-no-tests"/>
+            <arg value="--reports-dir=${test.reports.dir}"/>
+        </java>
+    </target>
+
     <target name="dist" depends="compile">
-        <jar jarfile="${jar.file}" basedir="${classes.dir}">
+        <jar jarfile="${jar.file}">
+            <fileset dir="${classes.dir}"/>
+            <!--
+                Fat jar: every runtime dependency is unpacked into clide.jar, so
+                that "java -jar clide.jar" needs nothing else on the classpath.
+                clide is dependency-free today (see CLAUDE.md), so lib/runtime/
+                does not exist yet and this fileset matches nothing — dropping a
+                jar in there is all it takes to bundle it.
+
+                lib/ itself is NOT bundled: it holds the test tooling only, which
+                has no business shipping inside the distributed jar.
+            -->
+            <zipgroupfileset dir="${lib.dir}" includes="runtime/*.jar" erroronmissingdir="false"/>
             <manifest>
                 <attribute name="Main-Class" value="${main.class}"/>
             </manifest>
