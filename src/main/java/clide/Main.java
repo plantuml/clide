@@ -47,9 +47,10 @@ public class Main {
 			new ExitCommand(), new QuitCommand(), new TerminateCommand(), new RebuildCommand(),
 			new PrintDiagnosticsCommand(),
 			new ResearchRegexCommand(), new FindSymbolCommand(), new HoverCommand(), new ListMembersCommand(),
-			new FindDeclarationCommand(), new FindImplementationCommand(), new FindReferenceCommand(),
-			new OpenTransactionCommand(), new CommitTransactionCommand(), new RollbackTransactionCommand(),
-			new DiffTransactionCommand(), new RestoreFileCommand());
+			new FindDeclarationCommand(), new FindImplementationCommand(), new FindReferenceCommand());
+
+//			new OpenTransactionCommand(), new CommitTransactionCommand(), new RollbackTransactionCommand(),
+//			new DiffTransactionCommand(), new RestoreFileCommand());
 
 	public static void main(final String[] args) throws IOException, InterruptedException {
 		final Path projectRoot = parseProjectRoot(args);
