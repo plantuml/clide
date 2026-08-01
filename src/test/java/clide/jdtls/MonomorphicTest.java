@@ -224,8 +224,8 @@ class MonomorphicTest {
 
 			assertEquals(MonomorphicType.LIST, value.getType());
 			assertEquals(2, value.size());
-			assertEquals("a", value.get(0).asString());
-			assertEquals(2L, value.get(1).asLong());
+			assertEquals("a", value.getFromList(0).asString());
+			assertEquals(2L, value.getFromList(1).asLong());
 		}
 
 		@Test
@@ -274,8 +274,8 @@ class MonomorphicTest {
 		void indexOutOfRangeIsExplicit() {
 			final Monomorphic value = Monomorphic.createList(Monomorphic.createString("a"));
 
-			assertTrue(assertThrows(IllegalArgumentException.class, () -> value.get(1)).getMessage().contains("1 element"));
-			assertThrows(IllegalArgumentException.class, () -> value.get(-1));
+			assertTrue(assertThrows(IllegalArgumentException.class, () -> value.getFromList(1)).getMessage().contains("1 element"));
+			assertThrows(IllegalArgumentException.class, () -> value.getFromList(-1));
 		}
 
 		@Test
@@ -333,7 +333,7 @@ class MonomorphicTest {
 			final Monomorphic value = Monomorphic.mapBuilder().putNull("error").build();
 
 			assertTrue(value.containsKey("error"));
-			assertTrue(value.get("error").isNull());
+			assertTrue(value.getFromMap("error").isNull());
 			assertFalse(value.containsKey("result"));
 		}
 
@@ -343,7 +343,7 @@ class MonomorphicTest {
 			final Monomorphic value = Monomorphic.mapBuilder().putString("uri", "x").putString("name", "y").build();
 
 			final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-					() -> value.get("range"));
+					() -> value.getFromMap("range"));
 			assertTrue(thrown.getMessage().contains("range"), thrown.getMessage());
 			assertTrue(thrown.getMessage().contains("uri"), thrown.getMessage());
 			assertTrue(thrown.getMessage().contains("name"), thrown.getMessage());
@@ -355,8 +355,8 @@ class MonomorphicTest {
 			final Monomorphic value = Monomorphic.mapBuilder().putString("uri", "x").build();
 			final Monomorphic fallback = Monomorphic.createList();
 
-			assertEquals("x", value.getOrDefault("uri", fallback).asString());
-			assertSame(fallback, value.getOrDefault("absent", fallback));
+			assertEquals("x", value.getFromMapOrDefault("uri", fallback).asString());
+			assertSame(fallback, value.getFromMapOrDefault("absent", fallback));
 		}
 
 		@Test
@@ -392,12 +392,12 @@ class MonomorphicTest {
 					.putNumber("i", 7L).putNumber("d", 1.5).putNull("n")
 					.putList("l", List.of(Monomorphic.createNumber(1L))).build();
 
-			assertEquals(MonomorphicType.STRING, value.get("s").getType());
-			assertEquals(MonomorphicType.BOOLEAN, value.get("b").getType());
-			assertTrue(value.get("i").isIntegral());
-			assertFalse(value.get("d").isIntegral());
-			assertEquals(MonomorphicType.NULL, value.get("n").getType());
-			assertEquals(MonomorphicType.LIST, value.get("l").getType());
+			assertEquals(MonomorphicType.STRING, value.getFromMap("s").getType());
+			assertEquals(MonomorphicType.BOOLEAN, value.getFromMap("b").getType());
+			assertTrue(value.getFromMap("i").isIntegral());
+			assertFalse(value.getFromMap("d").isIntegral());
+			assertEquals(MonomorphicType.NULL, value.getFromMap("n").getType());
+			assertEquals(MonomorphicType.LIST, value.getFromMap("l").getType());
 		}
 
 		@Test
@@ -407,7 +407,7 @@ class MonomorphicTest {
 					.putString("a", "3").build();
 
 			assertEquals(2, value.size());
-			assertEquals("3", value.get("a").asString());
+			assertEquals("3", value.getFromMap("a").asString());
 			assertEquals(List.of("a", "b"), List.copyOf(value.asMap().keySet()));
 		}
 
@@ -474,12 +474,12 @@ class MonomorphicTest {
 			assertThrows(IllegalStateException.class, map::asBoolean);
 
 			assertThrows(IllegalStateException.class, list::asMap);
-			assertThrows(IllegalStateException.class, () -> list.get("a"));
+			assertThrows(IllegalStateException.class, () -> list.getFromMap("a"));
 			assertThrows(IllegalStateException.class, () -> list.containsKey("a"));
 
 			assertThrows(IllegalStateException.class, string::asDouble);
 			assertThrows(IllegalStateException.class, string::isIntegral);
-			assertThrows(IllegalStateException.class, () -> string.get(0));
+			assertThrows(IllegalStateException.class, () -> string.getFromList(0));
 
 			assertThrows(IllegalStateException.class, nul::asString);
 			assertThrows(IllegalStateException.class, nul::size);
@@ -560,8 +560,8 @@ class MonomorphicTest {
 			final Monomorphic response = Monomorphic.mapBuilder().putString("jsonrpc", "2.0").putNumber("id", 1L)
 					.putList("result", List.of(location)).build();
 
-			assertEquals("file:///Truc.java", response.get("result").get(0).get("uri").asString());
-			assertEquals(6, response.get("result").get(0).get("range").get("start").get("line").asInt());
+			assertEquals("file:///Truc.java", response.getFromMap("result").getFromList(0).getFromMap("uri").asString());
+			assertEquals(6, response.getFromMap("result").getFromList(0).getFromMap("range").getFromMap("start").getFromMap("line").asInt());
 			assertFalse(response.containsKey("error"));
 		}
 
@@ -574,9 +574,9 @@ class MonomorphicTest {
 			final Monomorphic root = Monomorphic.mapBuilder().put("child", Monomorphic.mapBuilder().putNull("x").build())
 					.build();
 
-			assertTrue(root.get("child").isMap());
+			assertTrue(root.getFromMap("child").isMap());
 			assertTrue(root.asMap().get("child").isMap());
-			assertTrue(root.get("child").get("x").isNull());
+			assertTrue(root.getFromMap("child").getFromMap("x").isNull());
 		}
 
 		@Test
@@ -585,8 +585,8 @@ class MonomorphicTest {
 			final Monomorphic value = Monomorphic.createList(Monomorphic.createList(Monomorphic.createNumber(1L)),
 					Monomorphic.createList());
 
-			assertEquals(1L, value.get(0).get(0).asLong());
-			assertEquals(0, value.get(1).size());
+			assertEquals(1L, value.getFromList(0).getFromList(0).asLong());
+			assertEquals(0, value.getFromList(1).size());
 		}
 
 		private Monomorphic position(final long line, final long character) {

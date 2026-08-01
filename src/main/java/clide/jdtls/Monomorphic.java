@@ -272,7 +272,7 @@ public final class Monomorphic {
 	 * A JSON null actually present in the document comes back as a NULL value,
 	 * so "absent" and "explicitly null" stay distinguishable.
 	 */
-	public Monomorphic get(final String key) {
+	public Monomorphic getFromMap(final String key) {
 		require(MonomorphicType.MAP);
 		final Monomorphic value = map.get(key);
 		if (value == null)
@@ -281,13 +281,13 @@ public final class Monomorphic {
 		return value;
 	}
 
-	public Monomorphic getOrDefault(final String key, final Monomorphic defaultValue) {
+	public Monomorphic getFromMapOrDefault(final String key, final Monomorphic defaultValue) {
 		require(MonomorphicType.MAP);
 		final Monomorphic value = map.get(key);
 		return value == null ? defaultValue : value;
 	}
 
-	public Monomorphic get(final int index) {
+	public Monomorphic getFromList(final int index) {
 		require(MonomorphicType.LIST);
 		if (index < 0 || index >= list.size())
 			throw new IllegalArgumentException("No index " + index + " - LIST holds " + list.size() + " element(s)");
