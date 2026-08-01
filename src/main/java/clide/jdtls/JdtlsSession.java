@@ -91,6 +91,11 @@ public class JdtlsSession {
 		if (launcher.isRunning() == false)
 			launcher.start();
 
+		// Before buildDotClasspath() below (via detectJarLibs()) reads .clide/tmp/
+		// jar-junit/ - see JunitVendorJars - so a project with no JUnit of its own
+		// still gets one it can compile its tests against.
+		JunitVendorJars.ensurePresent(projectRoot);
+
 		eclipseFiles = EclipseProjectFiles.forProject(projectRoot);
 		eclipseFiles.stage(buildDotProject(), buildDotClasspath(detectSourceFolders()));
 
@@ -229,22 +234,31 @@ public class JdtlsSession {
 	 * Jars found in <project>/.clide (flat, non-recursive) - a per-project cache
 	 * populated ahead of time (e.g. with the JUnit/AssertJ/etc. jars a project's
 	 * tests need), since clide's sandbox cannot reach Maven Central to resolve them
-	 * itself. Read every time start() builds a fresh .classpath to hand jdtls -
-	 * see EclipseProjectFiles - so a jar dropped into .clide/ is picked up by the
-	 * next daemon start without anyone having to delete an old .classpath by hand
+	 * itself - followed by whatever JunitVendorJars.ensurePresent() (called from
+	 * start(), above) just extracted into .clide/tmp/jar-junit/: a project's own
+	 * choice of JUnit wins by coming first, clide's vendored copy only fills in
+	 * what a project with none of its own would otherwise be missing. Read every
+	 * time start() builds a fresh .classpath to hand jdtls - see
+	 * EclipseProjectFiles - so a jar dropped into .clide/ is picked up by the next
+	 * daemon start without anyone having to delete an old .classpath by hand
 	 * first.
 	 */
 	private List<String> detectJarLibs() {
-		final Path jarsDir = projectRoot.resolve(JARS_DIR);
-		if (Files.isDirectory(jarsDir) == false)
+		final List<String> jars = new ArrayList<>(jarsIn(projectRoot.resolve(JARS_DIR)));
+		jars.addAll(jarsIn(projectRoot.resolve(JunitVendorJars.TARGET_DIR)));
+		return jars;
+	}
+
+	private static List<String> jarsIn(final Path dir) {
+		if (Files.isDirectory(dir) == false)
 			return List.of();
 
 		final List<String> jars = new ArrayList<>();
-		try (Stream<Path> entries = Files.list(jarsDir)) {
+		try (Stream<Path> entries = Files.list(dir)) {
 			entries.filter(p -> p.toString().endsWith(".jar")).sorted()
 					.forEach(p -> jars.add(p.toAbsolutePath().toString().replace('\\', '/')));
 		} catch (final IOException e) {
-			// .clide present but unreadable - classpath just ends up without these jars
+			// dir present but unreadable - classpath just ends up without these jars
 		}
 		return jars;
 	}

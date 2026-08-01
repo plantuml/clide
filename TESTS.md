@@ -207,6 +207,66 @@ bout en bout. Le point n°7 (priorité n°1 du projet) est réglé.
 - **Point n°6 inchangé** : `help_ai` affiche toujours « man <Keyword> -
   please write help of man ».
 
+## Campagne 4 — 2026-08-01 (branche `tmp-truc`, `JunitVendorJars` sur PlantUML)
+
+Objectif initial : tester `run_test`/`run_tests` sur PlantUML (branche
+`clide`). `ant test` en local (96/96, avant le chantier `EclipseProjectFiles`
+d'Arnaud, poussé en cours de route — voir plus bas) confirme d'abord que
+clide lui-même est sain.
+
+### Le trou : compilation des tests cassée sans JUnit dans `.clide/`
+
+`run_test`/`run_tests` sur PlantUML (branche `clide`, dépouillée de tout jar
+JUnit dans `.clide/` — seuls des stubs et `opentest4j` y sont) rapportait à
+tort « aucun test trouvé ». Cause réelle, trouvée via `print_diagnostics
+errors` : **6058 erreurs de compilation** — `clide.jar` embarque JUnit pour
+*exécuter* les tests, mais jamais pour que jdtls les *compile* (voir
+CLAUDE.md, section « JUnit pour un projet cible qui n'en a aucun »). Validé
+d'abord à la main (jars copiés dans `.clide/`, 6058 → 6 erreurs restantes,
+sans rapport avec JUnit), puis automatisé (`JunitVendorJars`).
+
+### Reconciliation avec le chantier `EclipseProjectFiles` (en cours en parallèle)
+
+Le correctif a d'abord été développé et testé (96/96, bout en bout sur
+PlantUML) sur une base locale qui s'est révélée en retard de 5 commits sur
+`origin/tmp-truc` : Arnaud avait en parallèle remplacé
+`ensureDotFilesPresent()` par `EclipseProjectFiles` (stage/unstage complet
+de `.project`/`.classpath`, plus relocalisation de `.clide.lock`/
+`.clide-daemon.log` sous `.clide/tmp/`) et ajouté le support d'un
+`clide.jar` autoportant (`resource/jdt-language-server-latest.zip`
+embarqué). Après son push, réintégration propre sur `origin/tmp-truc`
+(`fee97fd`) : `JunitVendorJars.ensurePresent()` appelé juste avant
+`EclipseProjectFiles.stage(...)` dans `JdtlsSession.start()`,
+`JunitVendorJars.TARGET_DIR` dérivé de `EclipseProjectFiles.STAGING_DIR`
+plutôt que recodé, jars vendus placés sous `resource/vendor-junit/` dans
+`clide.jar` (même convention de premier niveau `resource/` que le zip
+jdtls). `ant test` : 104/104 (96 + 10 `JunitVendorJarsTest` + 8
+`EclipseProjectFilesTest` — inchangée par ce correctif).
+
+### Testé de bout en bout (clone PlantUML neuf, `clide.jar` reconstruit)
+
+- `.clide/tmp/jar-junit/` peuplé au premier démarrage du daemon (3 jars).
+- `.classpath` : jars du `.clide/` du projet d'abord, puis ceux de
+  `jar-junit/` — précédence « le projet cible gagne » vérifiée.
+- `.clide/tmp/.gitignore` (`*`) posé automatiquement — couvre aussi
+  `.clide.lock`/`.clide-daemon.log`/les fichiers stagés d'`EclipseProjectFiles`,
+  pas seulement `jar-junit/`.
+- `print_diagnostics errors` : 6058 → **6** (identique à la validation
+  manuelle — les 6 restantes viennent de `RandomBeansExtension`, une
+  dépendance de test distincte, hors périmètre).
+- `run_test` : `JsonObjectTest` 8/8, `UrlBuilderTest` 20/20, `MathTest`
+  12/12 — tous passés.
+- `git status --porcelain` vide après `terminate`, y compris pendant la
+  session (rien à la racine, tout sous `.clide/tmp/` gitignoré).
+
+Effet de bord découvert au passage : la syntaxe des commandes est bien un
+token par ligne (`print_diagnostics`\n`errors`, pas `print_diagnostics
+errors` sur une ligne) et `run_test` attend la notation
+`<chemin>:<ligne>:<nom>`, pas un simple nom de classe — cohérent avec
+CLAUDE.md (section « Notation... ») mais qui vaut la peine d'être
+redit ici : une tentative naïve avec juste le nom de classe échoue en
+`SYNTAX ERROR`, pas en « test introuvable ».
+
 ## État des points
 
 | # | Point | Origine | Statut |
@@ -218,9 +278,11 @@ bout en bout. Le point n°7 (priorité n°1 du projet) est réglé.
 | 5 | `typeDefinition` vers un type JDK : aucune réponse, timeout 30 s | C2 | ouvert |
 | 6 | `@Help` de `man` : placeholder « please write help of man » | C2 | ouvert (mineur) |
 | 7 | Commande `build`/rebuild + diagnostics après édition | C1+C2 | **corrigé** (C3, `rebuild` — 9-12 s sur PlantUML, modèle sémantique inclus) |
-| 8 | Lancement d'un test ciblé | C1 | ouvert |
+| 8 | Lancement d'un test ciblé | C1 | **corrigé** (C4, `run_test` sur `JsonObjectTest`/`UrlBuilderTest`/`MathTest`, une fois le trou de compilation JUnit comblé — voir point 14) |
 | 9 | Call hierarchy (jdtls le supporte) | C1 | ouvert |
 | 10 | Type hierarchy structurée / super-types | C1 | ouvert |
 | 11 | `list_members` avec membres hérités (option) | C1 | ouvert (souhait) |
 | 12 | Recherche de champs par nom | C1 | limite jdtls, non actionnable |
 | 13 | `rebuild` à 0 changement paie le build complet (~11 s) | C3 | ouvert (mineur, peut-être voulu) |
+| 14 | Compilation des tests cassée sans JUnit dans `.clide/` du projet cible (6058 erreurs sur PlantUML) | C4 | **corrigé** (C4, `JunitVendorJars` — extraction depuis `clide.jar` vers `.clide/tmp/jar-junit/`, aucun commit requis côté projet cible) |
+| 15 | `run_tests` (suite complète, 259 classes PlantUML) : jamais terminé dans les 10 min du sandbox, probablement `graphviz`/`dot` manquant | C4 | ouvert |

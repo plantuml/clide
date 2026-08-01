@@ -274,12 +274,30 @@
         <fail unless="jdtls.zip.present" message="Cannot find ${jdtls.zip} - fetch it first or override the path with -Djdtls.zip=&lt;path&gt;"/>
     </target>
 
+    <!--
+        JUnit clide hands out, unexploded, to a target project that has none
+        of its own - see clide.jdtls.JunitVendorJars, whose VENDORED_JAR_NAMES
+        must be kept in sync by hand with this list. Bundled under the same
+        top-level "resource/" directory as ${jdtls.zip} above, in their own
+        resource/vendor-junit/ subdirectory so names never collide with it.
+    -->
+    <patternset id="junit.vendor.jars">
+        <include name="junit-platform-console-standalone-*.jar"/>
+        <include name="junit-pioneer-*.jar"/>
+        <include name="xmlunit-core-*.jar"/>
+    </patternset>
+
     <target name="dist" depends="compile,-merge-services,-check-jdtls-zip"
             description="Build clide.jar, a fat jar bundling every jar of lib/ plus ${jdtls.zip} under resource/ (default)">
         <jar jarfile="${jar.file}" duplicate="fail">
             <fileset dir="${classes.dir}"/>
             <fileset dir="${fatjar.dir}/classes"/>
             <zipfileset file="${jdtls.zip}" fullpath="resource/${jdtls.zip}"/>
+            <!-- Whole, unexploded jars for JunitVendorJars to extract into a
+                 target project - see the "junit.vendor.jars" patternset above. -->
+            <zipfileset dir="${lib.dir}" prefix="resource/vendor-junit">
+                <patternset refid="junit.vendor.jars"/>
+            </zipfileset>
             <manifest>
                 <attribute name="Main-Class" value="${main.class}"/>
                 <!-- See the comment above: without this the META-INF/versions/

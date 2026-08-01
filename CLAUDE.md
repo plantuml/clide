@@ -876,6 +876,77 @@ après `terminate`, `.clide.lock` est supprimé (comme avant, juste à son nouve
 emplacement) et `.clide-daemon.log` reste sur place pour inspection, comme
 `.project.clide`/`.classpath.clide`.
 
+### JUnit pour un projet cible qui n'en a aucun (`.clide/tmp/jar-junit/`, `JunitVendorJars`)
+
+**Le trou** : `clide.jar` embarque toute la plateforme JUnit (voir « Lancer
+les tests du projet ouvert » plus bas) mais uniquement sur le classpath de la
+JVM qu'il forke pour *exécuter* un test — jamais sur celui que jdtls utilise
+pour *compiler* le projet cible (`detectJarLibs()`, qui ne lit que
+`.clide/*.jar`). Un projet sans le moindre jar JUnit dans son propre
+`.clide/` échoue donc à compiler ses sources de test sous jdtls, et
+`run_test` rapporte à tort « aucun test trouvé » au lieu de la vraie cause.
+Constaté sur la branche `clide` de PlantUML (dépouillée de tout jar JUnit,
+justement pour forcer ce cas) : 6058 erreurs de compilation avant correctif.
+
+**Le correctif ne demande aucun commit au projet cible.** Copier des jars
+JUnit dans le `.clide/` de chaque projet ouvert marcherait, mais un projet
+qui commit son `.clide/` (comme PlantUML, précisément pour que les jars que
+le sandbox de clide ne peut pas aller chercher sur Maven Central soient
+versionnés) devrait alors aussi committer le JUnit de clide lui-même — ce que
+ce mécanisme évite.
+
+**`clide.jdtls.JunitVendorJars`** (nouvelle classe, appelée depuis
+`JdtlsSession.start()` juste avant `EclipseProjectFiles.stage(...)`, donc
+avant que `buildDotClasspath()`/`detectJarLibs()` ne lisent quoi que ce
+soit) : extrait trois jars — `junit-platform-console-standalone-1.10.1.jar`
+(plateforme JUnit 5 complète, autoportante — Jupiter API/moteur/params,
+platform-commons, opentest4j, apiguardian, tout sous leurs vrais noms de
+paquet, pas de shading), `junit-pioneer-2.3.0.jar`, `xmlunit-core-2.12.0.jar`
+(les deux extras que clide vend déjà pour ses propres tests) — vers
+`.clide/tmp/jar-junit/` dans le projet cible, de façon idempotente (un jar
+déjà présent n'est jamais retéléchargé/réécrit). `detectJarLibs()` liste
+d'abord les jars du `.clide/` du projet, puis ceux de `.clide/tmp/jar-junit/`
+— le choix du projet cible gagne toujours si un JUnit y est déjà présent,
+clide ne fait que combler ce qui manquerait sinon.
+
+**Où vivent ces jars dans `clide.jar` lui-même** : embarqués tels quels (non
+explosés) sous `resource/vendor-junit/` — même répertoire de premier niveau
+`resource/` que `jdt-language-server-latest.zip` (voir plus haut), dans son
+propre sous-répertoire pour ne jamais collisionner avec lui. Patternset
+`junit.vendor.jars` dans `build.xml`, à garder synchronisé à la main avec
+`JunitVendorJars.VENDORED_JAR_NAMES` — seul `ant dist` (le jar complet, pas
+`ant compile`/`ant run`) les embarque, donc `ant run` reste incapable de
+combler ce trou lui-même (les ressources n'existent que dans le jar
+empaqueté).
+
+**`.clide/tmp/` déjà hors de portée de git** grâce au `.gitignore` (`*`)
+qu'`EclipseProjectFiles`/`DaemonLock`/`ClideClient` ne posent pas eux-mêmes —
+c'est `JunitVendorJars.ensurePresent()` qui l'écrit (une fois, jamais
+réécrit s'il existe déjà) dès qu'il extrait au moins un jar, à la racine de
+`EclipseProjectFiles.STAGING_DIR`. Effet de bord bienvenu : ce même
+`.gitignore` couvre aussi `.clide.lock`/`.clide-daemon.log`/les
+`.project`/`.classpath` mis de côté pendant le séjour — tout ce que
+`EclipseProjectFiles.STAGING_DIR` héberge désormais, pas seulement
+`jar-junit/`.
+
+**Testé** : suite dédiée `JunitVendorJarsTest` (10 cas, `@TempDir` réel,
+`resourceOpener` en `Map` mémoire — aucun vrai `clide.jar` nécessaire) —
+extraction, chemin absolu rendu, atterrissage sous le bon dossier, ressource
+manquante ignorée en silence, rien créé sur disque si rien n'est disponible,
+un jar déjà présent jamais redemandé, deuxième appel idempotent, disponibilité
+partielle sans se gêner, ordre du résultat déterministe (celui de
+`VENDORED_JAR_NAMES`, pas celui du disque), `.gitignore` posé seulement si
+quelque chose a été extrait, jamais réécrit s'il existe déjà. Rejoué de bout
+en bout sur un clone PlantUML (`clide`) totalement neuf, `.clide/` sans aucun
+JUnit : `.clide/tmp/jar-junit/` se peuple bien au premier démarrage du
+daemon, `.classpath` liste les jars du projet avant ceux de `jar-junit/`,
+`print_diagnostics errors` passe de 6058 à 6 (les 6 restantes n'ont rien à
+voir avec JUnit — `RandomBeansExtension` introuvable, une dépendance de test
+distincte, hors du périmètre de ce correctif), `run_test` sur
+`JsonObjectTest`/`UrlBuilderTest`/`MathTest` rapporte 8/8, 20/20, 12/12 —
+identique au comportement validé manuellement avant l'automatisation — et
+`git status --porcelain` reste vide après `terminate`.
+
 ### Lancer les tests du projet ouvert (`run_test`, `run_tests`)
 
 C'est la priorité n°2 du projet. Aucun build system n'est sollicité : jdtls
