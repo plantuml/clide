@@ -5,3 +5,4 @@ build
 .clide.lock
 .clide-daemon.log
 /.clide/
+.settings
