@@ -35,37 +35,37 @@ public final class Monomorphic {
 	private final String string;
 
 	/**
-	 * NUMBER carries both primitives: JSON has a single number type, but jdtls
-	 * does not treat 41 and 41.0 alike, and the JSON-RPC id - matched against
-	 * LspClient's table of pending requests - has to survive as an exact long.
-	 * integral says which of the two the value was written as; the other field
-	 * holds the same number, so asLong() and asDouble() both work either way.
+	 * A JSON number, held as whichever primitive it was written as - INTEGER
+	 * uses integer, DECIMAL uses decimal, exactly like type designates one of
+	 * the four fields around them. The other one is dead weight, never read.
+	 *
+	 * Neither primitive would do on its own. A double loses whole numbers past
+	 * 2^53, and the JSON-RPC id comes out of an AtomicLong and is what
+	 * LspClient matches a response against its waiting request - a mangled id
+	 * means a caller that waits out its 30 second timeout for no visible
+	 * reason. A double also writes 41 back as 41.0, so parse-then-write would
+	 * stop being the identity. A long, on the other hand, cannot hold 1.5.
 	 */
 	private final long integer;
 	private final double decimal;
-	private final boolean integral;
 
 	private final List<Monomorphic> list;
 	private final Map<String, Monomorphic> map;
 
 	private Monomorphic(final MonomorphicType type, final boolean bool, final String string, final long integer,
-			final double decimal, final boolean integral, final List<Monomorphic> list,
-			final Map<String, Monomorphic> map) {
+			final double decimal, final List<Monomorphic> list, final Map<String, Monomorphic> map) {
 		this.type = type;
 		this.bool = bool;
 		this.string = string;
 		this.integer = integer;
 		this.decimal = decimal;
-		this.integral = integral;
 		this.list = list;
 		this.map = map;
 	}
 
-	private static final Monomorphic NULL = new Monomorphic(MonomorphicType.NULL, false, null, 0, 0, false, null, null);
-	private static final Monomorphic TRUE = new Monomorphic(MonomorphicType.BOOLEAN, true, null, 0, 0, false, null,
-			null);
-	private static final Monomorphic FALSE = new Monomorphic(MonomorphicType.BOOLEAN, false, null, 0, 0, false, null,
-			null);
+	private static final Monomorphic NULL = new Monomorphic(MonomorphicType.NULL, false, null, 0, 0, null, null);
+	private static final Monomorphic TRUE = new Monomorphic(MonomorphicType.BOOLEAN, true, null, 0, 0, null, null);
+	private static final Monomorphic FALSE = new Monomorphic(MonomorphicType.BOOLEAN, false, null, 0, 0, null, null);
 
 	// ------------------------------------------------------------------
 	// Creation
@@ -84,7 +84,7 @@ public final class Monomorphic {
 		if (value == null)
 			throw new IllegalArgumentException("null is not a STRING - use Monomorphic.createNull()");
 
-		return new Monomorphic(MonomorphicType.STRING, false, value, 0, 0, false, null, null);
+		return new Monomorphic(MonomorphicType.STRING, false, value, 0, 0, null, null);
 	}
 
 	public static Monomorphic createBoolean(final boolean value) {
@@ -93,12 +93,12 @@ public final class Monomorphic {
 
 	/** A JSON number written as an integer: 41, not 41.0. */
 	public static Monomorphic createNumber(final long value) {
-		return new Monomorphic(MonomorphicType.NUMBER, false, null, value, value, true, null, null);
+		return new Monomorphic(MonomorphicType.INTEGER, false, null, value, 0, null, null);
 	}
 
 	/** A JSON number written with a fractional part or an exponent. */
 	public static Monomorphic createNumber(final double value) {
-		return new Monomorphic(MonomorphicType.NUMBER, false, null, (long) value, value, false, null, null);
+		return new Monomorphic(MonomorphicType.DECIMAL, false, null, 0, value, null, null);
 	}
 
 	/** Copies the list - later changes to the argument do not show up here. */
@@ -114,7 +114,7 @@ public final class Monomorphic {
 
 			copy.add(value);
 		}
-		return new Monomorphic(MonomorphicType.LIST, false, null, 0, 0, false, Collections.unmodifiableList(copy), null);
+		return new Monomorphic(MonomorphicType.LIST, false, null, 0, 0, Collections.unmodifiableList(copy), null);
 	}
 
 	public static Monomorphic createList(final Monomorphic... values) {
@@ -141,7 +141,7 @@ public final class Monomorphic {
 
 			copy.put(entry.getKey(), entry.getValue());
 		}
-		return new Monomorphic(MonomorphicType.MAP, false, null, 0, 0, false, null, Collections.unmodifiableMap(copy));
+		return new Monomorphic(MonomorphicType.MAP, false, null, 0, 0, null, Collections.unmodifiableMap(copy));
 	}
 
 	public static Builder mapBuilder() {
@@ -168,8 +168,18 @@ public final class Monomorphic {
 		return type == MonomorphicType.BOOLEAN;
 	}
 
+	/** True for both INTEGER and DECIMAL - JSON itself has one number type. */
 	public boolean isNumber() {
-		return type == MonomorphicType.NUMBER;
+		return type == MonomorphicType.INTEGER || type == MonomorphicType.DECIMAL;
+	}
+
+	/** Whether this number was written as an integer rather than as a decimal. */
+	public boolean isInteger() {
+		return type == MonomorphicType.INTEGER;
+	}
+
+	public boolean isDecimal() {
+		return type == MonomorphicType.DECIMAL;
 	}
 
 	public boolean isList() {
@@ -194,12 +204,6 @@ public final class Monomorphic {
 		return bool;
 	}
 
-	/** Whether this number was written as an integer rather than as a decimal. */
-	public boolean isIntegral() {
-		require(MonomorphicType.NUMBER);
-		return integral;
-	}
-
 	/**
 	 * This number as a long. A decimal is accepted when it holds a whole number
 	 * a long can represent - a JSON writer is free to send 41.0 where 41 was
@@ -207,8 +211,8 @@ public final class Monomorphic {
 	 * silent truncation.
 	 */
 	public long asLong() {
-		require(MonomorphicType.NUMBER);
-		if (integral)
+		requireNumber();
+		if (type == MonomorphicType.INTEGER)
 			return integer;
 
 		if (Double.isNaN(decimal) || Double.isInfinite(decimal) || decimal != Math.floor(decimal))
@@ -230,8 +234,8 @@ public final class Monomorphic {
 	}
 
 	public double asDouble() {
-		require(MonomorphicType.NUMBER);
-		return integral ? integer : decimal;
+		requireNumber();
+		return type == MonomorphicType.INTEGER ? integer : decimal;
 	}
 
 	/** Unmodifiable. */
@@ -300,14 +304,19 @@ public final class Monomorphic {
 			throw new IllegalStateException("Expected " + expected + " but was " + type);
 	}
 
+	private void requireNumber() {
+		if (isNumber() == false)
+			throw new IllegalStateException("Expected INTEGER or DECIMAL but was " + type);
+	}
+
 	// ------------------------------------------------------------------
 	// Value semantics
 	// ------------------------------------------------------------------
 
 	/**
-	 * Two values are equal when they are the same JSON. Note that a NUMBER
-	 * written 1 and one written 1.0 are NOT equal: they serialize differently,
-	 * and that difference is exactly what integral exists to preserve.
+	 * Two values are equal when they are the same JSON. Note that 1 and 1.0 are
+	 * NOT equal: they are an INTEGER and a DECIMAL, they serialize differently,
+	 * and that difference is exactly what the two types exist to preserve.
 	 */
 	@Override
 	public boolean equals(final Object other) {
@@ -325,8 +334,8 @@ public final class Monomorphic {
 		case NULL -> true;
 		case BOOLEAN -> bool == that.bool;
 		case STRING -> string.equals(that.string);
-		case NUMBER -> integral == that.integral
-				&& (integral ? integer == that.integer : Double.compare(decimal, that.decimal) == 0);
+		case INTEGER -> integer == that.integer;
+		case DECIMAL -> Double.compare(decimal, that.decimal) == 0;
 		case LIST -> list.equals(that.list);
 		case MAP -> map.equals(that.map);
 		};
@@ -338,7 +347,8 @@ public final class Monomorphic {
 		case NULL -> 0;
 		case BOOLEAN -> Boolean.hashCode(bool);
 		case STRING -> string.hashCode();
-		case NUMBER -> integral ? Long.hashCode(integer) : Double.hashCode(decimal);
+		case INTEGER -> Long.hashCode(integer);
+		case DECIMAL -> Double.hashCode(decimal);
 		case LIST -> list.hashCode();
 		case MAP -> map.hashCode();
 		};
@@ -361,7 +371,8 @@ public final class Monomorphic {
 		case NULL -> out.append("null");
 		case BOOLEAN -> out.append(bool);
 		case STRING -> out.append('"').append(string).append('"');
-		case NUMBER -> out.append(integral ? Long.toString(integer) : Double.toString(decimal));
+		case INTEGER -> out.append(integer);
+		case DECIMAL -> out.append(decimal);
 		case LIST -> {
 			out.append('[');
 			boolean first = true;

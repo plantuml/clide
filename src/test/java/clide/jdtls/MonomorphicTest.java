@@ -129,8 +129,10 @@ class MonomorphicTest {
 		void integerRoundTrips() {
 			final Monomorphic value = Monomorphic.createNumber(41L);
 
-			assertEquals(MonomorphicType.NUMBER, value.getType());
-			assertTrue(value.isIntegral());
+			assertEquals(MonomorphicType.INTEGER, value.getType());
+			assertTrue(value.isNumber());
+			assertTrue(value.isInteger());
+			assertFalse(value.isDecimal());
 			assertEquals(41L, value.asLong());
 			assertEquals(41, value.asInt());
 			assertEquals(41.0, value.asDouble());
@@ -141,7 +143,7 @@ class MonomorphicTest {
 		void largeLongKeepsEveryBit() {
 			// 2^53 + 1 : le premier entier que double ne sait plus distinguer de
 			// son voisin. C'est ce cas qui condamnait le champ "int number", et
-			// qui condamnerait aussi un NUMBER stocké en double : l'id JSON-RPC
+			// qui condamnerait aussi un nombre stocké en double : l'id JSON-RPC
 			// sort d'un AtomicLong et sert à apparier requête et réponse.
 			final long id = (1L << 53) + 1;
 
@@ -155,7 +157,10 @@ class MonomorphicTest {
 		void decimalRoundTrips() {
 			final Monomorphic value = Monomorphic.createNumber(1.5);
 
-			assertFalse(value.isIntegral());
+			assertEquals(MonomorphicType.DECIMAL, value.getType());
+			assertTrue(value.isNumber());
+			assertTrue(value.isDecimal());
+			assertFalse(value.isInteger());
 			assertEquals(1.5, value.asDouble());
 		}
 
@@ -196,9 +201,11 @@ class MonomorphicTest {
 		@Test
 		@DisplayName("1 et 1.0 ne sont pas égaux : ils ne s'écrivent pas pareil")
 		void integerDiffersFromDecimal() {
-			// Toute la raison d'être du drapeau integral. Les confondre ferait
-			// sortir "line":41 en "line":41.0 sur le fil.
+			// Toute la raison d'être de la séparation INTEGER / DECIMAL. Les
+			// confondre ferait sortir "line":41 en "line":41.0 sur le fil.
 			assertNotEquals(Monomorphic.createNumber(1L), Monomorphic.createNumber(1.0));
+			assertEquals(MonomorphicType.INTEGER, Monomorphic.createNumber(1L).getType());
+			assertEquals(MonomorphicType.DECIMAL, Monomorphic.createNumber(1.0).getType());
 			assertEquals("1", Monomorphic.createNumber(1L).toString());
 			assertEquals("1.0", Monomorphic.createNumber(1.0).toString());
 		}
@@ -394,8 +401,8 @@ class MonomorphicTest {
 
 			assertEquals(MonomorphicType.STRING, value.getFromMap("s").getType());
 			assertEquals(MonomorphicType.BOOLEAN, value.getFromMap("b").getType());
-			assertTrue(value.getFromMap("i").isIntegral());
-			assertFalse(value.getFromMap("d").isIntegral());
+			assertEquals(MonomorphicType.INTEGER, value.getFromMap("i").getType());
+			assertEquals(MonomorphicType.DECIMAL, value.getFromMap("d").getType());
 			assertEquals(MonomorphicType.NULL, value.getFromMap("n").getType());
 			assertEquals(MonomorphicType.LIST, value.getFromMap("l").getType());
 		}
@@ -454,7 +461,7 @@ class MonomorphicTest {
 			final Monomorphic number = Monomorphic.createNumber(41L);
 
 			final IllegalStateException thrown = assertThrows(IllegalStateException.class, number::asString);
-			assertEquals("Expected STRING but was NUMBER", thrown.getMessage());
+			assertEquals("Expected STRING but was INTEGER", thrown.getMessage());
 		}
 
 		@Test
@@ -478,11 +485,20 @@ class MonomorphicTest {
 			assertThrows(IllegalStateException.class, () -> list.containsKey("a"));
 
 			assertThrows(IllegalStateException.class, string::asDouble);
-			assertThrows(IllegalStateException.class, string::isIntegral);
+			assertThrows(IllegalStateException.class, string::asLong);
 			assertThrows(IllegalStateException.class, () -> string.getFromList(0));
 
 			assertThrows(IllegalStateException.class, nul::asString);
 			assertThrows(IllegalStateException.class, nul::size);
+		}
+
+		@Test
+		@DisplayName("un accès numérique sur autre chose nomme les deux types de nombre")
+		void numericAccessNamesBothNumberTypes() {
+			final IllegalStateException thrown = assertThrows(IllegalStateException.class,
+					() -> Monomorphic.createString("x").asLong());
+
+			assertEquals("Expected INTEGER or DECIMAL but was STRING", thrown.getMessage());
 		}
 
 		@Test
