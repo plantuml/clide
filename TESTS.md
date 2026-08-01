@@ -156,19 +156,71 @@ createPSystem` → un seul appelant réel (`BlockUml.java:194`) →
 diagramme. L'enchaînement résultat → commande suivante sans retouche est
 le point fort confirmé de l'outil.
 
+## Campagne 3 — 2026-07-31 (commit 8f2325c « command rebuild »)
+
+RAZ complet de l'environnement, re-clone, re-build, daemon neuf.
+
+### `rebuild` : la boucle priorité n°1 est fermée
+
+Scénario complet, éditions faites avec les outils propres de Claude (jamais
+via clide), sur PlantUML entier :
+
+1. `rebuild errors` à vide → « 0 file(s) changed since the last build,
+   rebuilt in 11785 ms », 0 erreur — baseline.
+2. Erreur volontaire (`String` → `StringXXX` ligne 98 de `BlockUml.java`)
+   → `rebuild` : « 1 file(s) changed », **`[error] line 98: StringXXX
+   cannot be resolved to a type`** — fichier, ligne et message exacts.
+3. Correction + création d'un nouveau `TestClaude.java` cassé → « 2
+   file(s) changed », l'erreur du nouveau fichier remontée (`Type
+   mismatch: cannot convert from String to int`).
+4. Suppression de `TestClaude.java` → « 1 file(s) changed », retour à
+   0 erreur, 584 fichiers.
+5. **Le modèle sémantique est rafraîchi, pas seulement les diagnostics** :
+   méthode `claudeProbe()` ajoutée hors clide, `rebuild`, puis
+   `find_symbol claudeProbe` → trouvée, à la bonne ligne.
+
+Coût mesuré : 9 à 12 s par `rebuild` sur PlantUML (3600+ fichiers), que des
+fichiers aient changé ou non — un `rebuild` à 0 changement paie le build
+complet quand même (piste mineure : court-circuiter vers les diagnostics du
+dernier build dans ce cas, ou le laisser tel quel comme « build forcé »).
+
+Conclusion : la boucle réelle d'un agent — éditer avec ses propres outils →
+`rebuild` → erreurs exactes → naviguer sur le modèle à jour — fonctionne de
+bout en bout. Le point n°7 (priorité n°1 du projet) est réglé.
+
+### `search_regex` : chemins relatifs corrigés
+
+- `<chemin initial>` relatif (`src/main/java`) → fonctionne (7 matches sur
+  le motif témoin, identiques à l'absolu). Point n°2 réglé.
+- `.` pour chercher dans tout le projet → fonctionne (9 matches, incluant
+  les fichiers hors `src/main`). Conforme au TODO.
+- Les sorties sont désormais en chemins **relatifs au projet**, cohérentes
+  avec les `find_*`. Point n°3 réglé.
+- Un chemin absolu dans le projet fonctionne toujours ; un chemin hors
+  projet (`/tmp`) renvoie 0 match silencieux (non testé plus loin).
+
+### Régressions toujours ouvertes
+
+- **Point n°5 inchangé** : `find_declaration type` vers un type JDK
+  (`String`) → `No response for textDocument/typeDefinition after 30s`,
+  reproduit sur ce daemon neuf.
+- **Point n°6 inchangé** : `help_ai` affiche toujours « man <Keyword> -
+  please write help of man ».
+
 ## État des points
 
 | # | Point | Origine | Statut |
 |---|---|---|---|
 | 1 | `find_implementation` et overrides par érasure | C1 | **corrigé** (C2, passe nom+arité) |
-| 2 | `search_regex` chemin relatif → 0 silencieux | C1 | ouvert (en tête de TODO.md) |
-| 3 | Sorties `search_regex` en absolu (vs relatif ailleurs) | C1 | ouvert (idem TODO.md) |
+| 2 | `search_regex` chemin relatif → 0 silencieux | C1 | **corrigé** (C3, relatif au projet + `.`) |
+| 3 | Sorties `search_regex` en absolu (vs relatif ailleurs) | C1 | **corrigé** (C3, sorties relatives) |
 | 4 | Bruit de protocole en usage batch | C1 | **corrigé** (C2, `PrintMode.AI`) |
 | 5 | `typeDefinition` vers un type JDK : aucune réponse, timeout 30 s | C2 | ouvert |
 | 6 | `@Help` de `man` : placeholder « please write help of man » | C2 | ouvert (mineur) |
-| 7 | Commande `build`/rebuild + diagnostics après édition | C1+C2 | ouvert — **priorité n°1** |
+| 7 | Commande `build`/rebuild + diagnostics après édition | C1+C2 | **corrigé** (C3, `rebuild` — 9-12 s sur PlantUML, modèle sémantique inclus) |
 | 8 | Lancement d'un test ciblé | C1 | ouvert |
 | 9 | Call hierarchy (jdtls le supporte) | C1 | ouvert |
 | 10 | Type hierarchy structurée / super-types | C1 | ouvert |
 | 11 | `list_members` avec membres hérités (option) | C1 | ouvert (souhait) |
 | 12 | Recherche de champs par nom | C1 | limite jdtls, non actionnable |
+| 13 | `rebuild` à 0 changement paie le build complet (~11 s) | C3 | ouvert (mineur, peut-être voulu) |
