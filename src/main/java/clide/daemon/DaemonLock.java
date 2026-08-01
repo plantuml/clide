@@ -9,13 +9,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import clide.jdtls.EclipseProjectFiles;
+
 /**
- * Reads and writes .clide.lock, the file a fresh clide invocation checks
- * before doing anything else to find out whether a daemon is already running
- * for a given project - see ClideClient/ClideDaemon. Holds exactly what a
- * client needs to reach that daemon: the local TCP port it listens on, plus
- * its PID for diagnostics (not trusted alone to prove liveness - PIDs get
- * reused by the OS, see isReachable()).
+ * Reads and writes .clide/tmp/.clide.lock, the file a fresh clide invocation
+ * checks before doing anything else to find out whether a daemon is already
+ * running for a given project - see ClideClient/ClideDaemon. Holds exactly
+ * what a client needs to reach that daemon: the local TCP port it listens on,
+ * plus its PID for diagnostics (not trusted alone to prove liveness - PIDs
+ * get reused by the OS, see isReachable()). Lives under .clide/tmp/ (see
+ * EclipseProjectFiles.STAGING_DIR) rather than at the project root, for the
+ * same reason nothing else clide generates sits there either.
  */
 public final class DaemonLock {
 
@@ -39,13 +43,20 @@ public final class DaemonLock {
 	}
 
 	public static Path file(final Path projectRoot) {
-		return projectRoot.resolve(FILE_NAME);
+		return EclipseProjectFiles.stagingDir(projectRoot).resolve(FILE_NAME);
 	}
 
-	/** Writes the lock for the daemon running as the current JVM process. */
+	/**
+	 * Writes the lock for the daemon running as the current JVM process. Creates
+	 * .clide/tmp/ if it is not there yet - normally already true by the time this
+	 * runs (EclipseProjectFiles.stage(), called from JdtlsSession.start(), creates
+	 * it first), but this does not rely on that ordering.
+	 */
 	public static void write(final Path projectRoot, final int port) throws IOException {
 		final long pid = ProcessHandle.current().pid();
-		Files.writeString(file(projectRoot), port + "\n" + pid + "\n", StandardCharsets.UTF_8);
+		final Path file = file(projectRoot);
+		Files.createDirectories(file.getParent());
+		Files.writeString(file, port + "\n" + pid + "\n", StandardCharsets.UTF_8);
 	}
 
 	/**

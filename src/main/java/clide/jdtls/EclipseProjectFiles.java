@@ -38,7 +38,15 @@ import java.util.List;
  */
 public final class EclipseProjectFiles {
 
-	private static final String STAGING_DIR = ".clide/tmp";
+	/**
+	 * clide's scratch directory for a project - also where DaemonLock's
+	 * .clide.lock and ClideClient's .clide-daemon.log live, for the same reason
+	 * everything here does: keep the project root itself free of anything clide
+	 * did not find there already. Public so those two classes share this one
+	 * definition rather than each hard-coding ".clide/tmp" themselves.
+	 */
+	public static final String STAGING_DIR = ".clide/tmp";
+
 	private static final String DEBUG_SUFFIX = ".clide";
 	private static final List<String> MANAGED_FILES = List.of(".project", ".classpath");
 
@@ -53,7 +61,7 @@ public final class EclipseProjectFiles {
 		return new EclipseProjectFiles(projectRoot);
 	}
 
-	private static Path stagingDir(final Path projectRoot) {
+	public static Path stagingDir(final Path projectRoot) {
 		return projectRoot.resolve(STAGING_DIR);
 	}
 

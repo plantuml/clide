@@ -856,6 +856,26 @@ anti-crash déclenchée pour de vrai en laissant un `.clide/tmp/.project`
 résiduel avant un démarrage - refus propre avec un message explicite, daemon
 non démarré.
 
+**Suite** : `.clide.lock` (`DaemonLock`) et `.clide-daemon.log` (`ClideClient`)
+vivaient jusque-là à la racine du projet — seuls fichiers que clide y laissait
+en dehors du séjour temporaire de `.project`/`.classpath` ci-dessus. Les deux
+ont été déplacés dans `.clide/tmp/`, pour la même raison : ne rien laisser à la
+racine qui n'y était pas déjà. `DaemonLock.file()` et `ClideClient.
+ensureDaemon()` résolvent maintenant leur chemin via
+`EclipseProjectFiles.stagingDir()`/`STAGING_DIR` (rendues publiques) plutôt que
+de recoder chacun leur propre `".clide/tmp"` — une seule définition partagée.
+`DaemonLock.write()` crée le répertoire au besoin (`Files.createDirectories`)
+avant d'écrire, normalement déjà là à ce stade (`stage()` l'a créé en premier)
+mais sans en dépendre ; `ClideClient.ensureDaemon()` fait de même avant
+d'ouvrir le fichier de log en `Redirect.appendTo()`, puisque c'est la première
+écriture dans ce répertoire côté client (avant même qu'un daemon existe pour
+appeler `stage()`). Vérifié de bout en bout sur PlantUML (branche `clide`,
+sans `.project`/`.classpath` préexistants) : `.clide.lock`/`.clide-daemon.log`
+apparaissent bien dans `.clide/tmp/` pendant la session, rien à la racine ;
+après `terminate`, `.clide.lock` est supprimé (comme avant, juste à son nouvel
+emplacement) et `.clide-daemon.log` reste sur place pour inspection, comme
+`.project.clide`/`.classpath.clide`.
+
 ### Lancer les tests du projet ouvert (`run_test`, `run_tests`)
 
 C'est la priorité n°2 du projet. Aucun build system n'est sollicité : jdtls

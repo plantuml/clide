@@ -16,13 +16,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import clide.jdtls.EclipseProjectFiles;
+
 /**
  * The short-lived side of clide: makes sure a daemon is running for the given
- * project - reusing one already up (see .clide.lock/DaemonLock), or starting
- * one detached in the background otherwise - then relays this process' own
- * stdin/stdout to it verbatim until stdin runs dry, and disconnects. All the
- * actual command handling happens on the other end of the socket, in
- * ClideDaemon; this class never parses a single clide command itself.
+ * project - reusing one already up (see .clide/tmp/.clide.lock/DaemonLock),
+ * or starting one detached in the background otherwise - then relays this
+ * process' own stdin/stdout to it verbatim until stdin runs dry, and
+ * disconnects. All the actual command handling happens on the other end of
+ * the socket, in ClideDaemon; this class never parses a single clide command
+ * itself.
  *
  * Disconnecting here never stops the daemon, and "exit"/"quit" only stop the
  * jdtls session while leaving the daemon itself up (see DisconnectCommand) -
@@ -56,7 +59,13 @@ public final class ClideClient {
 		if (existing != null)
 			return existing;
 
-		final Path logFile = projectRoot.resolve(".clide-daemon.log");
+		// Same directory as .clide.lock (EclipseProjectFiles.STAGING_DIR) - created
+		// here since it must exist before the Redirect.appendTo() below can work,
+		// and nothing earlier in this process is guaranteed to have created it yet.
+		final Path stagingDir = EclipseProjectFiles.stagingDir(projectRoot);
+		Files.createDirectories(stagingDir);
+
+		final Path logFile = stagingDir.resolve(".clide-daemon.log");
 		deleteStaleFiles(logFile);
 
 		final Process daemonProcess = startDetachedDaemon(logFile);
