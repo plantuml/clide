@@ -86,9 +86,7 @@ public final class ProjectTests {
 							+ context.getProjectRoot().resolve(".classpath") + " declares a test source folder");
 
 		final List<String> records = new ArrayList<>();
-		int exit = TestRunnerMain.EXIT_NO_TEST;
 		long millis = 0;
-		final int[] totals = new int[4];
 		for (final String root : roots) {
 			final Outcome outcome = fork(context, classpath, new String[] { "--scan", root },
 					SUITE_TIMEOUT_SECONDS);
@@ -97,14 +95,9 @@ public final class ProjectTests {
 
 			records.addAll(outcome.records);
 			millis += outcome.millis;
-			for (int i = 0; i < 4; i++)
-				totals[i] += outcome.totals[i];
-
-			if (outcome.exit == TestRunnerMain.EXIT_FAILURES || exit == TestRunnerMain.EXIT_NO_TEST)
-				exit = outcome.exit;
 		}
 
-		return report(context, "run_tests", records, totals, millis, exit, failuresOnly, String.join(", ", roots));
+		return report(context, "run_tests", records, millis, failuresOnly, String.join(", ", roots));
 	}
 
 	private static CommandResult run(final ClideContext context, final String[] selector, final long timeoutSeconds,
@@ -120,8 +113,7 @@ public final class ProjectTests {
 		if (outcome.failure != null)
 			return CommandResult.error(outcome.failure);
 
-		return report(context, label, outcome.records, outcome.totals, outcome.millis, outcome.exit, failuresOnly,
-				what);
+		return report(context, label, outcome.records, outcome.millis, failuresOnly, what);
 	}
 
 	// ------------------------------------------------------------------
@@ -192,7 +184,7 @@ public final class ProjectTests {
 		if (exit == TestRunnerMain.EXIT_BROKEN)
 			return Outcome.broken("the test JVM failed to run the tests: " + firstLine(stderr.toString()));
 
-		return Outcome.of(lines, exit);
+		return Outcome.of(lines);
 	}
 
 	/**
@@ -244,7 +236,7 @@ public final class ProjectTests {
 	// ------------------------------------------------------------------
 
 	private static CommandResult report(final ClideContext context, final String label, final List<String> records,
-			final int[] totals, final long millis, final int exit, final boolean failuresOnly, final String what) {
+			final long millis, final boolean failuresOnly, final String what) {
 		for (final String record : records) {
 			final List<String> fields = TestRunnerMain.parseRecord(record);
 			if (fields.get(0).equals(TestRunnerMain.NOCLASS))
@@ -253,16 +245,21 @@ public final class ProjectTests {
 						+ "it, since run_test never compiles anything itself");
 		}
 
-		if (exit == TestRunnerMain.EXIT_NO_TEST)
+		final int[] tally = tally(records);
+		final int passed = tally[0];
+		final int failed = tally[1];
+		final int skipped = tally[2];
+		final int total = passed + failed + skipped;
+		if (total == 0)
 			return CommandResult.error("no test found in " + what
 					+ " - an empty run is far more often a wrong selector or a missing rebuild than a project "
 					+ "with no tests");
 
 		final StringBuilder out = new StringBuilder();
-		out.append(label).append(": ").append(totals[0]).append(" test(s), ").append(totals[1]).append(" passed, ")
-				.append(totals[2]).append(" failed");
-		if (totals[3] > 0)
-			out.append(", ").append(totals[3]).append(" skipped");
+		out.append(label).append(": ").append(total).append(" test(s), ").append(passed).append(" passed, ")
+				.append(failed).append(" failed");
+		if (skipped > 0)
+			out.append(", ").append(skipped).append(" skipped");
 
 		out.append(" in ").append(millis).append(" ms");
 
@@ -282,13 +279,60 @@ public final class ProjectTests {
 				continue;
 
 			if (kind.equals(TestRunnerMain.PASS))
-				out.append("\n[passed] ").append(fields.get(1)).append('.').append(fields.get(2));
+				out.append("\n[passed] ").append(name(fields));
 			else if (kind.equals(TestRunnerMain.SKIP))
-				out.append("\n[skipped] ").append(fields.get(1)).append('.').append(fields.get(2)).append(": ")
-						.append(fields.get(4));
+				out.append("\n[skipped] ").append(name(fields)).append(": ").append(fields.get(4));
 		}
 
-		return exit == TestRunnerMain.EXIT_OK ? CommandResult.ok(out.toString()) : CommandResult.error(out.toString());
+		return failed == 0 ? CommandResult.ok(out.toString()) : CommandResult.error(out.toString());
+	}
+
+	/**
+	 * How many tests passed, failed and were skipped - {passed, failed, skipped},
+	 * counted from the records and from nothing else.
+	 *
+	 * The SUMMARY line carries its own counters and they are deliberately
+	 * ignored: the same facts used to travel twice, as records and as counters,
+	 * and a wrong counter silently threw away twenty real results - a class made
+	 * only of @ParameterizedTest reported as "no test found", its failures
+	 * included, because the child counted the test plan before JUnit had
+	 * registered the parameterized invocations. A count must never be able to
+	 * invalidate a fact.
+	 */
+	static int[] tally(final List<String> records) {
+		final int[] counts = new int[3];
+		for (final String record : records) {
+			final List<String> fields = TestRunnerMain.parseRecord(record);
+			switch (fields.get(0)) {
+			case TestRunnerMain.PASS -> counts[0]++;
+			case TestRunnerMain.FAIL -> counts[1]++;
+			case TestRunnerMain.SKIP -> counts[2]++;
+			default -> {
+			}
+			}
+		}
+		return counts;
+	}
+
+	/**
+	 * "demo.CalcTest.addWorks", or "demo.UrlBuilderTest.parse [7] http://x" for
+	 * one case of a @ParameterizedTest.
+	 *
+	 * The display name is only appended when it says something the method name
+	 * does not - JUnit sets it to "addWorks()" for a plain @Test, but to the
+	 * parameters for each invocation of a parameterized one. Without it, twenty
+	 * cases of the same method print as twenty identical lines and there is no
+	 * telling which one failed.
+	 */
+	private static String name(final List<String> fields) {
+		final String className = fields.get(1);
+		final String methodName = fields.get(2);
+		final String displayName = fields.get(3);
+		final String qualified = className + "." + methodName;
+		if (displayName.isEmpty() || displayName.equals(methodName) || displayName.equals(methodName + "()"))
+			return qualified;
+
+		return qualified + " " + displayName;
 	}
 
 	/**
@@ -307,7 +351,10 @@ public final class ProjectTests {
 
 		final String where = locate(context, testFrame, resolved);
 		final StringBuilder out = new StringBuilder();
-		out.append("[failed] ").append(where.isEmpty() ? className : where).append(": ").append(methodName);
+		final String displayName = fields.get(3);
+		final String label = displayName.isEmpty() || displayName.equals(methodName + "()") ? methodName
+				: methodName + " " + displayName;
+		out.append("[failed] ").append(where.isEmpty() ? className : where).append(": ").append(label);
 		for (final String line : message.split("\n"))
 			out.append("\n    ").append(line);
 
@@ -400,32 +447,25 @@ public final class ProjectTests {
 	private static final class Outcome {
 
 		private final List<String> records;
-		private final int[] totals = new int[4];
 		private long millis;
-		private final int exit;
 		private final String failure;
 
-		private Outcome(final List<String> records, final int exit, final String failure) {
+		private Outcome(final List<String> records, final String failure) {
 			this.records = records;
-			this.exit = exit;
 			this.failure = failure;
 		}
 
 		private static Outcome broken(final String failure) {
-			return new Outcome(List.of(), TestRunnerMain.EXIT_BROKEN, failure);
+			return new Outcome(List.of(), failure);
 		}
 
-		private static Outcome of(final List<String> lines, final int exit) {
-			final Outcome outcome = new Outcome(new ArrayList<>(lines), exit, null);
+		/** SUMMARY is read for the elapsed time only - the counts come from the records. */
+		private static Outcome of(final List<String> lines) {
+			final Outcome outcome = new Outcome(new ArrayList<>(lines), null);
 			for (final String line : lines) {
 				final List<String> fields = TestRunnerMain.parseRecord(line);
-				if (fields.get(0).equals(TestRunnerMain.SUMMARY) == false || fields.size() < 6)
-					continue;
-
-				for (int i = 0; i < 4; i++)
-					outcome.totals[i] += Integer.parseInt(fields.get(i + 1));
-
-				outcome.millis += Long.parseLong(fields.get(5));
+				if (fields.get(0).equals(TestRunnerMain.SUMMARY) && fields.size() >= 6)
+					outcome.millis += Long.parseLong(fields.get(5));
 			}
 			return outcome;
 		}

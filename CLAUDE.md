@@ -820,14 +820,81 @@ Ant, en `compileOnly` côté Gradle. Jupiter en est volontairement exclu, pour
 qu'un `@Test` ne s'importe pas par accident dans du code de production. La
 formule « clide, zéro dépendance » mérite désormais cette nuance.
 
-**Testé de bout en bout** sur un projet cible jetable (deux classes, quatre
-tests dont deux en échec volontaire, JUnit dans `.clide/`) : `run_test` sur la
+**Un compteur ne doit jamais pouvoir invalider un fait.** Première version :
+la JVM fille comptait les tests avec `countTestIdentifiers()` **au démarrage du
+plan**, et clide se fiait à ce compteur et au code de sortie plutôt qu'aux
+enregistrements reçus. Or un `@ParameterizedTest` est un *conteneur* dans le
+plan : ses invocations sont enregistrées dynamiquement à l'exécution, donc
+elles n'existent pas encore à cet instant. Mesuré sur PlantUML puis réduit en
+cobayes :
+
+| Classe | avant (`found/pass/fail/skip`, exit) | après |
+|---|---|---|
+| 5 cas paramétrés | `0 5 0 0` exit 2 | `5 5 0 0` exit 0 |
+| 4 cas dont 1 rouge | `0 3 1 0` exit 2 | `4 3 1 0` exit 1 |
+| 2 `@Test` + 3 param. + 4 répétés | `2 9 0 0` exit 0 | `9 9 0 0` exit 0 |
+| classe `@Disabled` | `1 0 0 0` exit 0 | `1 0 0 1` exit 0 |
+| paramétrés dans `@Nested` | `0 2 0 0` exit 2 | `2 2 0 0` exit 0 |
+
+Une classe paramétrée **en échec** était donc rapportée « no test found », son
+échec compris : une régression réelle cachée derrière un message qui ressemble
+à un problème de configuration. Et la classe mixte annonçait « 2 test(s), 9
+passed » — une ligne qui se contredit elle-même sans alerter personne.
+
+Trois corrections, faites ensemble :
+
+- `found = succeeded + failed + skipped`, compté **à mesure que ça arrive**.
+  Immune par construction, pas par cas particulier : `@RepeatedTest` et
+  `@TestFactory` sont réparés par la même ligne sans avoir été visés. Noter
+  qu'appeler `countTestIdentifiers()` *à la fin* aurait aussi marché — le
+  `TestPlan` s'enrichit des tests dynamiques — mais ferait dépendre le résultat
+  d'un détail de mutation interne à JUnit.
+- **Les totaux se déduisent des enregistrements, côté clide** (`ProjectTests.
+  tally()`). `SUMMARY` ne sert plus qu'au chronomètre, et « zéro test » ne se
+  déduit que de l'absence d'enregistrement, jamais d'un code de sortie. La même
+  information voyageait deux fois sous deux formes ; c'est la mauvaise copie
+  qui gagnait.
+- Un **conteneur sauté** (classe `@Disabled`) fait compter ses descendants :
+  JUnit ne signale que le conteneur, jamais les tests dessous.
+
+Le correctif a fait apparaître un manque juste derrière : cinq cas paramétrés
+donnaient cinq lignes rigoureusement identiques. Le `displayName` voyageait
+déjà dans l'enregistrement sans être affiché. Il l'est maintenant quand il dit
+autre chose que le nom de méthode — `[failed] ...:13: everyValueIsPositive
+[3] -3`. Sur une classe à vingt cas, c'est la différence entre exploitable et
+inutile.
+
+**Le test qui manquait.** Rien dans la suite ne pouvait voir ce bug :
+`TestRunnerMainTest` et `TestSelectorTest` ne couvrent que de la logique pure
+(échappement, découpage, sélecteurs), aucun ne lançait JUnit.
+`TestRunnerMainExecutionTest` le fait désormais — il **forke un JVM**, comme
+clide, sur des classes cobayes couvrant chaque forme (paramétrée seule,
+paramétrée en échec, mixte, désactivée, classe absente), et vérifie les lignes
+*et* le code de sortie. Le fork est délibéré : `main()` finit par un
+`System.exit()`, et le code de sortie fait partie du contrat au même titre que
+la sortie. Coût, environ une demi-seconde par cas.
+
+Les cobayes vivent dans le package **`fixture`**, hors de `clide`, pour une
+raison précise : `ant test` sélectionne `--select-package clide`, qui ne
+descend que dans `clide` et ses sous-packages. Les mettre sous `clide.` ferait
+ramasser `ParameterizedFailing` par la suite de clide, et le build échouerait
+sur un test dont l'échec est justement le comportement attendu. Vérifié :
+0 cobaye dans le rapport de `ant test`.
+
+Repassé en mutation, le filet attrape bien ce qu'il doit : le comptage figé au
+démarrage du plan (3 tests rouges), un `ProjectTests` qui refait confiance au
+`SUMMARY` (1), la disparition du `displayName` (1).
+
+**Testé de bout en bout** sur deux projets cibles jetables (le premier : deux
+classes, quatre tests dont deux en échec volontaire ; le second : cinq classes
+couvrant paramétré, répété, mixte, désactivé, imbriqué — 21 tests) : `run_test` sur la
 classe, sur une méthode qui passe, sur une méthode qui échoue ; `run_tests all`
 et `run_tests failures` ; un test tout neuf lancé sans `rebuild` (message
 explicite), puis après `rebuild` (vert) ; une méthode qui n'est pas un test
 (« no test found »). **Pas encore vérifié sur PlantUML** — il reste à
 confirmer que l'ordre du classpath tient face aux jars JUnit du projet, et que
-la suite complète reste sous les 600 s.
+la suite complète reste sous les 600 s — c'est en la lançant que le bug de
+comptage ci-dessus est apparu, sur `UrlBuilderTest` et ses 20 cas.
 
 ### jdtls (Eclipse JDT Language Server)
 

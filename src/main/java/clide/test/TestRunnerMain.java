@@ -100,10 +100,10 @@ public final class TestRunnerMain {
 		launcher.execute(request, recorder);
 		final long elapsed = System.currentTimeMillis() - startedAt;
 
-		out.println(String.join("\t", SUMMARY, Integer.toString(recorder.found), Integer.toString(recorder.succeeded),
+		out.println(String.join("\t", SUMMARY, Integer.toString(recorder.ran()), Integer.toString(recorder.succeeded),
 				Integer.toString(recorder.failed), Integer.toString(recorder.skipped), Long.toString(elapsed)));
 
-		if (recorder.found == 0)
+		if (recorder.ran() == 0)
 			return EXIT_NO_TEST;
 
 		return recorder.failed == 0 ? EXIT_OK : EXIT_FAILURES;
@@ -152,7 +152,7 @@ public final class TestRunnerMain {
 
 		private final PrintStream out;
 
-		private int found;
+		private TestPlan plan;
 		private int succeeded;
 		private int failed;
 		private int skipped;
@@ -161,16 +161,46 @@ public final class TestRunnerMain {
 			this.out = out;
 		}
 
+		/**
+		 * How many tests actually happened. Counted as they happen, never from the
+		 * plan: a @ParameterizedTest, a @RepeatedTest and a @TestFactory are
+		 * CONTAINERS at plan time, their invocations being registered dynamically
+		 * once execution starts. countTestIdentifiers() therefore answers 0 for a
+		 * class made only of parameterized tests, however many cases it runs.
+		 */
+		private int ran() {
+			return succeeded + failed + skipped;
+		}
+
 		@Override
-		public void testPlanExecutionStarted(final TestPlan plan) {
-			found = (int) plan.countTestIdentifiers(TestIdentifier::isTest);
+		public void testPlanExecutionStarted(final TestPlan started) {
+			plan = started;
 		}
 
 		@Override
 		public void executionSkipped(final TestIdentifier identifier, final String reason) {
-			if (identifier.isTest() == false)
+			if (identifier.isTest()) {
+				recordSkip(identifier, reason);
 				return;
+			}
 
+			// A skipped container - a @Disabled class - never starts its tests, so
+			// nobody else will ever count them. Without this they vanish entirely
+			// and the class reports as having no test at all.
+			boolean any = false;
+			for (final TestIdentifier descendant : plan == null ? Set.<TestIdentifier>of()
+					: plan.getDescendants(identifier))
+				if (descendant.isTest()) {
+					recordSkip(descendant, reason);
+					any = true;
+				}
+
+			// A skipped template has no invocation yet: count the template itself.
+			if (any == false)
+				recordSkip(identifier, reason);
+		}
+
+		private void recordSkip(final TestIdentifier identifier, final String reason) {
 			skipped++;
 			out.println(String.join("\t", SKIP, className(identifier), methodName(identifier),
 					escape(identifier.getDisplayName()), escape(reason)));
