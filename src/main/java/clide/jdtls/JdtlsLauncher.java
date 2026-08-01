@@ -2,6 +2,7 @@ package clide.jdtls;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,6 +23,15 @@ public class JdtlsLauncher {
 	 * ensureExtracted(). Produced by scripts/download_and_zip_jdtls.py.
 	 */
 	private static final String JDTLS_ZIP_NAME = "jdt-language-server-latest.zip";
+
+	/**
+	 * Classpath location of the same archive when it's bundled inside the jar
+	 * instead of vendored on disk - see "ant dist-with-jdtls" in build.xml,
+	 * which packs it under a top-level resource/ directory. Falling back to
+	 * this in ensureExtracted() lets the fat jar bootstrap jdtlsHome entirely
+	 * on its own, with no zip needing to sit next to it on disk.
+	 */
+	private static final String JDTLS_ZIP_RESOURCE = "/resource/" + JDTLS_ZIP_NAME;
 
 	private final Path jdtlsHome;
 	private Process process;
@@ -107,6 +117,13 @@ public class JdtlsLauncher {
 	 * loser detects that jdtlsHome/plugins now exists (the winner got there first),
 	 * discards its own now-redundant temp directory, and moves on as if it had
 	 * found jdtlsHome ready from the start.
+	 *
+	 * The archive itself is looked for in two places, in order: JDTLS_ZIP_NAME
+	 * next to jdtlsHome on disk (the plain-checkout / "ant dist" layout), then
+	 * JDTLS_ZIP_RESOURCE on the classpath (the "ant dist-with-jdtls" fat-jar
+	 * layout, where it's bundled inside clide.jar itself). This makes a jar
+	 * built with dist-with-jdtls fully self-sufficient - it needs nothing
+	 * sitting next to it on disk.
 	 */
 	private void ensureExtracted() throws IOException {
 		if (Files.isDirectory(jdtlsHome.resolve("plugins")))
@@ -114,13 +131,15 @@ public class JdtlsLauncher {
 
 		final Path absoluteHome = jdtlsHome.toAbsolutePath();
 		final Path zip = absoluteHome.resolveSibling(JDTLS_ZIP_NAME);
-		if (Files.isRegularFile(zip) == false)
-			throw new IOException("jdtls is not installed and the vendored archive is missing: " + zip);
 
 		Files.createDirectories(absoluteHome.getParent());
 		final Path tempDir = Files.createTempDirectory(absoluteHome.getParent(), "jdtls-extract-");
 		try {
-			extractZip(zip, tempDir);
+			if (Files.isRegularFile(zip)) {
+				extractZip(zip, tempDir);
+			} else {
+				extractZipFromClasspath(tempDir);
+			}
 			try {
 				Files.move(tempDir, absoluteHome, StandardCopyOption.ATOMIC_MOVE);
 			} catch (final IOException raceLost) {
@@ -136,11 +155,35 @@ public class JdtlsLauncher {
 	}
 
 	/**
-	 * Extracts every entry of `zip` under `destination`, creating directories as
-	 * needed.
+	 * Extracts every entry of the on-disk `zip` under `destination`, creating
+	 * directories as needed.
 	 */
 	private static void extractZip(final Path zip, final Path destination) throws IOException {
-		try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(Files.newInputStream(zip)))) {
+		try (InputStream in = new BufferedInputStream(Files.newInputStream(zip))) {
+			extractZip(in, destination);
+		}
+	}
+
+	/**
+	 * Same as above, but reading JDTLS_ZIP_RESOURCE from the classpath instead
+	 * of a file on disk - see the fallback in ensureExtracted().
+	 */
+	private static void extractZipFromClasspath(final Path destination) throws IOException {
+		try (InputStream in = JdtlsLauncher.class.getResourceAsStream(JDTLS_ZIP_RESOURCE)) {
+			if (in == null)
+				throw new IOException("jdtls is not installed: found neither " + JDTLS_ZIP_NAME
+						+ " next to jdtlsHome nor the bundled " + JDTLS_ZIP_RESOURCE + " classpath resource");
+
+			extractZip(new BufferedInputStream(in), destination);
+		}
+	}
+
+	/**
+	 * Extracts every entry read from `in` under `destination`, creating
+	 * directories as needed. Does not close `in` - the caller owns it.
+	 */
+	private static void extractZip(final InputStream in, final Path destination) throws IOException {
+		try (ZipInputStream zis = new ZipInputStream(in)) {
 			ZipEntry entry;
 			while ((entry = zis.getNextEntry()) != null) {
 				final Path target = destination.resolve(entry.getName()).normalize();
