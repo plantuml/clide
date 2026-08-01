@@ -1,0 +1,31 @@
+name: Build clide.jar
+
+# Builds clide.jar via Ant on every commit - see build.xml for what "ant dist"
+# actually does (compile, fat-jar the libs, bundle jdt-language-server-latest.zip
+# under resource/). Ant itself needs no setup step: it's preinstalled on the
+# ubuntu-latest runner image.
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build clide.jar (ant dist)
+        run: ant dist
+
+      - name: Upload clide.jar
+        uses: actions/upload-artifact@v7
+        with:
+          name: clide.jar
+          path: clide.jar
