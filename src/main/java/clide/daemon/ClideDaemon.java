@@ -22,6 +22,7 @@ import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
 import clide.core.CommandStatus;
+import clide.core.FilesRepository;
 import clide.core.Position;
 import clide.core.TransactionStack;
 import clide.jdtls.EclipseProjectFiles;
@@ -83,6 +84,7 @@ public final class ClideDaemon {
 
 		System.out.print("(2/4) Initializing IDE ...");
 		final JdtlsLauncher launcher = new JdtlsLauncher(jdtlsHome());
+		final FilesRepository filesRepository = new FilesRepository(projectRoot);
 		final JdtlsSession session = new JdtlsSession(launcher, projectRoot);
 		System.out.println(" [OK]");
 
