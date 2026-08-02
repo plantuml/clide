@@ -23,8 +23,8 @@ public class LspClient {
 	private final OutputStream serverInput;
 	private final InputStream serverOutput;
 	private final AtomicLong nextId = new AtomicLong(1);
-	private final Map<Long, BlockingQueue<Truc>> pendingResponses = new ConcurrentHashMap<>();
-	private final BlockingQueue<Truc> notifications = new ArrayBlockingQueue<>(1000);
+	private final Map<Long, BlockingQueue<Monomorphic>> pendingResponses = new ConcurrentHashMap<>();
+	private final BlockingQueue<Monomorphic> notifications = new ArrayBlockingQueue<>(1000);
 	private final Thread readerThread;
 	private volatile boolean closed;
 
@@ -40,21 +40,28 @@ public class LspClient {
 	// Outgoing
 	// ------------------------------------------------------------------
 
-	public Truc request(final String method, final Object params, final long timeoutSeconds)
+	/**
+	 * params is a Monomorphic like any other JSON value, so a request whose
+	 * params is a boolean (java/buildWorkspace) or absent (shutdown) says so
+	 * with Monomorphic.createBoolean(true)/createNull() rather than by handing
+	 * an Object the writer might not know how to serialize.
+	 */
+	public Monomorphic request(final String method, final Monomorphic params, final long timeoutSeconds)
 			throws IOException, InterruptedException, TimeoutException {
 		final long id = nextId.getAndIncrement();
-		final BlockingQueue<Truc> queue = new ArrayBlockingQueue<>(1);
+		final BlockingQueue<Monomorphic> queue = new ArrayBlockingQueue<>(1);
 		pendingResponses.put(id, queue);
 
-		final Truc message = new Truc();
-		message.putString("jsonrpc", "2.0");
-		message.putLong("id", id);
-		message.putString("method", method);
-		message.putObject("params", params);
+		final Monomorphic message = Monomorphic.mapBuilder() //
+				.putString("jsonrpc", "2.0") //
+				.putNumber("id", id) //
+				.putString("method", method) //
+				.put("params", params) //
+				.build();
 		send(message);
 
 		try {
-			final Truc response = queue.poll(timeoutSeconds, TimeUnit.SECONDS);
+			final Monomorphic response = queue.poll(timeoutSeconds, TimeUnit.SECONDS);
 			if (response == null)
 				throw new TimeoutException(
 						"No response for " + method + " (id=" + id + ") after " + timeoutSeconds + "s");
@@ -65,16 +72,17 @@ public class LspClient {
 		}
 	}
 
-	public void notify(final String method, final Truc params) throws IOException {
-		final Truc message = new Truc();
-		message.putString("jsonrpc", "2.0");
-		message.putString("method", method);
-		message.putTruc("params", params);
+	public void notify(final String method, final Monomorphic params) throws IOException {
+		final Monomorphic message = Monomorphic.mapBuilder() //
+				.putString("jsonrpc", "2.0") //
+				.putString("method", method) //
+				.put("params", params) //
+				.build();
 		send(message);
 	}
 
-	private synchronized void send(final Truc message) throws IOException {
-		final byte[] body = Json.writeTruc(message).getBytes(StandardCharsets.UTF_8);
+	private synchronized void send(final Monomorphic message) throws IOException {
+		final byte[] body = Json.write(message).getBytes(StandardCharsets.UTF_8);
 		final String header = "Content-Length: " + body.length + "\r\n\r\n";
 		serverInput.write(header.getBytes(StandardCharsets.UTF_8));
 		serverInput.write(body);
@@ -86,7 +94,7 @@ public class LspClient {
 	// ------------------------------------------------------------------
 
 	/** Notifications received from the server (method + params), FIFO order. */
-	public BlockingQueue<Truc> notifications() {
+	public BlockingQueue<Monomorphic> notifications() {
 		return notifications;
 	}
 
@@ -94,7 +102,6 @@ public class LspClient {
 		closed = true;
 	}
 
-	@SuppressWarnings("unchecked")
 	private void readLoop() {
 		try {
 			while (closed == false) {
@@ -107,11 +114,10 @@ public class LspClient {
 					continue;
 
 				final byte[] body = readExactly(length);
-				final Object parsed = Json.parse(new String(body, StandardCharsets.UTF_8));
-				if (parsed instanceof Map == false)
+				final Monomorphic message = Json.parse(new String(body, StandardCharsets.UTF_8));
+				if (message.isMap() == false)
 					continue;
 
-				final Truc message = Truc.fromMap((Map<String, Object>) parsed);
 				dispatch(message);
 			}
 		} catch (final IOException e) {
@@ -119,16 +125,28 @@ public class LspClient {
 		}
 	}
 
-	private void dispatch(final Truc message) {
-		if (message.containsKey("id") && (message.containsKey("result") || message.containsKey("error"))) {
-			final long id = message.getAsLongOrMinusOn("id", -1);
-			final BlockingQueue<Truc> queue = pendingResponses.get(id);
+	private void dispatch(final Monomorphic message) {
+		if (isResponse(message)) {
+			final BlockingQueue<Monomorphic> queue = pendingResponses.get(message.getFromMap("id").asLong());
 			if (queue != null)
 				queue.offer(message);
 
 		} else {
 			notifications.offer(message);
 		}
+	}
+
+	/**
+	 * Whether message is a response to a request this client is waiting on, as
+	 * opposed to a server-to-client notification. The id has to be a number:
+	 * JSON-RPC answers an unparseable request with an error carrying a null id,
+	 * which matches no pending request and would only throw here.
+	 */
+	private static boolean isResponse(final Monomorphic message) {
+		if (message.containsKey("result") == false && message.containsKey("error") == false)
+			return false;
+
+		return message.getFromMapOrDefault("id", Monomorphic.createNull()).isNumber();
 	}
 
 	private Map<String, String> readHeaders() throws IOException {

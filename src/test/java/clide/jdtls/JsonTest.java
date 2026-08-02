@@ -37,7 +37,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  *   sans rien dire des documents que personne d'autre ne lit (zéro en tête,
  *   signe moins tout seul, caractère de contrôle brut dans une chaîne).
  */
-class Json2Test {
+class JsonTest {
 
 	// ==================================================================
 	// Écriture

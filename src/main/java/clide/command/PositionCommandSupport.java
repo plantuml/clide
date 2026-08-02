@@ -6,7 +6,7 @@ import clide.core.ClideContext;
 import clide.core.CommandResult;
 import clide.core.Symbol;
 import clide.jdtls.JdtlsSession;
-import clide.jdtls.Truc;
+import clide.jdtls.Monomorphic;
 
 /**
  * Shared parse-resolve-format pipeline behind every position-based command -
@@ -41,7 +41,7 @@ final class PositionCommandSupport {
 	 * and error messages.
 	 */
 	static CommandResult goToAndFormat(final ClideContext context, final String commandName, final String lspMethod,
-			final String symbolText, final Truc requestContext) {
+			final String symbolText, final Monomorphic requestContext) {
 		final JdtlsSession session = context.getCurrentSession();
 
 		final Symbol symbol;
