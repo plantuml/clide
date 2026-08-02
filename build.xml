@@ -94,6 +94,16 @@
         itself now, not test tooling. Jupiter is deliberately NOT here: clide
         writes no JUnit 5 test of its own in src/main, and leaving it out keeps
         an @Test from being imported into production code by accident.
+
+        The luajava-* group is for clide's Lua entry point (Main.runLuaScript,
+        the "lua" flag documented in LUA.md): party.iroiro.luajava (the core
+        API), lua51 (the Lua51 class), jnigen-loader/jnigen-commons (native
+        library loading at runtime - see scripts/fetch_luajava.py for why
+        both are needed) and jspecify (nullability annotations on luajava's
+        public API, required by javac even though they have no effect at
+        runtime). lua51-platform (the natives-desktop jar, no Java classes of
+        its own) is deliberately absent here - only lib/*.jar as a whole,
+        via the fat jar's explode-libs target, needs it, not compilation.
     -->
     <path id="main.compile.classpath">
         <fileset dir="${lib.dir}">
@@ -102,6 +112,12 @@
             <include name="junit-platform-commons-*.jar"/>
             <include name="opentest4j-*.jar"/>
             <include name="apiguardian-api-*.jar"/>
+            <include name="luajava-*.jar"/>
+            <include name="lua51-*.jar"/>
+            <exclude name="lua51-platform-*.jar"/>
+            <include name="jnigen-loader-*.jar"/>
+            <include name="jnigen-commons-*.jar"/>
+            <include name="jspecify-*.jar"/>
         </fileset>
     </path>
 

@@ -31,6 +31,10 @@ import clide.command.TerminateCommand;
 import clide.core.Command;
 import clide.daemon.ClideClient;
 
+import party.iroiro.luajava.Lua;
+import party.iroiro.luajava.LuaException;
+import party.iroiro.luajava.lua51.Lua51;
+
 /**
  * Entry point for clide's client role: "clide &lt;project path&gt;" connects to
  * the daemon already running for that project if there is one, otherwise starts
@@ -38,6 +42,11 @@ import clide.daemon.ClideClient;
  * started/built once per project this way, not on every clide run - see
  * ClideDaemon, which is the daemon's own separate entry point (an internal
  * re-exec ClideClient spawns; not meant to be typed by hand).
+ *
+ * A second entry point, "clide --lua &lt;script&gt; &lt;project path&gt;", runs a Lua
+ * script through gudzpoz/luajava instead of starting an interactive session -
+ * see runLuaScript() and LUA.md. POC stage: the script runs standalone, with
+ * no clide command bound into Lua yet.
  */
 public class Main {
 
@@ -56,6 +65,11 @@ public class Main {
 //			new DiffTransactionCommand(), new RestoreFileCommand());
 
 	public static void main(final String[] args) throws IOException, InterruptedException {
+		if (args.length > 0 && args[0].equals("--lua")) {
+			runLuaScript(args);
+			return;
+		}
+
 		final Path projectRoot = parseProjectRoot(args);
 		if (projectRoot == null)
 			return;
@@ -83,6 +97,41 @@ public class Main {
 		}
 
 		return projectRoot;
+	}
+
+	/**
+	 * "clide --lua &lt;script&gt; &lt;project path&gt;": reads the Lua script file whole
+	 * and runs it through party.iroiro.luajava's native Lua 5.1 backend
+	 * (Lua51). The project path is parsed and validated the same way as the
+	 * interactive entry point even though the POC script does not use it yet
+	 * - keeping both entry points consistent about what "a valid project
+	 * path" means avoids a divergence later once Lua scripts do call into
+	 * clide commands (see LUA.md).
+	 */
+	private static void runLuaScript(final String[] args) throws IOException {
+		if (args.length != 3) {
+			System.out.println("Usage: clide --lua <script path> <project path>");
+			return;
+		}
+
+		final Path scriptPath = Paths.get(args[1]);
+		if (Files.isRegularFile(scriptPath) == false) {
+			System.out.println("Not a file: " + scriptPath);
+			return;
+		}
+
+		final Path projectRoot = Paths.get(args[2]).toAbsolutePath().normalize();
+		if (Files.isDirectory(projectRoot) == false) {
+			System.out.println("Not a directory: " + projectRoot);
+			return;
+		}
+
+		final String script = Files.readString(scriptPath);
+		try (Lua lua = new Lua51()) {
+			lua.run(script);
+		} catch (final LuaException error) {
+			System.out.println("Lua error: " + error.getMessage());
+		}
 	}
 
 }

@@ -7,7 +7,7 @@ Maven Central n'est pas accessible depuis la sandbox Claude (voir CLAUDE.md,
 lancé sur une machine avec un accès réseau normal, puis les .jar obtenus
 commités dans lib/, exactement comme les .jar JUnit de fetch_junit.py.
 
-Cinq artefacts, choisis pour le vrai moteur Lua natif (lua51, via JNI) et
+Six artefacts, choisis pour le vrai moteur Lua natif (lua51, via JNI) et
 non l'implémentation pure-JVM "luaj" - voir la discussion dans LUA.md :
 
     luajava           module Java central de gudzpoz/luajava (l'API `Lua`)
@@ -17,6 +17,12 @@ non l'implémentation pure-JVM "luaj" - voir la discussion dans LUA.md :
                        x86 et ARM, en un seul jar
     jnigen-loader      charge au runtime le bon .so/.dll du jar ci-dessus
                        selon l'OS/l'architecture (dépendance de luajava)
+    jnigen-commons     détection OS/architecture (Os, Architecture,
+                       HostDetection) - jnigen-loader en a besoin à
+                       l'exécution mais ne l'embarque pas lui-même ; sans
+                       lui : NoClassDefFoundError sur
+                       com.badlogic.gdx.jnigen.commons.HostDetection, repéré
+                       en testant un premier "hello world" (voir LUA.md)
     jspecify           annotations de nullabilité utilisées par l'API
                        publique de luajava (nécessaires à la compilation)
 
@@ -49,6 +55,7 @@ ARTIFACTS = [
 	("party.iroiro.luajava", "lua51", "4.1.0", None),
 	("party.iroiro.luajava", "lua51-platform", "4.1.0", "natives-desktop"),
 	("com.badlogicgames.jnigen", "jnigen-loader", "3.1.1", None),
+	("com.badlogicgames.jnigen", "jnigen-commons", "3.1.1", None),
 	("org.jspecify", "jspecify", "1.0.0", None),
 ]
 
