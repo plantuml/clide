@@ -40,28 +40,46 @@ le `java/buildWorkspace` du démarrage du daemon devient périmé
 silencieusement — toutes les commandes `find_*`/`hover`/`list_members`
 répondent alors sur un état ancien, sans aucun signal.
 
-**Transposition clide** : un équivalent de leur `DiskStampService`
-(`org.javalens.core/src/org/javalens/core/sync/DiskStampService.java`,
-~250 lignes, zéro dépendance, lisible tel quel) : carte
-`chemin → (taille, mtime, hash)` construite au build de démarrage, puis à
-chaque commande nécessitant jdtls, vérification + pour chaque fichier
-modifié un `textDocument/didChange` (ou re-build delta) avant d'exécuter.
+**Transposition clide** : clide a déjà la brique bas niveau, dans
+`JdtlsSession.refreshChangedFiles()` — diff d'un instantané
+`chemin → mtime` contre l'arbre courant, puis notification
+`workspace/didChangeWatchedFiles` (pas `textDocument/didChange` : ce
+dernier suppose un document *ouvert* via `textDocument/didOpen`, et
+clide n'ouvre volontairement jamais les fichiers un par un — voir
+JDTLS.md ; `didChangeWatchedFiles` est le bon analogue LSP, il porte sur
+des fichiers simplement *observés* sur disque, aucune ouverture requise)
+avant un `java/buildWorkspace`. Deux écarts avec ce que fait
+`DiskStampService`, par ordre d'importance :
+
+- **Déclenchement** : chez eux la vérification tourne avant *chaque*
+  appel d'outil (« éditer → interroger », zéro reload à retenir) ; chez
+  nous `refreshChangedFiles()` n'est appelé que par la commande
+  `rebuild`, sur demande explicite — `find_*`/`hover`/`list_members`
+  continuent de répondre sur l'état du dernier build sans jamais
+  vérifier le disque entre-temps. C'est le vrai angle mort à combler,
+  plus que le choix mtime/hash ci-dessous : brancher la vérification en
+  amont de toute commande qui a besoin de jdtls, pas seulement de
+  `rebuild`.
+- **Détection** : mtime seul aujourd'hui, pas de hash — rien ne distingue
+  un vrai changement de contenu d'un simple touch, ni ne détecte un
+  contenu changé sans que le mtime bouge (horloge peu fiable, outil qui
+  préserve le mtime). Un équivalent de leur `Stamp` (taille + mtime +
+  MD5, cf. le `FilesRepository` en cours de conception) comblerait ça —
+  avec cette fois un vrai pré-filtre mtime avant rehash, contrairement à
+  leur propre code (voir plus bas).
+
 Précision après lecture du code : taille/mtime sont bien stockés dans le
 `Stamp` mais ne servent en fait à rien dans leur `verify()` — chaque
 fichier connu est rehashé sans condition à chaque appel (parallélisé) ;
 ce sont des champs diagnostiques inertes aujourd'hui, pas un pré-filtre
-actif, seul le hash est comparé. Pour clide, un vrai pré-filtre mtime/
-taille avant rehash resterait une optimisation valable — simplement pas
-ce qu'ils font. Autre précision : `DiskStampService` n'est que le moteur
-stamp/diff (`stampAll`/`verify`/`restamp`) ; la réparation proprement
-dite (refresh ciblé, attente d'index, invalidation de cache,
-`RELOAD_REQUIRED` sur fichier de build) vit dans l'appelant
+actif, seul le hash est comparé. Autre précision : `DiskStampService`
+n'est que le moteur stamp/diff (`stampAll`/`verify`/`restamp`) ; la
+réparation proprement dite (refresh ciblé, attente d'index, invalidation
+de cache, `RELOAD_REQUIRED` sur fichier de build) vit dans l'appelant
 (`JdtServiceImpl.ensureFresh`), et passe chez eux par l'API de ressources
-Eclipse (`IFile#refreshLocal`) — pas par un `textDocument/didChange`,
-puisqu'ils n'ont aucune couche LSP. Pour clide, `didChange` est donc
-notre traduction pour une architecture LSP, pas un emprunt littéral.
-Leur choix MD5 est assumé : détection de changement sur ses propres
-sources, pas une frontière de sécurité.
+Eclipse (`IFile#refreshLocal`) — pas par du LSP, puisqu'ils n'en ont
+aucune couche. Leur choix MD5 est assumé : détection de changement sur
+ses propres sources, pas une frontière de sécurité.
 
 ## 2. Enveloppe de réponse pensée pour l'agent
 
