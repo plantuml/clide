@@ -431,7 +431,7 @@ public class JdtlsSession {
 		if (error != null)
 			throw new IOException(lspMethod + " failed: " + error);
 
-		return formatLocations(get(response, "result"));
+		return formatLocations(response.getOrNull("result"));
 	}
 
 	/**
@@ -451,7 +451,7 @@ public class JdtlsSession {
 		if (error != null)
 			throw new IOException("textDocument/hover failed: " + error);
 
-		return formatHover(get(response, "result"));
+		return formatHover(response.getOrNull("result"));
 	}
 
 	/**
@@ -490,7 +490,7 @@ public class JdtlsSession {
 		if (error != null)
 			throw new IOException("textDocument/documentSymbol failed: " + error);
 
-		return elementsOf(get(response, "result"));
+		return response.getOrNull("result").elementsOf();
 	}
 
 	/**
@@ -507,7 +507,7 @@ public class JdtlsSession {
 	 *
 	 * - the erasure form, "void draw(UShape shape)" (a subsignature per JLS 8.4.2,
 	 * which javac accepts without even an -Xlint warning, and which an
-	 * 
+	 *
 	 * @Override annotation does not rescue), and - the renamed form, "&lt;X extends
 	 *           UShape&gt; void draw(X shape)".
 	 *
@@ -541,7 +541,7 @@ public class JdtlsSession {
 		if (error != null)
 			throw new IOException("textDocument/implementation failed: " + error);
 
-		final List<Monomorphic> merged = new ArrayList<>(rawLocations(get(response, "result")));
+		final List<Monomorphic> merged = new ArrayList<>(rawLocations(response.getOrNull("result")));
 		final Set<String> seen = new LinkedHashSet<>();
 		for (final Monomorphic location : merged)
 			seen.add(locationKey(location));
@@ -584,7 +584,7 @@ public class JdtlsSession {
 		if (declaresTypeParameters(declaration) == false && isGenericType(declaringType) == false)
 			return List.of();
 
-		final Monomorphic start = startOf(get(declaringType, "selectionRange"));
+		final Monomorphic start = startOf(declaringType.getOrNull("selectionRange"));
 		if (start.isMap() == false)
 			return List.of();
 
@@ -594,7 +594,7 @@ public class JdtlsSession {
 			return List.of();
 
 		final List<Monomorphic> found = new ArrayList<>();
-		for (final Monomorphic subtype : rawLocations(get(response, "result")))
+		for (final Monomorphic subtype : rawLocations(response.getOrNull("result")))
 			collectDeclaredMethods(subtype, position.name(), arity, found);
 
 		return found;
@@ -616,7 +616,7 @@ public class JdtlsSession {
 			return;
 
 		for (final Monomorphic member : childrenOf(typeNode)) {
-			final Monomorphic memberStart = startOf(get(member, "selectionRange"));
+			final Monomorphic memberStart = startOf(member.getOrNull("selectionRange"));
 			if (memberStart.isMap() == false)
 				continue;
 
@@ -633,7 +633,7 @@ public class JdtlsSession {
 
 			found.add(Monomorphic.mapBuilder() //
 					.putString("uri", uri) //
-					.put("range", get(member, "selectionRange")) //
+					.put("range", member.getOrNull("selectionRange")) //
 					.build());
 		}
 	}
@@ -670,7 +670,7 @@ public class JdtlsSession {
 	 * same way a generic method's erasure override does.
 	 */
 	private boolean isGenericType(final Monomorphic typeNode) {
-		final String rawName = stringOrNull(get(typeNode, "name"));
+		final String rawName = typeNode.getOrNull("name").stringOrNull();
 		return rawName != null && rawName.indexOf('<') >= 0;
 	}
 
@@ -743,7 +743,7 @@ public class JdtlsSession {
 			if (node.isMap() == false)
 				continue;
 
-			if (isTypeKind(node) && lineOf(startOf(get(node, "selectionRange"))) == zeroBasedLine)
+			if (isTypeKind(node) && lineOf(startOf(node.getOrNull("selectionRange"))) == zeroBasedLine)
 				return node;
 
 			final Monomorphic deeper = typeNodeAt(childrenOf(node), zeroBasedLine);
@@ -754,9 +754,9 @@ public class JdtlsSession {
 	}
 
 	private boolean coversLine(final Monomorphic node, final int zeroBasedLine) {
-		final Monomorphic range = get(node, "range");
-		final Monomorphic start = get(range, "start");
-		final Monomorphic end = get(range, "end");
+		final Monomorphic range = node.getOrNull("range");
+		final Monomorphic start = range.getOrNull("start");
+		final Monomorphic end = range.getOrNull("end");
 		if (start.isMap() == false || end.isMap() == false)
 			return false;
 
@@ -764,29 +764,29 @@ public class JdtlsSession {
 	}
 
 	private boolean isTypeKind(final Monomorphic node) {
-		return TYPE_SYMBOL_KINDS.contains((int) longOrDefault(get(node, "kind"), -1));
+		return TYPE_SYMBOL_KINDS.contains((int) node.getOrNull("kind").longOrDefault(-1));
 	}
 
 	private Monomorphic startOf(final Monomorphic range) {
-		return get(range, "start");
+		return range.getOrNull("start");
 	}
 
 	private int lineOf(final Monomorphic position) {
-		return (int) longOrDefault(get(position, "line"), -1);
+		return (int) position.getOrNull("line").longOrDefault(-1);
 	}
 
 	private int characterOf(final Monomorphic position) {
-		return (int) longOrDefault(get(position, "character"), 0);
+		return (int) position.getOrNull("character").longOrDefault(0);
 	}
 
 	private String uriOf(final Monomorphic location) {
-		final String uri = stringOrNull(get(location, "uri"));
-		return uri != null ? uri : stringOrNull(get(location, "targetUri"));
+		final String uri = location.getOrNull("uri").stringOrNull();
+		return uri != null ? uri : location.getOrNull("targetUri").stringOrNull();
 	}
 
 	private Monomorphic rangeOf(final Monomorphic location) {
-		final Monomorphic range = get(location, "range");
-		return range.isMap() ? range : get(location, "targetSelectionRange");
+		final Monomorphic range = location.getOrNull("range");
+		return range.isMap() ? range : location.getOrNull("targetSelectionRange");
 	}
 
 	/** "uri:line" - identity of a location for de-duplication purposes. */
@@ -802,7 +802,7 @@ public class JdtlsSession {
 			return List.of(result);
 
 		final List<Monomorphic> locations = new ArrayList<>();
-		for (final Monomorphic item : elementsOf(result))
+		for (final Monomorphic item : result.elementsOf())
 			if (item.isMap())
 				locations.add(item);
 
@@ -855,13 +855,13 @@ public class JdtlsSession {
 		if (error != null)
 			throw new IOException("workspace/symbol failed: " + error);
 
-		return formatSymbols(get(response, "result"));
+		return formatSymbols(response.getOrNull("result"));
 	}
 
 	/** Accepts either a SymbolInformation[], or null/absent. */
 	private List<String> formatSymbols(final Monomorphic result) {
 		final List<String> formatted = new ArrayList<>();
-		for (final Monomorphic item : elementsOf(result))
+		for (final Monomorphic item : result.elementsOf())
 			if (item.isMap())
 				formatted.add(formatSymbol(item));
 
@@ -875,12 +875,12 @@ public class JdtlsSession {
 	 * find_declaration/find_implementation.
 	 */
 	private String formatSymbol(final Monomorphic symbol) {
-		final Monomorphic location = get(symbol, "location");
+		final Monomorphic location = symbol.getOrNull("location");
 		final String locationText = location.isMap() == false
-				? String.valueOf(stringOrNull(get(symbol, "name"))) + ": <no location>"
+				? String.valueOf(symbol.getOrNull("name").stringOrNull()) + ": <no location>"
 				: formatLocation(location);
 
-		return "[" + symbolKindLabel(get(symbol, "kind")) + "] " + locationText;
+		return "[" + symbolKindLabel(symbol.getOrNull("kind")) + "] " + locationText;
 	}
 
 	/**
@@ -889,7 +889,7 @@ public class JdtlsSession {
 	 * be any, in practice) falls back to "symbol" rather than a bare number.
 	 */
 	private String symbolKindLabel(final Monomorphic kind) {
-		return switch ((int) longOrDefault(kind, 0)) {
+		return switch ((int) kind.longOrDefault(0)) {
 		case 4 -> "package";
 		case 5 -> "class";
 		case 6 -> "method";
@@ -920,37 +920,9 @@ public class JdtlsSession {
 	// Reading a jdtls response
 	// ------------------------------------------------------------------
 
-	/**
-	 * The value behind key, or a NULL value when there is nothing there - key
-	 * absent, or node not even a MAP. Every step down a response goes through
-	 * here rather than through getFromMap(): an optional field jdtls chose not to
-	 * send, or a shape this code did not expect, is not an error worth an
-	 * exception - it means "nothing to report", which is exactly what NULL says.
-	 */
-	private static Monomorphic get(final Monomorphic node, final String key) {
-		if (node.isMap() == false)
-			return Monomorphic.createNull();
-
-		return node.getFromMapOrDefault(key, Monomorphic.createNull());
-	}
-
-	/** The elements of a LIST, and nothing at all for any other shape. */
-	private static List<Monomorphic> elementsOf(final Monomorphic value) {
-		return value.isList() ? value.asList() : List.of();
-	}
-
 	/** The "children" of a documentSymbol node, empty when it has none. */
 	private static List<Monomorphic> childrenOf(final Monomorphic node) {
-		return elementsOf(get(node, "children"));
-	}
-
-	/** null unless the value really is a STRING - never an exception. */
-	private static String stringOrNull(final Monomorphic value) {
-		return value.isString() ? value.asString() : null;
-	}
-
-	private static long longOrDefault(final Monomorphic value, final long defaultValue) {
-		return value.isNumber() ? value.asLong() : defaultValue;
+		return node.getOrNull("children").elementsOf();
 	}
 
 	/**
@@ -959,7 +931,7 @@ public class JdtlsSession {
 	 * caller reads it as "throw or carry on" rather than as a value.
 	 */
 	private static Monomorphic errorOf(final Monomorphic response) {
-		final Monomorphic error = get(response, "error");
+		final Monomorphic error = response.getOrNull("error");
 		return error.isNull() ? null : error;
 	}
 
@@ -993,10 +965,10 @@ public class JdtlsSession {
 		// bare name - Position.parse() matched it as a whole word on the line. An
 		// equals() on the raw name therefore never matched a generic type, and
 		// list_members failed on every one of them.
-		if (name.equals(withoutTypeParameters(get(node, "name"))) == false)
+		if (name.equals(withoutTypeParameters(node.getOrNull("name"))) == false)
 			return false;
 
-		return lineOf(startOf(get(node, "selectionRange"))) == zeroBasedLine;
+		return lineOf(startOf(node.getOrNull("selectionRange"))) == zeroBasedLine;
 	}
 
 	/**
@@ -1004,7 +976,7 @@ public class JdtlsSession {
 	 * a String.
 	 */
 	private String withoutTypeParameters(final Monomorphic rawName) {
-		final String name = stringOrNull(rawName);
+		final String name = rawName.stringOrNull();
 		if (name == null)
 			return null;
 
@@ -1032,10 +1004,10 @@ public class JdtlsSession {
 	private String formatMember(final String uri, final Monomorphic member) {
 		final Monomorphic location = Monomorphic.mapBuilder() //
 				.putString("uri", uri) //
-				.put("range", get(member, "selectionRange")) //
+				.put("range", member.getOrNull("selectionRange")) //
 				.build();
 
-		return "[" + symbolKindLabel(get(member, "kind")) + "] " + formatLocation(location);
+		return "[" + symbolKindLabel(member.getOrNull("kind")) + "] " + formatLocation(location);
 	}
 
 	/**
@@ -1048,7 +1020,7 @@ public class JdtlsSession {
 		if (result.isMap() == false)
 			return "<no hover info>";
 
-		final String text = hoverText(get(result, "contents"));
+		final String text = hoverText(result.getOrNull("contents"));
 		return text == null || text.isBlank() ? "<no hover info>" : text.strip();
 	}
 
@@ -1057,7 +1029,7 @@ public class JdtlsSession {
 			return contents.asString();
 
 		if (contents.isMap()) {
-			final Monomorphic value = get(contents, "value");
+			final Monomorphic value = contents.getOrNull("value");
 			if (value.isNull())
 				return null;
 
@@ -1150,7 +1122,7 @@ public class JdtlsSession {
 			filesWithIssues++;
 			boolean headerPrinted = false;
 			for (final Monomorphic diagnostic : diagnostics) {
-				final long severityCode = longOrDefault(get(diagnostic, "severity"), 0);
+				final long severityCode = diagnostic.getOrNull("severity").longOrDefault(0);
 				if (severityCode == 1)
 					errorCount++;
 				else if (severityCode == 2)
@@ -1176,11 +1148,11 @@ public class JdtlsSession {
 	}
 
 	private String formatDiagnostic(final Monomorphic diagnostic) {
-		final long severityCode = longOrDefault(get(diagnostic, "severity"), 0);
+		final long severityCode = diagnostic.getOrNull("severity").longOrDefault(0);
 		final String severityLabel = severityCode == 1 ? "error" : severityCode == 2 ? "warning" : "info";
-		final int zeroBasedLine = lineOf(startOf(get(diagnostic, "range")));
+		final int zeroBasedLine = lineOf(startOf(diagnostic.getOrNull("range")));
 		final long line = zeroBasedLine == -1 ? -1 : zeroBasedLine + 1;
-		return "[" + severityLabel + "] line " + line + ": " + stringOrNull(get(diagnostic, "message"));
+		return "[" + severityLabel + "] line " + line + ": " + diagnostic.getOrNull("message").stringOrNull();
 	}
 
 	private String shortName(final String uri) {
@@ -1215,15 +1187,15 @@ public class JdtlsSession {
 		try {
 			while (true) {
 				final Monomorphic notification = client.notifications().take();
-				if ("textDocument/publishDiagnostics".equals(stringOrNull(get(notification, "method"))) == false)
+				if ("textDocument/publishDiagnostics".equals(notification.getOrNull("method").stringOrNull()) == false)
 					continue;
 
-				final Monomorphic params = get(notification, "params");
-				final String uri = stringOrNull(get(params, "uri"));
+				final Monomorphic params = notification.getOrNull("params");
+				final String uri = params.getOrNull("uri").stringOrNull();
 				if (uri == null)
 					continue;
 
-				diagnosticsByUri.put(uri, new ArrayList<>(elementsOf(get(params, "diagnostics"))));
+				diagnosticsByUri.put(uri, new ArrayList<>(params.getOrNull("diagnostics").elementsOf()));
 			}
 		} catch (final InterruptedException e) {
 			Thread.currentThread().interrupt();
@@ -1333,7 +1305,7 @@ public class JdtlsSession {
 		if (error != null)
 			throw new IOException(command + " failed: " + error);
 
-		return get(response, "result");
+		return response.getOrNull("result");
 	}
 
 	/**
@@ -1352,8 +1324,8 @@ public class JdtlsSession {
 			throw new IOException("java.project.getClasspaths returned no classpath: " + result);
 
 		final List<String> entries = new ArrayList<>();
-		for (final Monomorphic entry : elementsOf(get(result, "classpaths"))) {
-			final String path = stringOrNull(entry);
+		for (final Monomorphic entry : result.getOrNull("classpaths").elementsOf()) {
+			final String path = entry.stringOrNull();
 			if (path != null && Files.exists(Paths.get(path)))
 				entries.add(path);
 		}
@@ -1368,7 +1340,7 @@ public class JdtlsSession {
 	public List<String> projectUris() throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic result = executeWorkspaceCommand("java.project.getAll", List.of(), 30);
 		final List<String> uris = new ArrayList<>();
-		for (final Monomorphic uri : elementsOf(result))
+		for (final Monomorphic uri : result.elementsOf())
 			if (uri.isString())
 				uris.add(uri.asString());
 
@@ -1386,7 +1358,7 @@ public class JdtlsSession {
 		try {
 			final Monomorphic result = executeWorkspaceCommand("java.project.resolveStackTraceLocation",
 					List.of(Monomorphic.createString(frame), Monomorphic.createList()), 15);
-			return stringOrNull(result);
+			return result.stringOrNull();
 		} catch (final Exception unresolvable) {
 			return null;
 		}

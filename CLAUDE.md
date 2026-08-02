@@ -90,15 +90,13 @@ its root because of clide.
 It's unnecessary — and even counterproductive, since it would mask the
 normal automatic behavior instead of helping it.
 
-## The `<position>` notation: `<file path>:<line>:<name>`
+## The `<symbol>` notation: `<file path>:<line>:<name>`
 
 Most commands that point to a precise spot in the code
 (`find_declaration`, `find_reference`, `find_implementation`, `hover`,
-`list_members`) take a single `<position>` parameter, written
+`list_members`) take a single `<symbol>` parameter, written
 `<file path>:<line>:<name>` — for example
-`src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession`. It
-names one exact spot a symbol's name appears at (its declaration, or one
-particular reference to it) — not the symbol itself, which may have several.
+`src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession`.
 
 Three rules are enough to use it correctly:
 
@@ -114,7 +112,7 @@ Three rules are enough to use it correctly:
 **When the file/line isn't known yet**, `find_symbol <name>` searches for
 a symbol by name across the whole project (fuzzy/camelCase matching
 delegated to jdtls — `find_symbol UGraphic` can also surface `UGraphicSvg`,
-`UGraphicNull`, etc.) and returns its results already in the `<position>`
+`UGraphicNull`, etc.) and returns its results already in the `<symbol>`
 notation above, ready to paste into the next command. `find_symbol` only
 finds types and methods, never a field by its name — a known jdtls
 limitation, with no parameter to lift it.
@@ -159,22 +157,22 @@ the question — a grep remains blind to inheritance and polymorphism.
 | Command | Role |
 |---|---|
 | `find_symbol <name>` | Looks up a type or method by name across the whole project, without knowing the file/line in advance. |
-| `find_declaration <what> <position>` | Where the symbol at `<position>` is actually declared. `<what>` = `method` (the declaration of the symbol itself) or `type` (the class/interface of its declared type). |
-| `find_reference <what> <position>` | All real usages of the symbol at `<position>`, declaration excluded. `<what>` is accepted for naming symmetry but has no effect on the result (only one query exists behind it). |
-| `find_implementation <what> <position>` | Which classes/methods actually implement or override the symbol at `<position>` — the polymorphism question. `<what>` is accepted for symmetry, with no effect on the result. |
-| `hover <position>` | Signature/Javadoc known for the symbol at this exact spot. |
-| `list_members <position>` | **Direct** members (methods, fields, constructors) of a type — never inherited members. |
+| `find_declaration <what> <symbol>` | Where the symbol is actually declared. `<what>` = `method` (the declaration of the symbol itself) or `type` (the class/interface of its declared type). |
+| `find_reference <what> <symbol>` | All real usages of the symbol, declaration excluded. `<what>` is accepted for naming symmetry but has no effect on the result (only one query exists behind it). |
+| `find_implementation <what> <symbol>` | Which classes/methods actually implement or override the symbol — the polymorphism question. `<what>` is accepted for symmetry, with no effect on the result. |
+| `hover <symbol>` | Signature/Javadoc known for this symbol at this exact spot. |
+| `list_members <symbol>` | **Direct** members (methods, fields, constructors) of a type — never inherited members. |
 
-All accept the `<position>` notation above, except `find_symbol` which takes
+All accept the `<symbol>` notation above, except `find_symbol` which takes
 a bare name. All fail cleanly (`?SYNTAX ERROR: ...`) on a nonexistent
-file, an out-of-bounds line, or a name absent from the given line —
+file, an out-of-bounds line, or a symbol absent from the given line —
 before any request even reaches jdtls.
 
 ### Tests of the opened project
 
 | Command | Role |
 |---|---|
-| `run_test <position>` | Runs the test that `<position>` designates: the whole class if `<position>` names the test class, that single method otherwise. Takes the `<position>` notation, not a fully-qualified class name — a `find_symbol` result can be pasted in unchanged. |
+| `run_test <symbol>` | Runs the test that `<symbol>` designates: the whole class if `<symbol>` names the test class, that single method otherwise. Takes the `<symbol>` notation, not a fully-qualified class name — a `find_symbol` result can be pasted in unchanged. |
 | `run_tests <all\|failures>` | Runs all tests in the project. `failures` lists only the failing ones (the only readable output on a suite of real size); totals are always shown either way. |
 
 `run_test`/`run_tests` work even if the target project has no JUnit jar of
@@ -229,3 +227,13 @@ commits first, most recent rollbacks first).
   no shortcut to the already-known diagnostics.
 - On a very large test suite with missing system dependencies,
   `run_tests` may never finish — see above.
+- **`run_test`/`run_tests` refuse with "this repository holds N modules"**
+  when the opened project already had its own `.project`/`.classpath`
+  before clide ran (clide's own repository, self-hosted, is one such
+  case). Those original files get moved into `.clide/tmp/` while clide's
+  generated ones are used at the root (see above) — but `.clide/tmp/`
+  stays inside the workspace tree, so jdtls's own recursive project import
+  picks the moved copy back up as a second project. Only hits a target
+  project that already ships its own `.project`/`.classpath`; not fixed
+  yet (excluding `.clide/**` from jdtls's import scan would be the natural
+  fix).

@@ -35,16 +35,16 @@ public final class Monomorphic {
 	private final String string;
 
 	/**
-	 * A JSON number, held as whichever primitive it was written as - INTEGER
-	 * uses integer, DECIMAL uses decimal, exactly like type designates one of
-	 * the four fields around them. The other one is dead weight, never read.
+	 * A JSON number, held as whichever primitive it was written as - INTEGER uses
+	 * integer, DECIMAL uses decimal, exactly like type designates one of the four
+	 * fields around them. The other one is dead weight, never read.
 	 *
 	 * Neither primitive would do on its own. A double loses whole numbers past
-	 * 2^53, and the JSON-RPC id comes out of an AtomicLong and is what
-	 * LspClient matches a response against its waiting request - a mangled id
-	 * means a caller that waits out its 30 second timeout for no visible
-	 * reason. A double also writes 41 back as 41.0, so parse-then-write would
-	 * stop being the identity. A long, on the other hand, cannot hold 1.5.
+	 * 2^53, and the JSON-RPC id comes out of an AtomicLong and is what LspClient
+	 * matches a response against its waiting request - a mangled id means a caller
+	 * that waits out its 30 second timeout for no visible reason. A double also
+	 * writes 41 back as 41.0, so parse-then-write would stop being the identity. A
+	 * long, on the other hand, cannot hold 1.5.
 	 */
 	private final long integer;
 	private final double decimal;
@@ -123,8 +123,8 @@ public final class Monomorphic {
 
 	/**
 	 * Copies the map, keeping its iteration order - JSON object key order is not
-	 * meaningful, but a stable order makes the bytes on the wire reproducible
-	 * and the tests readable.
+	 * meaningful, but a stable order makes the bytes on the wire reproducible and
+	 * the tests readable.
 	 */
 	public static Monomorphic createMap(final Map<String, Monomorphic> values) {
 		if (values == null)
@@ -205,10 +205,10 @@ public final class Monomorphic {
 	}
 
 	/**
-	 * This number as a long. A decimal is accepted when it holds a whole number
-	 * a long can represent - a JSON writer is free to send 41.0 where 41 was
-	 * meant - but anything with a real fractional part is an error rather than a
-	 * silent truncation.
+	 * This number as a long. A decimal is accepted when it holds a whole number a
+	 * long can represent - a JSON writer is free to send 41.0 where 41 was meant -
+	 * but anything with a real fractional part is an error rather than a silent
+	 * truncation.
 	 */
 	public long asLong() {
 		requireNumber();
@@ -272,9 +272,9 @@ public final class Monomorphic {
 
 	/**
 	 * The value behind key. An absent key is an error, not a null: the caller
-	 * either knows the key is there, or asks containsKey()/getOrDefault() first.
-	 * A JSON null actually present in the document comes back as a NULL value,
-	 * so "absent" and "explicitly null" stay distinguishable.
+	 * either knows the key is there, or asks containsKey()/getOrDefault() first. A
+	 * JSON null actually present in the document comes back as a NULL value, so
+	 * "absent" and "explicitly null" stay distinguishable.
 	 */
 	public Monomorphic getFromMap(final String key) {
 		require(MonomorphicType.MAP);
@@ -314,9 +314,9 @@ public final class Monomorphic {
 	// ------------------------------------------------------------------
 
 	/**
-	 * Two values are equal when they are the same JSON. Note that 1 and 1.0 are
-	 * NOT equal: they are an INTEGER and a DECIMAL, they serialize differently,
-	 * and that difference is exactly what the two types exist to preserve.
+	 * Two values are equal when they are the same JSON. Note that 1 and 1.0 are NOT
+	 * equal: they are an INTEGER and a DECIMAL, they serialize differently, and
+	 * that difference is exactly what the two types exist to preserve.
 	 */
 	@Override
 	public boolean equals(final Object other) {
@@ -354,9 +354,28 @@ public final class Monomorphic {
 		};
 	}
 
+	public Monomorphic getOrNull(final String key) {
+		if (isMap() == false)
+			return Monomorphic.createNull();
+
+		return getFromMapOrDefault(key, Monomorphic.createNull());
+	}
+
+	public List<Monomorphic> elementsOf() {
+		return isList() ? asList() : List.of();
+	}
+
+	public String stringOrNull() {
+		return isString() ? asString() : null;
+	}
+
+	public long longOrDefault(final long defaultValue) {
+		return isNumber() ? asLong() : defaultValue;
+	}
+
 	/**
-	 * A JSON-ish rendering, meant for reading a test failure or a log line. Not
-	 * a serializer - Json writes the bytes that go on the wire, and this escapes
+	 * A JSON-ish rendering, meant for reading a test failure or a log line. Not a
+	 * serializer - Json writes the bytes that go on the wire, and this escapes
 	 * nothing.
 	 */
 	@Override
