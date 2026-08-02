@@ -237,3 +237,13 @@ commits first, most recent rollbacks first).
   project that already ships its own `.project`/`.classpath`; not fixed
   yet (excluding `.clide/**` from jdtls's import scan would be the natural
   fix).
+- **jdtls's `workspace/applyEdit` (server-initiated edits) can't reach
+  clide today.** One concrete case: saving `Truc.java` when it actually
+  declares `public class Machin` — jdtls detects the
+  `PublicClassMustMatchFileName` error and, entirely on its own
+  initiative (not in response to any client request), can rename the file
+  to `Machin.java` via `workspace/applyEdit`. clide never advertises
+  `workspace.applyEdit` support during `initialize`, so jdtls won't
+  attempt this; even if it did, `LspClient`'s message dispatch would
+  currently misroute the incoming request as a notification and never
+  send back a reply, leaving jdtls waiting indefinitely.
