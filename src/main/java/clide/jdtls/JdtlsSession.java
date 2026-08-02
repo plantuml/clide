@@ -21,6 +21,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import clide.core.Symbol;
+import clide.json.Monomorphic;
 
 /**
  * Drives a full jdtls session end-to-end: LSP handshake (with Gradle/Maven

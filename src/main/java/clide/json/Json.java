@@ -1,4 +1,4 @@
-package clide.jdtls;
+package clide.json;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

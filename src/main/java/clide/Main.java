@@ -6,8 +6,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
-import clide.command.CommitTransactionCommand;
-import clide.command.DiffTransactionCommand;
 import clide.command.ExitCommand;
 import clide.command.FindDeclarationCommand;
 import clide.command.FindImplementationCommand;
@@ -18,19 +16,15 @@ import clide.command.HelpCommand;
 import clide.command.HoverCommand;
 import clide.command.ListMembersCommand;
 import clide.command.ManualCommand;
-import clide.command.OpenTransactionCommand;
 import clide.command.PrintDiagnosticsCommand;
 import clide.command.QuitCommand;
 import clide.command.RebuildCommand;
 import clide.command.ResearchRegexCommand;
-import clide.command.RestoreFileCommand;
-import clide.command.RollbackTransactionCommand;
 import clide.command.RunTestCommand;
 import clide.command.RunTestsCommand;
 import clide.command.TerminateCommand;
 import clide.core.Command;
 import clide.daemon.ClideClient;
-
 import party.iroiro.luajava.Lua;
 import party.iroiro.luajava.LuaException;
 import party.iroiro.luajava.lua51.Lua51;

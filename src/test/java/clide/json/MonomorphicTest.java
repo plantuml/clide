@@ -1,4 +1,4 @@
-package clide.jdtls;
+package clide.json;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -17,9 +17,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests de Monomorphic, la valeur JSON unique appelée à remplacer Truc et les
- * Object de Json.
- *
  * Deux propriétés comptent plus que les autres et structurent ce fichier :
  *
  * - lire une valeur comme un type qu'elle n'a pas doit lever une exception qui

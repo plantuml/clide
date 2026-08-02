@@ -6,7 +6,7 @@ import clide.core.ClideContext;
 import clide.core.CommandResult;
 import clide.core.Symbol;
 import clide.jdtls.JdtlsSession;
-import clide.jdtls.Monomorphic;
+import clide.json.Monomorphic;
 
 /**
  * Shared parse-resolve-format pipeline behind every position-based command -
