@@ -43,7 +43,7 @@ public class ResearchRegexCommand extends Command {
 				silently skipped, not reported as an error.
 
 				<initial path> is relative to the project root, exactly like
-				the <file path> half of a <symbol> - never to whatever
+				the <file path> half of a <position> - never to whatever
 				directory the daemon was started from. An absolute path, or
 				a "file:" URI, also works and is taken as-is.
 
@@ -51,7 +51,7 @@ public class ResearchRegexCommand extends Command {
 				same project-relative form with forward slashes - so the
 				same <path regex> works whether clide runs on Windows or
 				Linux and whoever the machine belongs to, and a result can
-				be pasted straight into a <symbol> parameter of
+				be pasted straight into a <position> parameter of
 				find_declaration, find_reference, find_implementation, hover
 				or list_members.
 
@@ -88,14 +88,14 @@ public class ResearchRegexCommand extends Command {
 	 * ClideDaemon.validate()) checked that before this command ever ran - the
 	 * try/catch below stays only as a defensive backstop.
 	 *
-	 * &lt;initial path&gt; goes through Symbol.resolvePath(), the same rule every
-	 * other command's path follows: relative to the project root, never to the
-	 * daemon's working directory. Paths are then matched and printed relative to
-	 * that root as well, so &lt;path regex&gt; never has to mention a machine-
-	 * specific prefix and a result can be pasted straight into a &lt;symbol&gt;
-	 * parameter. Anything outside the project root - only reachable by passing an
-	 * absolute &lt;initial path&gt; - keeps its absolute form, there being nothing
-	 * to make it relative to.
+	 * &lt;initial path&gt; goes through Position.resolvePath(), the same rule
+	 * every other command's path follows: relative to the project root, never to
+	 * the daemon's working directory. Paths are then matched and printed relative
+	 * to that root as well, so &lt;path regex&gt; never has to mention a machine-
+	 * specific prefix and a result can be pasted straight into a
+	 * &lt;position&gt; parameter. Anything outside the project root - only
+	 * reachable by passing an absolute &lt;initial path&gt; - keeps its absolute
+	 * form, there being nothing to make it relative to.
 	 */
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
@@ -156,7 +156,7 @@ public class ResearchRegexCommand extends Command {
 	 * file as the client should see it: relative to projectRoot, forward slashes
 	 * - the same shape find_symbol, find_declaration, find_reference,
 	 * find_implementation, hover and list_members print, and the same shape a
-	 * &lt;symbol&gt; parameter expects. Falls back to the absolute path for a
+	 * &lt;position&gt; parameter expects. Falls back to the absolute path for a
 	 * file outside the project root.
 	 */
 	private String displayPath(final Path file, final Path projectRoot) {

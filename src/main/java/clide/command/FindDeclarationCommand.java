@@ -21,20 +21,20 @@ import clide.core.CommandResult;
 public class FindDeclarationCommand extends Command {
 
 	@Keyword("find_declaration")
-	@Help("Finds where a symbol is really declared - <what> is method or type, <symbol> as <file path>:<line>:<name>.")
+	@Help("Finds where a symbol is really declared - <what> is method or type, <position> as <file path>:<line>:<name>.")
 	@Param(type = ParamType.SINGLE_LINE, description = "What: method or type")
-	@Param(type = ParamType.SYMBOL, description = "Symbol")
+	@Param(type = ParamType.POSITION, description = "Position")
 	@Manual("""
 			NAME
 				find_declaration - find where a symbol is really declared
 
 			SYNOPSIS
-				find_declaration <what> <symbol>
+				find_declaration <what> <position>
 
 			DESCRIPTION
 				Finds where a symbol is really declared - the file and line
 				it's actually defined at, not just a place it's used or
-				referenced. <symbol> is given as <file path>:<line>:<name>,
+				referenced. <position> is given as <file path>:<line>:<name>,
 				name located as a whole word on line of file path; the
 				result may live in a completely different file or class
 				(e.g. an interface method implemented elsewhere). <what>
@@ -45,7 +45,7 @@ public class FindDeclarationCommand extends Command {
 
 			ERRORS
 				<what> must be exactly "method" or "type" - anything else
-				is rejected. <symbol> must parse as <file path>:<line>:<name>
+				is rejected. <position> must parse as <file path>:<line>:<name>
 				- the file must exist under the project root, line must be
 				within it, and name must appear on it as a whole word.
 

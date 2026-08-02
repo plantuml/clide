@@ -304,9 +304,9 @@ public final class ClideDaemon {
 
 	/**
 	 * Runs validate() over every parameter, in order, before the command they
-	 * belong to ever executes - the "surface" check ParamType.SYMBOL/REGEX exist
-	 * for (see CLAUDE.md, ParamType). Returns the first error message found, or
-	 * null once every parameter has passed.
+	 * belong to ever executes - the "surface" check ParamType.POSITION/REGEX
+	 * exist for (see CLAUDE.md, ParamType). Returns the first error message
+	 * found, or null once every parameter has passed.
 	 */
 	private String validateParams(final Command command, final String[] params, final Path projectRoot) {
 		final ParamType[] types = command.getParamTypes();
@@ -321,10 +321,10 @@ public final class ClideDaemon {
 	/**
 	 * Surface-level check for one parameter's raw text, run purely on that text -
 	 * TRANSACTION_ID must match TransactionStack.ID_PATTERN, REGEX must compile
-	 * (java.util.regex.Pattern), SYMBOL must parse as a real file/line/word (see
-	 * Symbol.parse()). Every other ParamType has nothing to check here. Returns
-	 * null when value is acceptable, or an error message fit to send back to the
-	 * client as-is otherwise.
+	 * (java.util.regex.Pattern), POSITION must parse as a real file/line/word
+	 * (see Position.parse()). Every other ParamType has nothing to check here.
+	 * Returns null when value is acceptable, or an error message fit to send
+	 * back to the client as-is otherwise.
 	 */
 	private String validate(final ParamType type, final String value, final Path projectRoot) {
 		switch (type) {
@@ -340,7 +340,7 @@ public final class ClideDaemon {
 				return "Invalid regex '" + value + "': " + e.getMessage();
 			}
 			return null;
-		case SYMBOL:
+		case POSITION:
 			try {
 				Position.parse(value, projectRoot);
 			} catch (final IllegalArgumentException e) {

@@ -26,21 +26,21 @@ import clide.core.CommandResult;
 public class FindImplementationCommand extends Command {
 
 	@Keyword("find_implementation")
-	@Help("Finds classes/methods that implement or override a symbol - <what> is method or type, <symbol> as <file path>:<line>:<name>.")
+	@Help("Finds classes/methods that implement or override a symbol - <what> is method or type, <position> as <file path>:<line>:<name>.")
 	@Param(type = ParamType.SINGLE_LINE, description = "What: method or type")
-	@Param(type = ParamType.SYMBOL, description = "Symbol")
+	@Param(type = ParamType.POSITION, description = "Position")
 	@Manual("""
 			NAME
 				find_implementation - find what implements or overrides a symbol
 
 			SYNOPSIS
-				find_implementation <what> <symbol>
+				find_implementation <what> <position>
 
 			DESCRIPTION
 				Finds which concrete classes or methods actually implement
 				or override a symbol - typically an interface method, an
 				abstract method, an interface, or an abstract class: the
-				polymorphism question a plain grep can't answer. <symbol>
+				polymorphism question a plain grep can't answer. <position>
 				is given as <file path>:<line>:<name>, name located as a
 				whole word on line of file path. <what> states which
 				question is being asked: "type" (which classes implement
@@ -49,7 +49,7 @@ public class FindImplementationCommand extends Command {
 
 			ERRORS
 				<what> must be exactly "method" or "type" - anything else
-				is rejected. <symbol> must parse as <file path>:<line>:<name>
+				is rejected. <position> must parse as <file path>:<line>:<name>
 				- the file must exist under the project root, line must be
 				within it, and name must appear on it as a whole word.
 

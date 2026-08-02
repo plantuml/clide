@@ -91,11 +91,11 @@ individuellement, référence par référence, à un sous-ensemble choisi par le
 script.
 
 Ça pointe vers une primitive plus simple que « rename_symbol partout » :
-quelque chose comme `replace_symbol <symbole> <nouveau nom>`, opérant sur un
-seul `Symbol` (fichier:ligne:nom) à la fois, en pure substitution textuelle
+quelque chose comme `replace_symbol <symbole> <nouveau nom>`, opérant sur une
+seule `Position` (fichier:ligne:nom) à la fois, en pure substitution textuelle
 locale — sans appel LSP pour l'écriture elle-même (la position vient déjà de
 `find_reference`). Toute la mécanique existe déjà pour la construire :
-`Symbol.parse()` valide déjà que le nom est un mot entier à cette position,
+`Position.parse()` valide déjà que le nom est un mot entier à cette position,
 `Transaction.backupBeforeModification()` existe déjà pour la sauvegarde
 avant écriture. Il ne manque que la substitution + l'écriture sur disque.
 
@@ -165,7 +165,7 @@ traduction dans le vocabulaire clide :
 Plutôt qu'un `Object`/`Map<String,Object>` (souple mais non typé, rien ne
 garantit à la compilation que le bon convertisseur Lua existe pour la bonne
 commande), le réflexe déjà présent dans clide est de réifier chaque concept
-en petite classe dédiée (`Symbol`, `Transaction`/`TransactionStack`,
+en petite classe dédiée (`Position`, `Transaction`/`TransactionStack`,
 `Column`/`Cell`/`Row` pour `TextTable`). Piste cohérente : une interface
 scellée `CommandData` avec une poignée d'implémentations concrètes (liste de
 locations, résultat de diff, résumé de run de tests, « rien » pour
@@ -301,17 +301,22 @@ Lua appellent tous les deux, plutôt que de laisser chaque façade
 réimplémenter ses propres garde-fous et risquer qu'ils divergent avec le
 temps.
 
-## `Symbol` : un deuxième point d'entrée pour Lua
+## `Position` : un deuxième point d'entrée pour Lua
 
-`Symbol.parse(String, Path)` attend une chaîne unique `<chemin>:<ligne>:
+(Renommée depuis `Symbol` — la classe réifie une seule position exacte où
+le nom d'un symbole apparaît, pas le symbole lui-même, qui peut apparaître à
+plusieurs positions à la fois (sa déclaration, chacune de ses références) ;
+cette notion plus large de « symbole » n'existe pas encore côté clide.)
+
+`Position.parse(String, Path)` attend une chaîne unique `<chemin>:<ligne>:
 <nom>`, pensée pour un client texte qui recopie tel quel un résultat
 précédent (voir « Notation… » dans `CLAUDE.md`). Un script Lua a plutôt un
 fichier, une ligne (entier) et un nom séparément sous la main — lui faire
 construire une chaîne à concaténer puis reparsée serait un aller-retour
 inutile et une source d'erreurs (échappement, séparateurs). Piste : un
-`Symbol.of(file, line, name, projectRoot)` partageant la même logique de
+`Position.of(file, line, name, projectRoot)` partageant la même logique de
 validation interne (mot entier `\bnom\b`, bornes de ligne, fichier
-existant) que `Symbol.parse()`, sans repasser par la sérialisation texte.
+existant) que `Position.parse()`, sans repasser par la sérialisation texte.
 
 ## Rappel de syntaxe : id de transaction
 
@@ -397,8 +402,8 @@ composition côté serveur.
   repasse le nom en clair après l'avoir déjà localisé une fois — si deux
   symboles homonymes coexistent sur la même ligne/fichier (peu probable
   mais possible), mieux vaut faire circuler un identifiant stable
-  (l'équivalent d'un `Symbol` déjà résolu) plutôt que de re-matcher par nom
-  à chaque appel.
+  (l'équivalent d'une `Position` déjà résolue) plutôt que de re-matcher par
+  nom à chaque appel.
 - **Rename LSP ≠ rename partiel** : ne pas confondre un futur
   `rename_symbol` façon refactoring IDE (`textDocument/rename`,
   tout-ou-rien sur l'ensemble des références) avec le besoin réel de
@@ -454,7 +459,7 @@ composition côté serveur.
 - Extraire un point de dispatch partagé entre protocole texte et futur
   pont Lua, portant les garde-fous aujourd'hui dans `ClideDaemon`.
 - Écrire la première vraie commande de modification (`replace_symbol`),
-  sur les primitives déjà existantes (`Symbol`, `Transaction`) — c'est
+  sur les primitives déjà existantes (`Position`, `Transaction`) — c'est
   elle qui validera concrètement le design de `CommandData`/`CommandResult`
   avant de le généraliser aux commandes de lecture.
 - Une fois une commande de modification en place : prototyper une seule

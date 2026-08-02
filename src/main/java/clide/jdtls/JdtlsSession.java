@@ -390,15 +390,16 @@ public class JdtlsSession {
 
 	/**
 	 * Sends lspMethod ("textDocument/definition", "textDocument/typeDefinition", or
-	 * "textDocument/implementation") at symbol's position against this session.
+	 * "textDocument/implementation") at position against this session.
 	 * Shared by GotoDefinitionCommand, GotoTypeDefinitionCommand and
 	 * GotoImplementationCommand - only the LSP method name differs between them.
 	 * See the other overload for requests that also need an LSP request-level
 	 * "context" object (currently only textDocument/references does).
 	 *
-	 * symbol is already known to name a real file/line/word - it can only have come
-	 * from Symbol.parse(), which validated all of that up front (see
-	 * ParamType.SYMBOL, ClideDaemon.validate()) - so no re-validation happens here.
+	 * position is already known to name a real file/line/word - it can only have
+	 * come from Position.parse(), which validated all of that up front (see
+	 * ParamType.POSITION, ClideDaemon.validate()) - so no re-validation happens
+	 * here.
 	 *
 	 * No textDocument/didOpen is sent first: this relies on jdtls already having
 	 * the file in its compiled model from the last build() (see JDTLS.md, section
@@ -408,9 +409,9 @@ public class JdtlsSession {
 	 * Returns one formatted "path:line: line content" entry per location in the
 	 * response, in server order; an empty list if the response was empty/null.
 	 */
-	public List<String> goToPosition(final String lspMethod, final Position symbol)
+	public List<String> goToPosition(final String lspMethod, final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		return goToPosition(lspMethod, symbol, null);
+		return goToPosition(lspMethod, position, null);
 	}
 
 	/**
@@ -422,10 +423,10 @@ public class JdtlsSession {
 	 * three goto_* commands keep going through the 2-arg overload above, which
 	 * passes null here.
 	 */
-	public List<String> goToPosition(final String lspMethod, final Position symbol, final Monomorphic context)
+	public List<String> goToPosition(final String lspMethod, final Position position, final Monomorphic context)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request(lspMethod,
-				positionParams(symbol.file(), symbol.line(), symbol.column(), context), 30);
+				positionParams(position.file(), position.line(), position.column(), context), 30);
 		final Monomorphic error = errorOf(response);
 		if (error != null)
 			throw new IOException(lspMethod + " failed: " + error);
@@ -434,17 +435,18 @@ public class JdtlsSession {
 	}
 
 	/**
-	 * textDocument/hover: the signature/Javadoc jdtls knows for symbol itself - as
-	 * opposed to goToPosition(), which locates some *other* place (a definition, an
-	 * implementation), hover explains this exact symbol where it stands. Returns
-	 * jdtls' hover text verbatim (already Markdown, printed as-is - not
-	 * reformatted), or "<no hover info>" if jdtls had nothing to say (e.g. the
-	 * symbol's type can't be resolved - no matching jar in .clide - or hover just
-	 * doesn't apply to this kind of symbol).
+	 * textDocument/hover: the signature/Javadoc jdtls knows for the symbol at
+	 * position itself - as opposed to goToPosition(), which locates some *other*
+	 * place (a definition, an implementation), hover explains this exact symbol
+	 * where it stands. Returns jdtls' hover text verbatim (already Markdown,
+	 * printed as-is - not reformatted), or "<no hover info>" if jdtls had
+	 * nothing to say (e.g. the symbol's type can't be resolved - no matching jar
+	 * in .clide - or hover just doesn't apply to this kind of symbol).
 	 */
-	public String hover(final Position symbol) throws IOException, InterruptedException, LspClient.TimeoutException {
+	public String hover(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request("textDocument/hover",
-				positionParams(symbol.file(), symbol.line(), symbol.column()), 30);
+				positionParams(position.file(), position.line(), position.column()), 30);
 		final Monomorphic error = errorOf(response);
 		if (error != null)
 			throw new IOException("textDocument/hover failed: " + error);
@@ -455,24 +457,24 @@ public class JdtlsSession {
 	/**
 	 * textDocument/documentSymbol: lists the direct members (methods, fields,
 	 * constructors - not further-nested inner types' own members) of the
-	 * class/interface/enum named symbol.name(), declared at symbol.line() of
-	 * symbol.file() - here symbol picks which type to inspect rather than where to
-	 * jump/what to explain. Requires hierarchicalDocumentSymbolSupport (see
-	 * initializeParams()) - without declaring it, jdtls falls back to a flat
+	 * class/interface/enum named position.name(), declared at position.line() of
+	 * position.file() - here position picks which type to inspect rather than
+	 * where to jump/what to explain. Requires hierarchicalDocumentSymbolSupport
+	 * (see initializeParams()) - without declaring it, jdtls falls back to a flat
 	 * SymbolInformation[] with no "children" at all, and this could never find any
 	 * member.
 	 *
 	 * Returns one "[kind] path:line: line content" entry per member, in
 	 * documentSymbol's own order.
 	 */
-	public List<String> listMembers(final Position symbol)
+	public List<String> listMembers(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final String uri = symbol.file().toUri().toString();
-		final Monomorphic typeNode = findTypeNode(documentSymbols(uri), symbol.name(), symbol.line() - 1);
+		final String uri = position.file().toUri().toString();
+		final Monomorphic typeNode = findTypeNode(documentSymbols(uri), position.name(), position.line() - 1);
 		if (typeNode.isMap() == false)
-			throw new IOException(
-					"No class/interface/enum named '" + symbol.name() + "' declared at line " + symbol.line() + " of "
-							+ symbol.file() + " (list_members only inspects types, not methods/fields)");
+			throw new IOException("No class/interface/enum named '" + position.name() + "' declared at line "
+					+ position.line() + " of " + position.file()
+					+ " (list_members only inspects types, not methods/fields)");
 
 		return formatMembers(uri, childrenOf(typeNode));
 	}
@@ -531,10 +533,10 @@ public class JdtlsSession {
 	 *           and any residual imprecision costs an extra line, never a missing
 	 *           one.
 	 */
-	public List<String> findMethodImplementations(final Position symbol)
+	public List<String> findMethodImplementations(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request("textDocument/implementation",
-				positionParams(symbol.file(), symbol.line(), symbol.column(), null), 30);
+				positionParams(position.file(), position.line(), position.column(), null), 30);
 		final Monomorphic error = errorOf(response);
 		if (error != null)
 			throw new IOException("textDocument/implementation failed: " + error);
@@ -544,7 +546,7 @@ public class JdtlsSession {
 		for (final Monomorphic location : merged)
 			seen.add(locationKey(location));
 
-		for (final Monomorphic recovered : overridesJdtlsMisses(symbol))
+		for (final Monomorphic recovered : overridesJdtlsMisses(position))
 			if (seen.add(locationKey(recovered)))
 				merged.add(recovered);
 
@@ -557,20 +559,20 @@ public class JdtlsSession {
 
 	/**
 	 * The recovery pass described on findMethodImplementations(): walks the
-	 * declaring type's subtypes and keeps every member declaring symbol.name() with
-	 * the same arity. Best effort throughout - anything unresolvable (symbol not
-	 * inside a type, no subtype, unreadable line) yields an empty list rather than
-	 * an error, so the direct jdtls answer always stands on its own.
+	 * declaring type's subtypes and keeps every member declaring position.name()
+	 * with the same arity. Best effort throughout - anything unresolvable (no
+	 * type enclosing position, no subtype, unreadable line) yields an empty list
+	 * rather than an error, so the direct jdtls answer always stands on its own.
 	 */
-	private List<Monomorphic> overridesJdtlsMisses(final Position symbol)
+	private List<Monomorphic> overridesJdtlsMisses(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final String uri = symbol.file().toUri().toString();
-		final String declaration = readLineSafely(uri, symbol.line());
-		final int arity = arityAfterName(declaration, symbol.name());
+		final String uri = position.file().toUri().toString();
+		final String declaration = readLineSafely(uri, position.line());
+		final int arity = arityAfterName(declaration, position.name());
 		if (arity < 0)
 			return List.of();
 
-		final Monomorphic declaringType = enclosingTypeNode(documentSymbols(uri), symbol.line() - 1);
+		final Monomorphic declaringType = enclosingTypeNode(documentSymbols(uri), position.line() - 1);
 		if (declaringType.isMap() == false)
 			return List.of();
 
@@ -587,13 +589,13 @@ public class JdtlsSession {
 			return List.of();
 
 		final Monomorphic response = client.request("textDocument/implementation",
-				positionParams(symbol.file(), lineOf(start) + 1, characterOf(start), null), 30);
+				positionParams(position.file(), lineOf(start) + 1, characterOf(start), null), 30);
 		if (errorOf(response) != null)
 			return List.of();
 
 		final List<Monomorphic> found = new ArrayList<>();
 		for (final Monomorphic subtype : rawLocations(get(response, "result")))
-			collectDeclaredMethods(subtype, symbol.name(), arity, found);
+			collectDeclaredMethods(subtype, position.name(), arity, found);
 
 		return found;
 	}
@@ -809,7 +811,7 @@ public class JdtlsSession {
 
 	/**
 	 * textDocument/position request params, for a position already resolved by
-	 * Symbol.parse().
+	 * Position.parse().
 	 */
 	private Monomorphic positionParams(final Path file, final int oneBasedLine, final int column) {
 		return positionParams(file, oneBasedLine, column, null);
@@ -965,7 +967,7 @@ public class JdtlsSession {
 	 * Recursively searches a documentSymbol tree (nodes, and each node's own
 	 * "children") for a type-kind node (see TYPE_SYMBOL_KINDS) named name and
 	 * declared at zeroBasedLine (its own selectionRange, i.e. just the name token -
-	 * matches symbol.line()-1, already whole-word-validated by Symbol.parse()).
+	 * matches position.line()-1, already whole-word-validated by Position.parse()).
 	 * Returns the first match found (depth-first), or null.
 	 */
 	private Monomorphic findTypeNode(final List<Monomorphic> nodes, final String name, final int zeroBasedLine) {
@@ -987,8 +989,8 @@ public class JdtlsSession {
 		if (isTypeKind(node) == false)
 			return false;
 		// jdtls names a generic type after its source spelling, type parameters
-		// included ("AbstractUGraphic<O>"), while <symbol> only ever carries the
-		// bare name - Symbol.parse() matched it as a whole word on the line. An
+		// included ("AbstractUGraphic<O>"), while <position> only ever carries the
+		// bare name - Position.parse() matched it as a whole word on the line. An
 		// equals() on the raw name therefore never matched a generic type, and
 		// list_members failed on every one of them.
 		if (name.equals(withoutTypeParameters(get(node, "name"))) == false)

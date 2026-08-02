@@ -14,21 +14,27 @@ import clide.jdtls.JdtlsSession;
 import clide.jdtls.LspClient;
 
 /**
- * A symbol reference in clide's client-facing notation:
+ * A position in clide's client-facing notation:
  * "&lt;file path&gt;:&lt;line&gt;:&lt;name&gt;" - the file path relative to
  * the open project (never the daemon's own current directory), line 1-based -
  * e.g. "src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession".
  * Reifies the (file, line, name) triple every goto_*, hover and list_members
  * command used to take as three separate parameters (see CLAUDE.md): the
  * client now sends/echoes one token instead of three, and the "does this
- * symbol actually appear here" surface check ParamType.SYMBOL exists for -
+ * name actually appear here" surface check ParamType.POSITION exists for -
  * see ClideDaemon.validate() - shares the exact same whole-word-on-line logic
  * parse() already ran, instead of jdtls-facing code re-deriving it on its
  * own.
  *
- * Immutable, and only ever built by parse(): any Symbol in hand is therefore
- * already known to name a real file, a line within range, and name as a
- * whole word on that line - callers (JdtlsSession in particular) never
+ * A position, not a symbol: it names one exact spot a symbol's name appears
+ * at, not the symbol itself - a symbol usually appears at several positions
+ * (its declaration, every reference to it), and nothing here aggregates
+ * those together. That broader notion doesn't exist in clide yet; if it did,
+ * it would hold one or more Position rather than being one itself.
+ *
+ * Immutable, and only ever built by parse(): any Position in hand is
+ * therefore already known to name a real file, a line within range, and name
+ * as a whole word on that line - callers (JdtlsSession in particular) never
  * re-validate any of that themselves.
  */
 public final class Position {
@@ -47,17 +53,17 @@ public final class Position {
 		this.column = column;
 	}
 
-	/** Absolute path of the file this symbol was found in. */
+	/** Absolute path of the file this position is in. */
 	public Path file() {
 		return file;
 	}
 
-	/** 1-based line the symbol was found on. */
+	/** 1-based line this position is on. */
 	public int line() {
 		return line;
 	}
 
-	/** The symbol's own name, as typed. */
+	/** The name at this position, as typed. */
 	public String name() {
 		return name;
 	}
@@ -72,7 +78,7 @@ public final class Position {
 	 * resolved against projectRoot - never the current working directory, so the
 	 * same notation means the same thing regardless of where the clide daemon
 	 * happens to have been started from. Also runs the "surface" check
-	 * ParamType.SYMBOL exists for: the file must actually exist, line must be in
+	 * ParamType.POSITION exists for: the file must actually exist, line must be in
 	 * range, and name must appear as a whole word on that line - all of it
 	 * plain-text, no jdtls involved (a stronger, jdtls-backed check only happens
 	 * once a command actually runs and asks jdtls itself).
@@ -86,7 +92,7 @@ public final class Position {
 		final Matcher notation = NOTATION.matcher(token.trim());
 		if (notation.matches() == false)
 			throw new IllegalArgumentException(
-					"Invalid symbol '" + token + "' - expected <file path>:<line>:<name>");
+					"Invalid position '" + token + "' - expected <file path>:<line>:<name>");
 
 		final String pathArgument = notation.group(1);
 		final Path file = resolvePath(pathArgument, projectRoot);
@@ -109,7 +115,7 @@ public final class Position {
 		final int column = wholeWordColumn(lines.get(line - 1), name);
 		if (column < 0)
 			throw new IllegalArgumentException(
-					"Symbol '" + name + "' not found on line " + line + " of " + pathArgument);
+					"'" + name + "' not found on line " + line + " of " + pathArgument);
 
 		return new Position(file, line, name, column);
 	}
@@ -163,7 +169,7 @@ public final class Position {
 	}
 
 	/**
-	 * textDocument/hover through session, for this symbol precisely - an
+	 * textDocument/hover through session, for this position precisely - an
 	 * object-shaped wrapper around JdtlsSession.hover(this) (see CLAUDE.md,
 	 * HoverCommand).
 	 */

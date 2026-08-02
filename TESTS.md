@@ -60,7 +60,7 @@ correction d'érasure de `find_implementation`.
    → corrigé, voir campagne 2.
 2. **`search_regex` avec `<chemin initial>` relatif** renvoie
    silencieusement « 0 match in 0 file » (résolu contre le cwd du daemon,
-   pas contre la racine projet — incohérent avec la notation `Symbol`).
+   pas contre la racine projet — incohérent avec la notation `Position`).
 3. **Sorties incohérentes** : les `find_*` affichent des chemins relatifs
    au projet, `search_regex` des chemins absolus.
 4. **Verbosité du protocole en usage batch** : les prompts `> READY` /

@@ -12,10 +12,10 @@ import clide.json.Monomorphic;
  * Shared parse-resolve-format pipeline behind every position-based command -
  * find_declaration, find_reference and find_implementation (see
  * FindDeclarationCommand/FindReferenceCommand/FindImplementationCommand) -
- * each of which resolves a <symbol> ("<file path>:<line>:<name>", see Symbol)
- * to a position, sends one LSP request against it, and formats the result the
- * same way; only the LSP method (and, for find_reference, an extra request-
- * level "context") differs between them.
+ * each of which parses a <position> ("<file path>:<line>:<name>", see
+ * Position) sent by the client, sends one LSP request against it, and
+ * formats the result the same way; only the LSP method (and, for
+ * find_reference, an extra request-level "context") differs between them.
  *
  * Not a Command itself, and no longer a base class either. It used to be
  * (as GotoPositionCommand, an abstract Command subclass fixing lspMethod()/
@@ -33,7 +33,7 @@ final class PositionCommandSupport {
 	}
 
 	/**
-	 * Resolves symbolText ("<file path>:<line>:<name>") to a Symbol, sends
+	 * Resolves positionText ("<file path>:<line>:<name>") to a Position, sends
 	 * lspMethod against it (with requestContext merged in if non-null - see
 	 * JdtlsSession.goToPosition()), and formats the result: "<count>
 	 * location(s)" followed by one "path:line: line content" per result, or
@@ -41,18 +41,18 @@ final class PositionCommandSupport {
 	 * and error messages.
 	 */
 	static CommandResult goToAndFormat(final ClideContext context, final String commandName, final String lspMethod,
-			final String symbolText, final Monomorphic requestContext) {
+			final String positionText, final Monomorphic requestContext) {
 		final JdtlsSession session = context.getCurrentSession();
 
-		final Position symbol;
+		final Position position;
 		try {
-			symbol = Position.parse(symbolText, context.getProjectRoot());
+			position = Position.parse(positionText, context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResult.error(e.getMessage());
 		}
 
 		try {
-			return format(commandName, session.goToPosition(lspMethod, symbol, requestContext));
+			return format(commandName, session.goToPosition(lspMethod, position, requestContext));
 		} catch (final Exception e) {
 			return CommandResult.error(commandName + " failed: " + e.getMessage());
 		}
@@ -66,18 +66,18 @@ final class PositionCommandSupport {
 	 * method for why).
 	 */
 	static CommandResult findMethodImplementationsAndFormat(final ClideContext context, final String commandName,
-			final String symbolText) {
+			final String positionText) {
 		final JdtlsSession session = context.getCurrentSession();
 
-		final Position symbol;
+		final Position position;
 		try {
-			symbol = Position.parse(symbolText, context.getProjectRoot());
+			position = Position.parse(positionText, context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResult.error(e.getMessage());
 		}
 
 		try {
-			return format(commandName, session.findMethodImplementations(symbol));
+			return format(commandName, session.findMethodImplementations(position));
 		} catch (final Exception e) {
 			return CommandResult.error(commandName + " failed: " + e.getMessage());
 		}

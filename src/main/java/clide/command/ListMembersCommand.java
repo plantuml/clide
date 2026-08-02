@@ -16,8 +16,8 @@ import clide.jdtls.JdtlsSession;
 /**
  * textDocument/documentSymbol: lists the direct members (methods, fields,
  * constructors - not the members of a nested type, only the type itself as a
- * member) of the class/interface/enum named by <symbol> - <file path>:<line>:
- * <name> (see Symbol, ParamType.SYMBOL), same notation as
+ * member) of the class/interface/enum named by <position> - <file path>:
+ * <line>:<name> (see Position, ParamType.POSITION), same notation as
  * find_declaration/find_reference/find_implementation and hover, but here it
  * identifies which type to inspect rather than where to jump/what to explain.
  * Doesn't reuse PositionCommandSupport for the same reason hover doesn't: a
@@ -26,22 +26,22 @@ import clide.jdtls.JdtlsSession;
 public class ListMembersCommand extends Command {
 
 	@Keyword("list_members")
-	@Help("Lists the members (methods, fields, constructors) of the class/interface/enum named by <symbol> - <symbol> as <file path>:<line>:<name>.")
-	@Param(type = ParamType.SYMBOL, description = "Symbol")
+	@Help("Lists the members (methods, fields, constructors) of the class/interface/enum named by <position> - <position> as <file path>:<line>:<name>.")
+	@Param(type = ParamType.POSITION, description = "Position")
 	@Manual("""
 			NAME
 				list_members - list the members of a class, interface, or enum
 
 			SYNOPSIS
-				list_members <file path> <line> <symbol>
+				list_members <file path> <line> <position>
 
 			DESCRIPTION
 				Sends textDocument/documentSymbol to jdtls and lists the
 				direct members - methods, fields, constructors - of the
-				class, interface or enum named <symbol>, located as a whole
-				word on <line> of <file path>: the same position resolution
-				goto_* and hover use, but here identifying which type to
-				inspect rather than where to jump or what to explain.
+				class, interface or enum named at <position>, located as a
+				whole word on <line> of <file path>: the same position
+				resolution goto_* and hover use, but here identifying which
+				type to inspect rather than where to jump or what to explain.
 
 			SEE ALSO
 				hover(1), find_declaration(1)
@@ -54,17 +54,17 @@ public class ListMembersCommand extends Command {
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final JdtlsSession session = context.getCurrentSession();
 
-		final Position symbol;
+		final Position position;
 		try {
-			symbol = Position.parse(params[0], context.getProjectRoot());
+			position = Position.parse(params[0], context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResult.error(e.getMessage());
 		}
 
 		try {
-			final List<String> members = session.listMembers(symbol);
+			final List<String> members = session.listMembers(position);
 			if (members.isEmpty())
-				return CommandResult.ok("list_members: " + symbol.name() + " has no members");
+				return CommandResult.ok("list_members: " + position.name() + " has no members");
 
 			final StringBuilder output = new StringBuilder();
 			output.append("list_members: ").append(members.size()).append(" member(s)\n");

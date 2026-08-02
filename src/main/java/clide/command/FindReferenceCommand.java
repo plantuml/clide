@@ -22,33 +22,33 @@ import clide.json.Monomorphic;
  * own literal value is still checked (typo protection, consistent with
  * find_declaration), but - deliberately, to avoid an extra jdtls round trip
  * just to find out - it is not cross-checked against the actual kind of
- * symbol found at <symbol>'s position.
+ * symbol found at <position>.
  */
 public class FindReferenceCommand extends Command {
 
 	@Keyword("find_reference")
-	@Help("Finds every real usage of a symbol across the whole project - <what> is method or type, <symbol> as <file path>:<line>:<name>.")
+	@Help("Finds every real usage of a symbol across the whole project - <what> is method or type, <position> as <file path>:<line>:<name>.")
 	@Param(type = ParamType.SINGLE_LINE, description = "What: method or type")
-	@Param(type = ParamType.SYMBOL, description = "Symbol")
+	@Param(type = ParamType.POSITION, description = "Position")
 	@Manual("""
 			NAME
 				find_reference - find every real usage of a symbol
 
 			SYNOPSIS
-				find_reference <what> <symbol>
+				find_reference <what> <position>
 
 			DESCRIPTION
 				Finds every real usage of a symbol across the whole
 				project, excluding its own declaration - is this actually
-				used anywhere, and where. <symbol> is given as
+				used anywhere, and where. <position> is given as
 				<file path>:<line>:<name>, name located as a whole word on
-				line of file path. <what> states whether <symbol> is a
+				line of file path. <what> states whether <position> names a
 				method or a type, for consistency with find_declaration/
 				find_implementation; it does not change the result.
 
 			ERRORS
 				<what> must be exactly "method" or "type" - anything else
-				is rejected. <symbol> must parse as <file path>:<line>:<name>
+				is rejected. <position> must parse as <file path>:<line>:<name>
 				- the file must exist under the project root, line must be
 				within it, and name must appear on it as a whole word.
 

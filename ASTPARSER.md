@@ -223,7 +223,7 @@ pertinents pour un `ASTParser` batch plutôt qu'un `SearchEngine` indexé :
 - **Positions dans littéraux/commentaires.** Les outils positionnels de
   `javalens-mcp` renvoyaient à tort le membre englobant pour une position
   dans une chaîne ou un commentaire. La résolution `\bnom\b` sur la ligne
-  déjà utilisée par `Symbol` immunise en partie clide côté commandes qui
+  déjà utilisée par `Position` immunise en partie clide côté commandes qui
   partent d'une position ; les nouvelles commandes qui partent d'un
   *type* plutôt que d'une position (la plupart de ce groupe) n'ont pas ce
   problème par construction — mais celles qui rendraient un résultat sous

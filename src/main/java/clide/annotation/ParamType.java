@@ -10,10 +10,10 @@ package clide.annotation;
  * "$segment" chunks chained back to back (e.g. "$refactor_foo",
  * "$refactor_foo$part1"), each segment lower-case word characters only.</li>
  * <li>REGEX must compile as a java.util.regex.Pattern.</li>
- * <li>SYMBOL must parse as "&lt;file path&gt;:&lt;line&gt;:&lt;name&gt;" (see
- * clide.core.Symbol.parse()) - the file path relative to the open project,
- * never the daemon's own current directory - and name must actually appear
- * as a whole word on that line of that file.</li>
+ * <li>POSITION must parse as "&lt;file path&gt;:&lt;line&gt;:&lt;name&gt;"
+ * (see clide.core.Position.parse()) - the file path relative to the open
+ * project, never the daemon's own current directory - and name must actually
+ * appear as a whole word on that line of that file.</li>
  * </ul>
  * SINGLE_LINE accepts any text unchecked, read as exactly one line by
  * ClideDaemon.readParams().
@@ -33,5 +33,5 @@ package clide.annotation;
  * "\n".
  */
 public enum ParamType {
-	TRANSACTION_ID, REGEX, SYMBOL, SINGLE_LINE, MULTI_LINE
+	TRANSACTION_ID, REGEX, POSITION, SINGLE_LINE, MULTI_LINE
 }

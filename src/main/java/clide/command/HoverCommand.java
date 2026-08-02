@@ -12,12 +12,13 @@ import clide.core.Position;
 import clide.jdtls.JdtlsSession;
 
 /**
- * textDocument/hover: the signature/Javadoc jdtls knows for one specific symbol
- * - <symbol> as <file path>:<line>:<name> (see Symbol, ParamType.SYMBOL), same
- * notation as find_declaration/find_reference/find_implementation and
- * list_members. Doesn't reuse PositionCommandSupport: those commands' results
- * are lists of Location, hover's is a single blob of (usually Markdown) text -
- * a different enough shape that it gets its own thin Command instead.
+ * textDocument/hover: the signature/Javadoc jdtls knows for the symbol at one
+ * specific spot - <position> as <file path>:<line>:<name> (see Position,
+ * ParamType.POSITION), same notation as find_declaration/find_reference/
+ * find_implementation and list_members. Doesn't reuse PositionCommandSupport:
+ * those commands' results are lists of Location, hover's is a single blob of
+ * (usually Markdown) text - a different enough shape that it gets its own
+ * thin Command instead.
  *
  * Meant for the case find_declaration/find_reference/find_implementation
  * don't cover: a call site already found (e.g. via search_regex or
@@ -27,17 +28,17 @@ import clide.jdtls.JdtlsSession;
 public class HoverCommand extends Command {
 
 	@Keyword("hover")
-	@Help("Shows the signature/Javadoc jdtls knows for a symbol - <symbol> as <file path>:<line>:<name>.")
-	@Param(type = ParamType.SYMBOL, description = "Symbol")
+	@Help("Shows the signature/Javadoc jdtls knows for a symbol - <position> as <file path>:<line>:<name>.")
+	@Param(type = ParamType.POSITION, description = "Position")
 	@Manual("""
 			NAME
 				hover - show the signature/Javadoc jdtls knows for a symbol
 
 			SYNOPSIS
-				hover <file path> <line> <symbol>
+				hover <file path> <line> <position>
 
 			DESCRIPTION
-				Sends textDocument/hover to jdtls for <symbol>, located as a
+				Sends textDocument/hover to jdtls for <position>, located as a
 				whole word on <line> of <file path> - the same position
 				resolution goto_* and list_members use. Returns a single
 				blob of text, usually Markdown: the resolved signature and
@@ -58,15 +59,15 @@ public class HoverCommand extends Command {
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final JdtlsSession session = context.getCurrentSession();
 
-		final Position symbol;
+		final Position position;
 		try {
-			symbol = Position.parse(params[0], context.getProjectRoot());
+			position = Position.parse(params[0], context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResult.error(e.getMessage());
 		}
 
 		try {
-			return CommandResult.ok(symbol.retrieveJavadoc(session));
+			return CommandResult.ok(position.retrieveJavadoc(session));
 		} catch (final Exception e) {
 			return CommandResult.error("hover failed: " + e.getMessage());
 		}

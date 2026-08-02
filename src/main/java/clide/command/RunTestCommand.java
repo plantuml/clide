@@ -18,9 +18,9 @@ import clide.test.TestSelector;
  * Runs one test of the open project - the second priority this project set
  * itself (see CLAUDE.md), after "does it compile".
  *
- * Takes a symbol rather than a fully qualified class name so that the answer of
- * find_symbol can be pasted in with no editing, the chaining TESTS.md keeps
- * identifying as the tool's strength:
+ * Takes a position rather than a fully qualified class name so that the
+ * answer of find_symbol can be pasted in with no editing, the chaining
+ * TESTS.md keeps identifying as the tool's strength:
  *
  * <pre>
  * find_symbol shouldRenderArrow
@@ -31,22 +31,22 @@ import clide.test.TestSelector;
 public class RunTestCommand extends Command {
 
 	@Keyword("run_test")
-	@Help("Runs the unit test <symbol> points at: the whole class when it names the test class, that one method otherwise.")
-	@Param(type = ParamType.SYMBOL, description = "Test symbol")
+	@Help("Runs the unit test <position> points at: the whole class when it names the test class, that one method otherwise.")
+	@Param(type = ParamType.POSITION, description = "Test position")
 	@Manual("""
 			NAME
 				run_test - run one unit test of the open project
 
 			SYNOPSIS
-				run_test <symbol>
+				run_test <position>
 
 			DESCRIPTION
-				Runs the test <symbol> designates and reports every test that
-				ran, failures first-class. The class is read off the file
-				<symbol> points into - its package declaration plus its own
-				name - and the granularity comes from what <symbol> names:
-				the class itself runs all of its tests, anything else runs
-				that single method.
+				Runs the test <position> designates and reports every test
+				that ran, failures first-class. The class is read off the
+				file <position> points into - its package declaration plus
+				its own name - and the granularity comes from what
+				<position> names: the class itself runs all of its tests,
+				anything else runs that single method.
 
 				No build tool is involved. jdtls already knows the project's
 				test classpath, so clide forks a JVM on it plus its own jar,
@@ -67,7 +67,7 @@ public class RunTestCommand extends Command {
 				describes code that no longer exists.
 
 				Finding no test at all is an error, not an empty success: an
-				empty run is far more often a wrong symbol or a missing
+				empty run is far more often a wrong position or a missing
 				rebuild than a class with no tests. A run exceeding 120
 				seconds is killed and reported as a timeout, which is not a
 				test failure. A repository holding several modules is
@@ -83,18 +83,18 @@ public class RunTestCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
-		final Position symbol;
+		final Position position;
 		try {
-			symbol = Position.parse(params[0], context.getProjectRoot());
+			position = Position.parse(params[0], context.getProjectRoot());
 		} catch (final Exception e) {
-			return CommandResult.error("Invalid <symbol> '" + params[0] + "': " + e.getMessage());
+			return CommandResult.error("Invalid <position> '" + params[0] + "': " + e.getMessage());
 		}
 
 		final String[] selector;
 		try {
-			selector = TestSelector.forFile(symbol.file(), symbol.name());
+			selector = TestSelector.forFile(position.file(), position.name());
 		} catch (final IOException e) {
-			return CommandResult.error("could not read " + symbol.file() + ": " + e.getMessage());
+			return CommandResult.error("could not read " + position.file() + ": " + e.getMessage());
 		}
 
 		return ProjectTests.runSelection(context, selector, selector[1]);

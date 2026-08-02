@@ -12,8 +12,8 @@ import java.util.regex.Pattern;
  *
  * The whole point is that the answer of find_symbol can be pasted straight into
  * run_test with no editing - which is the property TESTS.md keeps identifying
- * as the tool's strength. So the input is a Symbol, not a fully qualified class
- * name the client would have to rebuild by hand from a path.
+ * as the tool's strength. So the input is a Position, not a fully qualified
+ * class name the client would have to rebuild by hand from a path.
  *
  * The class name is read off the file: its package declaration plus its own
  * name, which for a Java source file is the name of the type it declares. The
