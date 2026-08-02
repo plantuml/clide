@@ -107,37 +107,30 @@ une commande d'édition existe, elle devrait backup + écrire dans la
 transaction ouverte, laissant `diff_transaction` être le point où on
 « propose » avant de committer.
 
-## Architecture d'intégration : deux options, non tranchées
+## Architecture d'intégration : luajava embarqué (décidé)
 
-**Option A — client Lua externe**, parlant le protocole texte existant
-(socket/stdin vers le daemon), en implémentant côté Lua le codec « un token
-par ligne » (voir « Syntaxe des commandes » dans `CLAUDE.md`) plus le
-protocole à terminateur de `ParamType.MULTI_LINE`. Avantage : aucun
-couplage avec l'interne Java, clide continue de n'avoir qu'une seule surface
-(le protocole texte), utilisable par n'importe quel langage. Inconvénient :
-sérialisation dans les deux sens, et il faudrait reparser du texte
-pretty-printé pour en refaire une table Lua (`chemin/relatif.java:ligne:
-contenu` → structure) — fragile et redondant avec le travail déjà fait côté
-Java pour produire ce texte.
+**Décision (2026-08-02) : luajava embarqué dans le process clide**, chaque
+fonction Lua appelant directement `Command.executeCommand(ClideContext,
+...)` (ou un point d'entrée partagé, voir « Dispatch partagé » plus bas)
+sans repasser par `readParams()` ni le parsing ligne par ligne du protocole
+texte. Retenue plutôt qu'un client Lua externe parlant le protocole texte
+existant (socket/stdin, codec « un token par ligne », terminateur de
+`ParamType.MULTI_LINE`) : ce protocole a été conçu pour un client texte bête
+(Claude tapant au clavier), pas pour un langage de script, et un client
+externe aurait dû reparser du texte pretty-printé pour en refaire une table
+Lua — fragile et redondant avec le travail déjà fait côté Java pour produire
+ce texte. luajava embarqué donne un retour structuré nativement (objets Java
+→ tables Lua), cohérent avec le principe « une commande = une fonction
+Lua ».
 
-**Option B — luajava embarqué dans le process clide**, chaque fonction Lua
-appelant directement `Command.executeCommand(ClideContext, ...)` (ou un
-point d'entrée partagé, voir plus bas) sans repasser par `readParams()` ni
-le parsing ligne par ligne. Avantage : retour structuré nativement (objets
-Java → tables Lua), pas de sérialisation texte, cohérent avec le principe
-« une commande = une fonction Lua » explicitement demandé. Inconvénient :
-couple le cycle de vie du runtime Lua à celui du daemon, et suppose que
-`CommandResult` porte une charge utile structurée en plus du texte (voir
-section suivante) — ce qui n'est pas le cas aujourd'hui.
+Implication à assumer : ça couple le cycle de vie du runtime Lua à celui du
+daemon, et ça suppose que `CommandResult` porte une charge utile structurée
+en plus du texte (voir section suivante) — ce qui n'est pas encore le cas
+aujourd'hui.
 
-Le protocole texte « un token par ligne » n'a de sens que pour l'option A —
-inutile de le réimplémenter côté Lua si l'option B est retenue, puisqu'il a
-été conçu pour un client texte bête (Claude tapant au clavier), pas pour un
-langage de script.
-
-**Non tranché : quelle option retenir.** L'option B semble mieux coller à
-« une commande = une fonction Lua », mais implique plus de refactoring
-préalable (voir ci-dessous) que l'option A.
+Le protocole texte « un token par ligne » + `MULTI_LINE` à terminateur reste
+nécessaire pour le protocole texte existant (Claude au clavier), mais n'a
+plus lieu d'être réimplémenté côté Lua.
 
 ## `CommandResult` : le refactor à envisager
 
@@ -185,10 +178,10 @@ commande par commande.
 
 ## `Monomorphic` comme forme de `data`
 
-(2026-08-02) Piste concrète pour la question laissée ouverte ci-dessus :
-plutôt qu'une nouvelle interface scellée `CommandData` à dessiner de zéro,
-réutiliser `clide.jdtls.Monomorphic`, qui existe déjà (née pour modéliser
-les valeurs JSON-RPC côté `LspClient`/`Json`). `Monomorphic` couvre
+(2026-08-02, mis à jour 2026-08-02) Piste concrète pour la question laissée
+ouverte ci-dessus : plutôt qu'une nouvelle interface scellée `CommandData` à
+dessiner de zéro, réutiliser `Monomorphic`, qui existe déjà (née pour
+modéliser les valeurs JSON-RPC côté `LspClient`). `Monomorphic` couvre
 exactement les sept formes qu'un `CommandResult.data()` a besoin de porter
 (`NULL`/`BOOLEAN`/`STRING`/`INTEGER`/`DECIMAL`/`LIST`/`MAP`), immuable, et sa
 dualité `LIST`/`MAP` correspond terme à terme à la dualité tableau/table-à-
@@ -197,6 +190,12 @@ une `MAP` devient une table à clés chaînes, les scalaires passent tels
 quels. Un seul convertisseur récursif `Monomorphic` → valeur Lua (et son
 inverse) suffirait pour toutes les commandes, au lieu d'un binding par forme
 de résultat.
+
+**Mise à jour : `Monomorphic` a déménagé.** `Monomorphic`/`MonomorphicType`
+(et `Json`, le codec JSON-RPC qui les lit/écrit) vivent maintenant dans un
+package neutre `clide.json`, sorti de `clide.jdtls` — voir « Problème de
+couches » ci-dessous, désormais résolu par ce déplacement plutôt
+qu'en suspens.
 
 **Le compromis que ça réintroduit.** La section précédente écartait
 `Object`/`Map<String,Object>` justement parce que « rien ne garantit à la
@@ -210,21 +209,30 @@ tard sans revenir sur le format de transport : poser de petits accesseurs
 typés par commande au-dessus de `Monomorphic` (des enregistrements qui font
 `getFromMap("file")` en interne) — `Monomorphic` restant le fil, pas l'API.
 
-**Problème de couches.** `clide.core.Command` expose déjà
-`needsJdtlsSession()` — une convention délibérée : `core` connaît jdtls
-*conceptuellement* (un booléen), mais n'importe jamais ses types. Faire
-dépendre `clide.core.CommandResult` de `clide.jdtls.Monomorphic` inverserait
-cette règle. `Monomorphic` a cela dit déjà commencé à s'en échapper dans les
-faits : `FindReferenceCommand` et `PositionCommandSupport` (dans
-`clide.command`) l'utilisent déjà comme constructeur générique de valeur
-structurée pour les paramètres de requête LSP
-(`Monomorphic.mapBuilder().putBoolean(...)`), pas seulement pour parser les
-réponses — la classe dérive donc déjà vers un rôle générique, pas
-strictement LSP. Piste : déplacer `Monomorphic`/`MonomorphicType` hors de
-`clide.jdtls` vers un package neutre (`clide.json`, ou directement
-`clide.core`), en laissant `clide.jdtls.Json` — le vrai codec JSON-RPC,
-parsing/écriture des octets sur le fil — où il est ; lui reste légitimement
-spécifique à jdtls.
+**Problème de couches — résolu par le déplacement.** `clide.core.Command`
+expose déjà `needsJdtlsSession()` — une convention délibérée : `core`
+connaît jdtls *conceptuellement* (un booléen), mais n'importe jamais ses
+types. Faire dépendre `clide.core.CommandResult` de `clide.jdtls.Monomorphic`
+aurait inversé cette règle. C'est désormais sans objet : `Monomorphic`
+vivait déjà dans les faits un rôle plus générique que « valeur de réponse
+LSP » — `FindReferenceCommand` et `PositionCommandSupport` (dans
+`clide.command`) l'utilisaient déjà comme constructeur générique de valeur
+structurée pour les paramètres de requête (`Monomorphic.mapBuilder()
+.putBoolean(...)`), pas seulement pour parser les réponses — et le
+déplacement de `Monomorphic`/`MonomorphicType`/`Json` vers `clide.json`
+l'acte formellement : `clide.core` peut désormais dépendre de
+`clide.json.Monomorphic` sans jamais importer `clide.jdtls`, la convention
+« `core` ignore les types de jdtls » reste intacte. Note : le codec `Json`
+(parsing/écriture des octets JSON-RPC sur le fil) a été déplacé avec
+`Monomorphic` plutôt que laissé dans `jdtls` comme d'abord envisagé ici —
+sans conséquence pour ce choix de couches, puisque `clide.core` n'aurait de
+toute façon besoin que de `Monomorphic`, jamais du codec.
+
+Point de vigilance à vérifier après tout déplacement de ce genre : les sites
+d'utilisation existants doivent suivre le changement de package — deux
+`import clide.jdtls.Monomorphic;` avaient été oubliés dans
+`FindReferenceCommand`/`PositionCommandSupport` lors de ce déplacement
+(corrigés en marge de cette mise à jour de `LUA.md`).
 
 **Un trou plus profond que `CommandResult`.**
 `PositionCommandSupport.goToAndFormat()` s'appuie sur
@@ -281,7 +289,7 @@ nouvelle commande Java obtiendrait alors sa fonction Lua « gratuitement »,
 Piège identifié : `needsOpenTransaction()`/`needsJdtlsSession()` et la
 validation `ParamType` (`ClideDaemon.validate()`) vivent aujourd'hui dans la
 boucle du daemon texte (`ClideDaemon.runSession()`), **au-dessus** de
-`Command.executeCommand()`, pas dedans. Si un pont Lua (option B) appelle
+`Command.executeCommand()`, pas dedans. Si le pont Lua appelle
 `executeCommand()` en direct pour éviter la sérialisation, ces contrôles
 doivent absolument rester sur le chemin — sinon un script Lua pourrait par
 exemple modifier un fichier hors transaction, ou passer un symbole jamais
@@ -350,14 +358,13 @@ composition côté serveur.
 
 ## Questions ouvertes
 
-- Option A (client externe, protocole texte) vs option B (luajava
-  embarqué, appel direct à `executeCommand()`) — non tranché.
-- Forme de `data` : piste retenue vers `Monomorphic` plutôt qu'une nouvelle
-  interface scellée (voir « `Monomorphic` comme forme de `data` ») — reste à
-  trancher son package (rester dans `clide.jdtls` ou en sortir vers un
-  package neutre) et à refaire remonter la structure aujourd'hui perdue
-  dans `JdtlsSession.goToPosition()`/`PositionCommandSupport.format()`
-  avant qu'elle n'atteigne `CommandResult`.
+- Forme de `data` : piste retenue vers `Monomorphic` (désormais dans
+  `clide.json`, package neutre — voir « `Monomorphic` comme forme de
+  `data` ») plutôt qu'une nouvelle interface scellée `CommandData` — reste à
+  trancher entre les deux, et, `Monomorphic` retenu ou non, à refaire
+  remonter la structure aujourd'hui perdue dans
+  `JdtlsSession.goToPosition()`/`PositionCommandSupport.format()` avant
+  qu'elle n'atteigne `CommandResult`.
 - Sentinel pour `null` et convention tableau-vide/objet-vide (`{}` côté Lua)
   pour la conversion `Monomorphic` ↔ table Lua — non tranché.
 - Gestion d'erreur au sein d'un script : tout le script enveloppé dans un
@@ -416,12 +423,6 @@ composition côté serveur.
   mais n'apporte pas la sécurité *par commande* qu'aurait donnée une
   interface scellée — un typo de clé dans un `mapBuilder().put(...)` ne sera
   jamais détecté à la compilation.
-- **Couches core/jdtls** : `clide.core.Command` ne connaît jdtls
-  qu'au travers d'un booléen (`needsJdtlsSession()`), jamais par import de
-  type — utiliser `clide.jdtls.Monomorphic` comme type de
-  `clide.core.CommandResult.data()` inverserait cette convention si
-  `Monomorphic` reste dans `clide.jdtls` (voir « `Monomorphic` comme forme
-  de `data` »).
 - **`null` dans une table Lua** : assigner `nil` à une clé de table la
   supprime, une `Monomorphic` NULL ne peut donc pas se traduire par un
   `nil` Lua brut — nécessite un sentinel explicite dans le convertisseur
@@ -430,17 +431,22 @@ composition côté serveur.
   même `CommandResult` — câbler `Monomorphic` dans `CommandResult.data()`
   seul ne suffira pas à donner à `find_reference` un résultat structuré tant
   que cette couche n'est pas revue.
-- **Protocole texte « un token par ligne » + `MULTI_LINE` à terminateur**
-  n'a de sens qu'en option A — ne pas le réimplémenter côté Lua si
-  l'option B est retenue.
+- **Protocole texte « un token par ligne » + `MULTI_LINE` à terminateur** :
+  conçu pour le client texte du daemon (Claude au clavier) — ne pas le
+  réimplémenter côté Lua, luajava embarqué n'en a pas besoin (voir
+  « Architecture d'intégration »).
+- **Site d'utilisation oublié lors d'un déplacement de package** :
+  `Monomorphic`/`Json`/`MonomorphicType` déplacés de `clide.jdtls` vers
+  `clide.json` sans mettre à jour les imports dans
+  `FindReferenceCommand`/`PositionCommandSupport` — cassait la compilation
+  jusqu'à correction. À vérifier systématiquement après tout renommage de
+  package (`grep` sur l'ancien chemin d'import avant de committer).
 
 ## Prochaines étapes envisagées (non implémentées)
 
-- Trancher option A vs option B.
-- Trancher la forme de `data` : `Monomorphic` réutilisé tel quel (voir
-  « `Monomorphic` comme forme de `data` ») vs interface scellée
-  `CommandData` dédiée — et, si `Monomorphic` est retenu, décider de son
-  package (`clide.jdtls` vs un package neutre partagé avec `clide.core`).
+- Trancher la forme de `data` : `Monomorphic` (désormais dans `clide.json`)
+  réutilisé tel quel (voir « `Monomorphic` comme forme de `data` ») vs
+  interface scellée `CommandData` dédiée.
 - Revoir `JdtlsSession.goToPosition()`/`PositionCommandSupport.format()`
   pour arrêter d'aplatir le résultat en `List<String>` avant qu'il
   n'atteigne `CommandResult` — sans quoi `data` reste vide pour les
