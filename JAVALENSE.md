@@ -46,9 +46,22 @@ répondent alors sur un état ancien, sans aucun signal.
 `chemin → (taille, mtime, hash)` construite au build de démarrage, puis à
 chaque commande nécessitant jdtls, vérification + pour chaque fichier
 modifié un `textDocument/didChange` (ou re-build delta) avant d'exécuter.
-Taille/mtime servent de pré-filtre, le hash fait autorité. Leur choix MD5
-est assumé : détection de changement sur ses propres sources, pas une
-frontière de sécurité.
+Précision après lecture du code : taille/mtime sont bien stockés dans le
+`Stamp` mais ne servent en fait à rien dans leur `verify()` — chaque
+fichier connu est rehashé sans condition à chaque appel (parallélisé) ;
+ce sont des champs diagnostiques inertes aujourd'hui, pas un pré-filtre
+actif, seul le hash est comparé. Pour clide, un vrai pré-filtre mtime/
+taille avant rehash resterait une optimisation valable — simplement pas
+ce qu'ils font. Autre précision : `DiskStampService` n'est que le moteur
+stamp/diff (`stampAll`/`verify`/`restamp`) ; la réparation proprement
+dite (refresh ciblé, attente d'index, invalidation de cache,
+`RELOAD_REQUIRED` sur fichier de build) vit dans l'appelant
+(`JdtServiceImpl.ensureFresh`), et passe chez eux par l'API de ressources
+Eclipse (`IFile#refreshLocal`) — pas par un `textDocument/didChange`,
+puisqu'ils n'ont aucune couche LSP. Pour clide, `didChange` est donc
+notre traduction pour une architecture LSP, pas un emprunt littéral.
+Leur choix MD5 est assumé : détection de changement sur ses propres
+sources, pas une frontière de sécurité.
 
 ## 2. Enveloppe de réponse pensée pour l'agent
 
