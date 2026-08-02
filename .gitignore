@@ -2,7 +2,9 @@
 build
 /jdtls
 /clide.jar
-.clide.lock
-.clide-daemon.log
-/.clide/
+/.clide/tmp
+bin
 .settings
+.settings
+.classpath
+.project
