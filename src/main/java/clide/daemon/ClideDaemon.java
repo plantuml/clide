@@ -364,6 +364,16 @@ public final class ClideDaemon {
 
 	private void shutdown(final JdtlsSession session, final ServerSocket serverSocket) {
 		session.stop();
+		try {
+			// jdtls can write .project back on its own during the graceful shutdown
+			// handshake session.stop() just ran, independently of anything clide staged
+			// - see EclipseProjectFiles' class doc. Running the same cleanup again here
+			// catches and removes that, now that nothing is left watching the files.
+			session.restoreEclipseFiles();
+		} catch (final IOException e) {
+			// best effort - a stray .project/.classpath is a cosmetic leftover, not
+			// worth failing the shutdown over
+		}
 		DaemonLock.delete(projectRoot);
 		try {
 			serverSocket.close();

@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -83,10 +84,29 @@ public class JdtlsLauncher {
 		process = builder.start();
 	}
 
+	/**
+	 * Sends the process a polite SIGTERM, then waits for it to actually exit
+	 * before returning - not fire-and-forget. jdtls runs its own graceful
+	 * shutdown on that signal (on top of the LSP "shutdown"/"exit" handshake
+	 * JdtlsSession.stop() already ran before calling this), which can include
+	 * writing .project back on its own (see EclipseProjectFiles' class doc) -
+	 * callers that clean up after that write (ClideDaemon.shutdown()) need the
+	 * process, and whatever it does on the way out, to be fully done first.
+	 * Force-kills if it hasn't exited within the timeout, so a stuck process
+	 * never wedges daemon shutdown.
+	 */
 	public void stop() {
-		if (isRunning())
-			process.destroy();
+		if (isRunning() == false)
+			return;
 
+		process.destroy();
+		try {
+			if (process.waitFor(10, TimeUnit.SECONDS) == false)
+				process.destroyForcibly();
+		} catch (final InterruptedException e) {
+			Thread.currentThread().interrupt();
+			process.destroyForcibly();
+		}
 	}
 
 	/**

@@ -5,7 +5,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Keeps a project's own .project/.classpath - hand written, produced by
@@ -26,11 +28,26 @@ import java.util.List;
  * why it cannot be any earlier.
  *
  * This only works because jdtls, once it has imported a project, never
- * revisits .project/.classpath on its own - confirmed by editing .classpath
- * on disk under a live daemon and observing that neither a passive wait nor
- * an explicit rebuild picked up the change; only a fresh jdtls import (a new
- * daemon) does. Swapping the files back right after the initial build is
- * therefore safe: there is nothing left watching them.
+ * revisits .project/.classpath on its own to READ them - confirmed by
+ * editing .classpath on disk under a live daemon and observing that neither
+ * a passive wait nor an explicit rebuild picked up the change; only a fresh
+ * jdtls import (a new daemon) does. Swapping the files back right after the
+ * initial build is therefore safe as far as jdtls reading them goes.
+ *
+ * jdtls does, however, sometimes WRITE .project back on its own -
+ * independently of anything staged here - as part of its own "invisible
+ * project" bookkeeping (it was already caught doing this once before, see
+ * JDTLS.md: injecting a &lt;filteredResources&gt; filter with a
+ * __CREATED_BY_JAVA_LANGUAGE_SERVER__ marker). Observed happening around the
+ * graceful LSP shutdown handshake (JdtlsSession.stop()), i.e. after the
+ * unstage() that follows the initial build has already run and moved on.
+ * That is why unstage() is safe - and meant - to be called again once
+ * JdtlsSession.stop() returns (see ClideDaemon.shutdown()): every call after
+ * the first still knows, per managed file, whether a real original was ever
+ * there to restore (hadOriginal, set once by stage() and never revisited) -
+ * so a repeat call either leaves an already-restored original alone, or
+ * deletes whatever is live when there never was one, catching exactly this
+ * kind of late, clide-independent rewrite.
  *
  * A copy of whichever content was actually handed to jdtls this run is kept
  * at .clide/tmp/&lt;name&gt;.clide, purely for debugging - never read back by
@@ -52,6 +69,15 @@ public final class EclipseProjectFiles {
 
 	private final Path projectRoot;
 	private boolean staged;
+
+	/**
+	 * Per managed file name, whether the project actually had its own copy right
+	 * before stage() moved it aside - set once by stageOne(), read by every
+	 * unstageOne() call including repeats. Deciding restore-vs-delete from this
+	 * instead of "is there still something in staging" is what makes unstage()
+	 * safe to call more than once - see the class doc.
+	 */
+	private final Map<String, Boolean> hadOriginal = new HashMap<>();
 
 	private EclipseProjectFiles(final Path projectRoot) {
 		this.projectRoot = projectRoot;
@@ -105,7 +131,9 @@ public final class EclipseProjectFiles {
 
 	private void stageOne(final String name, final String content, final Path staging) throws IOException {
 		final Path live = projectRoot.resolve(name);
-		if (Files.exists(live))
+		final boolean existed = Files.exists(live);
+		hadOriginal.put(name, existed);
+		if (existed)
 			Files.move(live, staging.resolve(name), StandardCopyOption.ATOMIC_MOVE);
 
 		Files.writeString(live, content, StandardCharsets.UTF_8);
@@ -114,9 +142,17 @@ public final class EclipseProjectFiles {
 
 	/**
 	 * Puts .project/.classpath back the way they were before stage() ran - or
-	 * removes clide's own file if there was nothing to restore. Safe to call
-	 * even when stage() never ran (a no-op), so a caller does not need to track
+	 * removes clide's own file if there was nothing to restore. Safe to call even
+	 * when stage() never ran (a no-op), so a caller does not need to track
 	 * whether staging actually happened before deciding to clean up.
+	 *
+	 * Also safe - and meant - to call again after an earlier unstage() already
+	 * ran: it does not flip back to a no-op, because jdtls can still write
+	 * .project on its own after that point (see the class doc). A repeat call
+	 * leaves an already-restored original alone (hadOriginal true, nothing left
+	 * in staging to move) and deletes whatever is live when there never was an
+	 * original (hadOriginal false) - so it keeps cleaning up a late rewrite
+	 * every time it is called, instead of only once.
 	 */
 	public void unstage() throws IOException {
 		if (staged == false)
@@ -125,18 +161,20 @@ public final class EclipseProjectFiles {
 		final Path staging = stagingDir(projectRoot);
 		unstageOne(".project", staging);
 		unstageOne(".classpath", staging);
-		staged = false;
 	}
 
 	private void unstageOne(final String name, final Path staging) throws IOException {
 		final Path live = projectRoot.resolve(name);
 		final Path original = staging.resolve(name);
 
-		if (Files.exists(original))
-			// One atomic replace rather than delete-then-move: a crash between the two
-			// would otherwise leave neither file in place.
-			Files.move(original, live, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		else
+		if (Boolean.TRUE.equals(hadOriginal.get(name))) {
+			if (Files.exists(original))
+				// One atomic replace rather than delete-then-move: a crash between the two
+				// would otherwise leave neither file in place.
+				Files.move(original, live, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+			// else: a previous unstage() call already restored it - leave it alone,
+			// do not treat "nothing left in staging" as "there was never an original".
+		} else
 			Files.deleteIfExists(live);
 
 		// The debug copy (<name>.clide) is left alone - see the class doc.
