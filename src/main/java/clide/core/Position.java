@@ -31,7 +31,7 @@ import clide.jdtls.LspClient;
  * whole word on that line - callers (JdtlsSession in particular) never
  * re-validate any of that themselves.
  */
-public final class Symbol {
+public final class Position {
 
 	private static final Pattern NOTATION = Pattern.compile("^(.+):(\\d+):(\\w+)$");
 
@@ -40,7 +40,7 @@ public final class Symbol {
 	private final String name;
 	private final int column;
 
-	private Symbol(final Path file, final int line, final String name, final int column) {
+	private Position(final Path file, final int line, final String name, final int column) {
 		this.file = file;
 		this.line = line;
 		this.name = name;
@@ -82,7 +82,7 @@ public final class Symbol {
 	 *                                  notation, missing file, out-of-range
 	 *                                  line, or name absent from that line.
 	 */
-	public static Symbol parse(final String token, final Path projectRoot) {
+	public static Position parse(final String token, final Path projectRoot) {
 		final Matcher notation = NOTATION.matcher(token.trim());
 		if (notation.matches() == false)
 			throw new IllegalArgumentException(
@@ -111,7 +111,7 @@ public final class Symbol {
 			throw new IllegalArgumentException(
 					"Symbol '" + name + "' not found on line " + line + " of " + pathArgument);
 
-		return new Symbol(file, line, name, column);
+		return new Position(file, line, name, column);
 	}
 
 	/**

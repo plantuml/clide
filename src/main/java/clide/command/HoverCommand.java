@@ -8,7 +8,7 @@ import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
-import clide.core.Symbol;
+import clide.core.Position;
 import clide.jdtls.JdtlsSession;
 
 /**
@@ -58,9 +58,9 @@ public class HoverCommand extends Command {
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final JdtlsSession session = context.getCurrentSession();
 
-		final Symbol symbol;
+		final Position symbol;
 		try {
-			symbol = Symbol.parse(params[0], context.getProjectRoot());
+			symbol = Position.parse(params[0], context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResult.error(e.getMessage());
 		}

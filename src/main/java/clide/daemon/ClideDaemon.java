@@ -22,7 +22,7 @@ import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
 import clide.core.CommandStatus;
-import clide.core.Symbol;
+import clide.core.Position;
 import clide.core.TransactionStack;
 import clide.jdtls.EclipseProjectFiles;
 import clide.jdtls.JdtlsLauncher;
@@ -342,7 +342,7 @@ public final class ClideDaemon {
 			return null;
 		case SYMBOL:
 			try {
-				Symbol.parse(value, projectRoot);
+				Position.parse(value, projectRoot);
 			} catch (final IllegalArgumentException e) {
 				return e.getMessage();
 			}

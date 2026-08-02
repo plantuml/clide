@@ -20,7 +20,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import clide.core.Symbol;
+import clide.core.Position;
 import clide.json.Monomorphic;
 
 /**
@@ -408,7 +408,7 @@ public class JdtlsSession {
 	 * Returns one formatted "path:line: line content" entry per location in the
 	 * response, in server order; an empty list if the response was empty/null.
 	 */
-	public List<String> goToPosition(final String lspMethod, final Symbol symbol)
+	public List<String> goToPosition(final String lspMethod, final Position symbol)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		return goToPosition(lspMethod, symbol, null);
 	}
@@ -422,7 +422,7 @@ public class JdtlsSession {
 	 * three goto_* commands keep going through the 2-arg overload above, which
 	 * passes null here.
 	 */
-	public List<String> goToPosition(final String lspMethod, final Symbol symbol, final Monomorphic context)
+	public List<String> goToPosition(final String lspMethod, final Position symbol, final Monomorphic context)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request(lspMethod,
 				positionParams(symbol.file(), symbol.line(), symbol.column(), context), 30);
@@ -442,7 +442,7 @@ public class JdtlsSession {
 	 * symbol's type can't be resolved - no matching jar in .clide - or hover just
 	 * doesn't apply to this kind of symbol).
 	 */
-	public String hover(final Symbol symbol) throws IOException, InterruptedException, LspClient.TimeoutException {
+	public String hover(final Position symbol) throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request("textDocument/hover",
 				positionParams(symbol.file(), symbol.line(), symbol.column()), 30);
 		final Monomorphic error = errorOf(response);
@@ -465,7 +465,7 @@ public class JdtlsSession {
 	 * Returns one "[kind] path:line: line content" entry per member, in
 	 * documentSymbol's own order.
 	 */
-	public List<String> listMembers(final Symbol symbol)
+	public List<String> listMembers(final Position symbol)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final String uri = symbol.file().toUri().toString();
 		final Monomorphic typeNode = findTypeNode(documentSymbols(uri), symbol.name(), symbol.line() - 1);
@@ -531,7 +531,7 @@ public class JdtlsSession {
 	 *           and any residual imprecision costs an extra line, never a missing
 	 *           one.
 	 */
-	public List<String> findMethodImplementations(final Symbol symbol)
+	public List<String> findMethodImplementations(final Position symbol)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request("textDocument/implementation",
 				positionParams(symbol.file(), symbol.line(), symbol.column(), null), 30);
@@ -562,7 +562,7 @@ public class JdtlsSession {
 	 * inside a type, no subtype, unreadable line) yields an empty list rather than
 	 * an error, so the direct jdtls answer always stands on its own.
 	 */
-	private List<Monomorphic> overridesJdtlsMisses(final Symbol symbol)
+	private List<Monomorphic> overridesJdtlsMisses(final Position symbol)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final String uri = symbol.file().toUri().toString();
 		final String declaration = readLineSafely(uri, symbol.line());

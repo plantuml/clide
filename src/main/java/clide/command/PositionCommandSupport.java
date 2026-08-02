@@ -4,7 +4,7 @@ import java.util.List;
 
 import clide.core.ClideContext;
 import clide.core.CommandResult;
-import clide.core.Symbol;
+import clide.core.Position;
 import clide.jdtls.JdtlsSession;
 import clide.json.Monomorphic;
 
@@ -44,9 +44,9 @@ final class PositionCommandSupport {
 			final String symbolText, final Monomorphic requestContext) {
 		final JdtlsSession session = context.getCurrentSession();
 
-		final Symbol symbol;
+		final Position symbol;
 		try {
-			symbol = Symbol.parse(symbolText, context.getProjectRoot());
+			symbol = Position.parse(symbolText, context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResult.error(e.getMessage());
 		}
@@ -69,9 +69,9 @@ final class PositionCommandSupport {
 			final String symbolText) {
 		final JdtlsSession session = context.getCurrentSession();
 
-		final Symbol symbol;
+		final Position symbol;
 		try {
-			symbol = Symbol.parse(symbolText, context.getProjectRoot());
+			symbol = Position.parse(symbolText, context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResult.error(e.getMessage());
 		}

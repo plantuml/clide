@@ -17,7 +17,7 @@ import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
-import clide.core.Symbol;
+import clide.core.Position;
 
 public class ResearchRegexCommand extends Command {
 
@@ -100,7 +100,7 @@ public class ResearchRegexCommand extends Command {
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final Path projectRoot = context.getProjectRoot();
-		final Path initialPath = Symbol.resolvePath(params[0], projectRoot);
+		final Path initialPath = Position.resolvePath(params[0], projectRoot);
 		if (Files.isDirectory(initialPath) == false)
 			return CommandResult.error("Not a directory: '" + params[0] + "' (resolved against the project root "
 					+ projectRoot + ", giving " + initialPath + ")");
