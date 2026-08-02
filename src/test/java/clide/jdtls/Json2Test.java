@@ -50,34 +50,34 @@ class Json2Test {
 		@Test
 		@DisplayName("null, true et false s'écrivent en toutes lettres")
 		void literals() {
-			assertEquals("null", Json2.write(Monomorphic.createNull()));
-			assertEquals("true", Json2.write(Monomorphic.createBoolean(true)));
-			assertEquals("false", Json2.write(Monomorphic.createBoolean(false)));
+			assertEquals("null", Json.write(Monomorphic.createNull()));
+			assertEquals("true", Json.write(Monomorphic.createBoolean(true)));
+			assertEquals("false", Json.write(Monomorphic.createBoolean(false)));
 		}
 
 		@Test
 		@DisplayName("un entier s'écrit sans '.0' - c'est tout l'intérêt d'INTEGER")
 		void integersStayIntegers() {
-			assertEquals("41", Json2.write(Monomorphic.createNumber(41L)));
-			assertEquals("0", Json2.write(Monomorphic.createNumber(0L)));
-			assertEquals("-7", Json2.write(Monomorphic.createNumber(-7L)));
+			assertEquals("41", Json.write(Monomorphic.createNumber(41L)));
+			assertEquals("0", Json.write(Monomorphic.createNumber(0L)));
+			assertEquals("-7", Json.write(Monomorphic.createNumber(-7L)));
 		}
 
 		@Test
 		@DisplayName("les bornes d'un long passent sans perte")
 		void longBounds() {
-			assertEquals("9223372036854775807", Json2.write(Monomorphic.createNumber(Long.MAX_VALUE)));
-			assertEquals("-9223372036854775808", Json2.write(Monomorphic.createNumber(Long.MIN_VALUE)));
+			assertEquals("9223372036854775807", Json.write(Monomorphic.createNumber(Long.MAX_VALUE)));
+			assertEquals("-9223372036854775808", Json.write(Monomorphic.createNumber(Long.MIN_VALUE)));
 			// La valeur qu'un double ne sait déjà plus représenter exactement.
-			assertEquals("9007199254740993", Json2.write(Monomorphic.createNumber(9007199254740993L)));
+			assertEquals("9007199254740993", Json.write(Monomorphic.createNumber(9007199254740993L)));
 		}
 
 		@Test
 		@DisplayName("un décimal garde sa partie fractionnaire")
 		void decimals() {
-			assertEquals("1.5", Json2.write(Monomorphic.createNumber(1.5)));
-			assertEquals("-0.25", Json2.write(Monomorphic.createNumber(-0.25)));
-			assertEquals("1.0", Json2.write(Monomorphic.createNumber(1.0)));
+			assertEquals("1.5", Json.write(Monomorphic.createNumber(1.5)));
+			assertEquals("-0.25", Json.write(Monomorphic.createNumber(-0.25)));
+			assertEquals("1.0", Json.write(Monomorphic.createNumber(1.0)));
 		}
 
 		@Test
@@ -86,7 +86,7 @@ class Json2Test {
 			for (final double value : new double[] { Double.NaN, Double.POSITIVE_INFINITY,
 					Double.NEGATIVE_INFINITY }) {
 				final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-						() -> Json2.write(Monomorphic.createNumber(value)));
+						() -> Json.write(Monomorphic.createNumber(value)));
 				assertTrue(thrown.getMessage().contains("Cannot serialize"), thrown.getMessage());
 			}
 		}
@@ -95,7 +95,7 @@ class Json2Test {
 		@DisplayName("write(null) est refusé - c'est createNull() qu'il faut")
 		void rejectsJavaNull() {
 			final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-					() -> Json2.write(null));
+					() -> Json.write(null));
 
 			assertTrue(thrown.getMessage().contains("createNull"), thrown.getMessage());
 		}
@@ -108,47 +108,47 @@ class Json2Test {
 		@Test
 		@DisplayName("une chaîne ordinaire est juste entourée de guillemets")
 		void plain() {
-			assertEquals("\"file:///tmp/A.java\"", Json2.write(Monomorphic.createString("file:///tmp/A.java")));
-			assertEquals("\"\"", Json2.write(Monomorphic.createString("")));
+			assertEquals("\"file:///tmp/A.java\"", Json.write(Monomorphic.createString("file:///tmp/A.java")));
+			assertEquals("\"\"", Json.write(Monomorphic.createString("")));
 		}
 
 		@Test
 		@DisplayName("guillemet et antislash sont échappés")
 		void quoteAndBackslash() {
-			assertEquals("\"a\\\"b\"", Json2.write(Monomorphic.createString("a\"b")));
-			assertEquals("\"C:\\\\github\\\\plantuml\"", Json2.write(Monomorphic.createString("C:\\github\\plantuml")));
+			assertEquals("\"a\\\"b\"", Json.write(Monomorphic.createString("a\"b")));
+			assertEquals("\"C:\\\\github\\\\plantuml\"", Json.write(Monomorphic.createString("C:\\github\\plantuml")));
 		}
 
 		@Test
 		@DisplayName("les six échappements courts sont utilisés plutôt que \\u")
 		void shortEscapes() {
-			assertEquals("\"\\n\\r\\t\\b\\f\"", Json2.write(Monomorphic.createString("\n\r\t\b\f")));
+			assertEquals("\"\\n\\r\\t\\b\\f\"", Json.write(Monomorphic.createString("\n\r\t\b\f")));
 		}
 
 		@Test
 		@DisplayName("les autres caractères de contrôle passent en \\u minuscule sur 4 chiffres")
 		void controlCharacters() {
-			assertEquals("\"\\u0000\"", Json2.write(Monomorphic.createString("\u0000")));
-			assertEquals("\"\\u001f\"", Json2.write(Monomorphic.createString("\u001f")));
-			assertEquals("\"\\u000b\"", Json2.write(Monomorphic.createString("\u000b")));
+			assertEquals("\"\\u0000\"", Json.write(Monomorphic.createString("\u0000")));
+			assertEquals("\"\\u001f\"", Json.write(Monomorphic.createString("\u001f")));
+			assertEquals("\"\\u000b\"", Json.write(Monomorphic.createString("\u000b")));
 		}
 
 		@Test
 		@DisplayName("l'oblique et l'unicode imprimable ne sont pas échappés - inutile, et illisible")
 		void nothingElseIsEscaped() {
-			assertEquals("\"a/b\"", Json2.write(Monomorphic.createString("a/b")));
-			assertEquals("\"éàü\"", Json2.write(Monomorphic.createString("éàü")));
-			assertEquals("\"\uD83D\uDE00\"", Json2.write(Monomorphic.createString("\uD83D\uDE00")));
+			assertEquals("\"a/b\"", Json.write(Monomorphic.createString("a/b")));
+			assertEquals("\"éàü\"", Json.write(Monomorphic.createString("éàü")));
+			assertEquals("\"\uD83D\uDE00\"", Json.write(Monomorphic.createString("\uD83D\uDE00")));
 		}
 
 		@Test
 		@DisplayName("un substitut orphelin est échappé - brut, il n'a pas d'encodage UTF-8")
 		void unpairedSurrogatesAreEscaped() {
-			assertEquals("\"\\ud83d\"", Json2.write(Monomorphic.createString("\uD83D")));
-			assertEquals("\"\\ude00\"", Json2.write(Monomorphic.createString("\uDE00")));
-			assertEquals("\"x\\ud83dy\"", Json2.write(Monomorphic.createString("x\uD83Dy")));
+			assertEquals("\"\\ud83d\"", Json.write(Monomorphic.createString("\uD83D")));
+			assertEquals("\"\\ude00\"", Json.write(Monomorphic.createString("\uDE00")));
+			assertEquals("\"x\\ud83dy\"", Json.write(Monomorphic.createString("x\uD83Dy")));
 			// Deux hauts de suite : le premier est orphelin, le second forme la paire.
-			assertEquals("\"\\ud83d\uD83D\uDE00\"", Json2.write(Monomorphic.createString("\uD83D\uD83D\uDE00")));
+			assertEquals("\"\\ud83d\uD83D\uDE00\"", Json.write(Monomorphic.createString("\uD83D\uD83D\uDE00")));
 		}
 
 		@Test
@@ -157,9 +157,9 @@ class Json2Test {
 			final String raw = "avant\uD83Daprès";
 
 			// Ce que LspClient fait de ce que rend write() : String.getBytes(UTF_8).
-			final byte[] wire = Json2.write(Monomorphic.createString(raw)).getBytes(StandardCharsets.UTF_8);
+			final byte[] wire = Json.write(Monomorphic.createString(raw)).getBytes(StandardCharsets.UTF_8);
 
-			assertEquals(raw, Json2.parse(new String(wire, StandardCharsets.UTF_8)).asString());
+			assertEquals(raw, Json.parse(new String(wire, StandardCharsets.UTF_8)).asString());
 			// Sans l'échappement, l'aller-retour par les octets rendrait '?'.
 			assertNotEquals(raw, new String(raw.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
 		}
@@ -168,23 +168,23 @@ class Json2Test {
 		@DisplayName("une paire correcte reste en clair - l'échapper rendrait le JSON illisible pour rien")
 		void wellFormedPairsStayRaw() {
 			final String emoji = "\uD83D\uDE00";
-			final byte[] wire = Json2.write(Monomorphic.createString(emoji)).getBytes(StandardCharsets.UTF_8);
+			final byte[] wire = Json.write(Monomorphic.createString(emoji)).getBytes(StandardCharsets.UTF_8);
 
 			assertEquals("\"" + emoji + "\"", new String(wire, StandardCharsets.UTF_8));
-			assertEquals(emoji, Json2.parse(new String(wire, StandardCharsets.UTF_8)).asString());
+			assertEquals(emoji, Json.parse(new String(wire, StandardCharsets.UTF_8)).asString());
 		}
 
 		@Test
 		@DisplayName("DEL et U+2028 restent en clair - ils s'encodent en UTF-8 sans problème")
 		void deleteAndLineSeparatorStayRaw() {
-			assertEquals("\"\u007f\"", Json2.write(Monomorphic.createString("\u007f")));
-			assertEquals("\"\u2028\"", Json2.write(Monomorphic.createString("\u2028")));
+			assertEquals("\"\u007f\"", Json.write(Monomorphic.createString("\u007f")));
+			assertEquals("\"\u2028\"", Json.write(Monomorphic.createString("\u2028")));
 		}
 
 		@Test
 		@DisplayName("une clé d'objet est échappée comme n'importe quelle chaîne")
 		void keysAreEscapedToo() {
-			assertEquals("{\"a\\nb\":1}", Json2.write(Monomorphic.mapBuilder().putNumber("a\nb", 1L).build()));
+			assertEquals("{\"a\\nb\":1}", Json.write(Monomorphic.mapBuilder().putNumber("a\nb", 1L).build()));
 		}
 	}
 
@@ -195,23 +195,23 @@ class Json2Test {
 		@Test
 		@DisplayName("conteneurs vides")
 		void empty() {
-			assertEquals("[]", Json2.write(Monomorphic.createList()));
-			assertEquals("{}", Json2.write(Monomorphic.mapBuilder().build()));
+			assertEquals("[]", Json.write(Monomorphic.createList()));
+			assertEquals("{}", Json.write(Monomorphic.mapBuilder().build()));
 		}
 
 		@Test
 		@DisplayName("aucune espace superflue - ni après ':' ni après ','")
 		void noWhitespace() {
-			assertEquals("[1,2,3]", Json2.write(Monomorphic.createList(Monomorphic.createNumber(1L),
+			assertEquals("[1,2,3]", Json.write(Monomorphic.createList(Monomorphic.createNumber(1L),
 					Monomorphic.createNumber(2L), Monomorphic.createNumber(3L))));
 			assertEquals("{\"a\":1,\"b\":2}",
-					Json2.write(Monomorphic.mapBuilder().putNumber("a", 1L).putNumber("b", 2L).build()));
+					Json.write(Monomorphic.mapBuilder().putNumber("a", 1L).putNumber("b", 2L).build()));
 		}
 
 		@Test
 		@DisplayName("l'ordre des clés est celui de la construction, pas l'ordre alphabétique")
 		void keyOrderIsPreserved() {
-			assertEquals("{\"z\":1,\"a\":2,\"m\":3}", Json2.write(
+			assertEquals("{\"z\":1,\"a\":2,\"m\":3}", Json.write(
 					Monomorphic.mapBuilder().putNumber("z", 1L).putNumber("a", 2L).putNumber("m", 3L).build()));
 		}
 
@@ -223,7 +223,7 @@ class Json2Test {
 							Monomorphic.createList(Monomorphic.createNumber(1.5))))
 					.build();
 
-			assertEquals("{\"uri\":\"file:///A.java\",\"items\":[null,true,[1.5]]}", Json2.write(value));
+			assertEquals("{\"uri\":\"file:///A.java\",\"items\":[null,true,[1.5]]}", Json.write(value));
 		}
 	}
 
@@ -238,7 +238,7 @@ class Json2Test {
 		@Test
 		@DisplayName("un null JSON revient en Monomorphic NULL, jamais en null Java")
 		void nullIsAValue() {
-			final Monomorphic value = Json2.parse("null");
+			final Monomorphic value = Json.parse("null");
 
 			assertNotNull(value);
 			assertTrue(value.isNull());
@@ -248,62 +248,62 @@ class Json2Test {
 		@Test
 		@DisplayName("true et false")
 		void booleans() {
-			assertTrue(Json2.parse("true").asBoolean());
-			assertFalse(Json2.parse("false").asBoolean());
-			assertEquals(MonomorphicType.BOOLEAN, Json2.parse("true").getType());
+			assertTrue(Json.parse("true").asBoolean());
+			assertFalse(Json.parse("false").asBoolean());
+			assertEquals(MonomorphicType.BOOLEAN, Json.parse("true").getType());
 		}
 
 		@Test
 		@DisplayName("une chaîne")
 		void strings() {
-			assertEquals("hello", Json2.parse("\"hello\"").asString());
-			assertEquals("", Json2.parse("\"\"").asString());
+			assertEquals("hello", Json.parse("\"hello\"").asString());
+			assertEquals("", Json.parse("\"\"").asString());
 		}
 
 		@Test
 		@DisplayName("un entier reste INTEGER, un décimal reste DECIMAL")
 		void integerVersusDecimal() {
-			assertTrue(Json2.parse("41").isInteger());
-			assertEquals(41L, Json2.parse("41").asLong());
+			assertTrue(Json.parse("41").isInteger());
+			assertEquals(41L, Json.parse("41").asLong());
 
-			assertTrue(Json2.parse("41.0").isDecimal());
-			assertEquals(41.0, Json2.parse("41.0").asDouble());
+			assertTrue(Json.parse("41.0").isDecimal());
+			assertEquals(41.0, Json.parse("41.0").asDouble());
 
 			// La distinction est portée par equals() : c'est ce qui fait échouer
 			// un test si un jour parse() se met à tout rendre en double.
-			assertNotEquals(Json2.parse("41"), Json2.parse("41.0"));
+			assertNotEquals(Json.parse("41"), Json.parse("41.0"));
 		}
 
 		@Test
 		@DisplayName("l'exposant fait un DECIMAL, même sans point")
 		void exponentMakesADecimal() {
-			assertTrue(Json2.parse("1e3").isDecimal());
-			assertEquals(1000.0, Json2.parse("1e3").asDouble());
-			assertEquals(1000.0, Json2.parse("1E+3").asDouble());
-			assertEquals(0.0015, Json2.parse("1.5e-3").asDouble());
+			assertTrue(Json.parse("1e3").isDecimal());
+			assertEquals(1000.0, Json.parse("1e3").asDouble());
+			assertEquals(1000.0, Json.parse("1E+3").asDouble());
+			assertEquals(0.0015, Json.parse("1.5e-3").asDouble());
 		}
 
 		@Test
 		@DisplayName("les négatifs et le zéro")
 		void negativesAndZero() {
-			assertEquals(-41L, Json2.parse("-41").asLong());
-			assertEquals(0L, Json2.parse("0").asLong());
-			assertEquals(0L, Json2.parse("-0").asLong());
-			assertEquals(-0.5, Json2.parse("-0.5").asDouble());
+			assertEquals(-41L, Json.parse("-41").asLong());
+			assertEquals(0L, Json.parse("0").asLong());
+			assertEquals(0L, Json.parse("-0").asLong());
+			assertEquals(-0.5, Json.parse("-0.5").asDouble());
 		}
 
 		@Test
 		@DisplayName("les bornes d'un long sont exactes - l'id JSON-RPC en dépend")
 		void longBoundsAreExact() {
-			assertEquals(Long.MAX_VALUE, Json2.parse("9223372036854775807").asLong());
-			assertEquals(Long.MIN_VALUE, Json2.parse("-9223372036854775808").asLong());
-			assertEquals(9007199254740993L, Json2.parse("9007199254740993").asLong());
+			assertEquals(Long.MAX_VALUE, Json.parse("9223372036854775807").asLong());
+			assertEquals(Long.MIN_VALUE, Json.parse("-9223372036854775808").asLong());
+			assertEquals(9007199254740993L, Json.parse("9007199254740993").asLong());
 		}
 
 		@Test
 		@DisplayName("un entier trop grand pour un long bascule en DECIMAL plutôt que d'échouer")
 		void hugeIntegerFallsBackToDecimal() {
-			final Monomorphic value = Json2.parse("9223372036854775808");
+			final Monomorphic value = Json.parse("9223372036854775808");
 
 			assertTrue(value.isDecimal());
 			assertEquals(9.223372036854776E18, value.asDouble());
@@ -317,29 +317,29 @@ class Json2Test {
 		@Test
 		@DisplayName("les huit échappements de la spec")
 		void allEscapes() {
-			assertEquals("\"", Json2.parse("\"\\\"\"").asString());
-			assertEquals("\\", Json2.parse("\"\\\\\"").asString());
-			assertEquals("/", Json2.parse("\"\\/\"").asString());
-			assertEquals("\n", Json2.parse("\"\\n\"").asString());
-			assertEquals("\r", Json2.parse("\"\\r\"").asString());
-			assertEquals("\t", Json2.parse("\"\\t\"").asString());
-			assertEquals("\b", Json2.parse("\"\\b\"").asString());
-			assertEquals("\f", Json2.parse("\"\\f\"").asString());
+			assertEquals("\"", Json.parse("\"\\\"\"").asString());
+			assertEquals("\\", Json.parse("\"\\\\\"").asString());
+			assertEquals("/", Json.parse("\"\\/\"").asString());
+			assertEquals("\n", Json.parse("\"\\n\"").asString());
+			assertEquals("\r", Json.parse("\"\\r\"").asString());
+			assertEquals("\t", Json.parse("\"\\t\"").asString());
+			assertEquals("\b", Json.parse("\"\\b\"").asString());
+			assertEquals("\f", Json.parse("\"\\f\"").asString());
 		}
 
 		@Test
 		@DisplayName("\\u, en minuscules comme en majuscules")
 		void unicodeEscape() {
-			assertEquals("é", Json2.parse("\"\\u00e9\"").asString());
-			assertEquals("é", Json2.parse("\"\\u00E9\"").asString());
-			assertEquals("\u0000", Json2.parse("\"\\u0000\"").asString());
-			assertEquals("A", Json2.parse("\"\\u0041\"").asString());
+			assertEquals("é", Json.parse("\"\\u00e9\"").asString());
+			assertEquals("é", Json.parse("\"\\u00E9\"").asString());
+			assertEquals("\u0000", Json.parse("\"\\u0000\"").asString());
+			assertEquals("A", Json.parse("\"\\u0041\"").asString());
 		}
 
 		@Test
 		@DisplayName("une paire de substituts se recolle en un seul caractère")
 		void surrogatePair() {
-			final String parsed = Json2.parse("\"\\ud83d\\ude00\"").asString();
+			final String parsed = Json.parse("\"\\ud83d\\ude00\"").asString();
 
 			assertEquals("\uD83D\uDE00", parsed);
 			assertEquals(1, parsed.codePointCount(0, parsed.length()));
@@ -350,25 +350,25 @@ class Json2Test {
 		void escapedQuoteAndBackslashViaUnicode() {
 			// Le bug classique : traiter le caractère produit par \\u comme s'il
 			// avait été lu tel quel, et voir la chaîne se terminer au milieu.
-			assertEquals("a\"b", Json2.parse("\"a\\u0022b\"").asString());
-			assertEquals("a\\b", Json2.parse("\"a\\u005cb\"").asString());
-			assertEquals("a\\u0022b", Json2.parse("\"a\\\\u0022b\"").asString());
+			assertEquals("a\"b", Json.parse("\"a\\u0022b\"").asString());
+			assertEquals("a\\b", Json.parse("\"a\\u005cb\"").asString());
+			assertEquals("a\\u0022b", Json.parse("\"a\\\\u0022b\"").asString());
 		}
 
 		@Test
 		@DisplayName("un substitut orphelin écrit en \\u est accepté et ressort échappé")
 		void loneSurrogateEscape() {
-			final Monomorphic value = Json2.parse("\"\\ud800\"");
+			final Monomorphic value = Json.parse("\"\\ud800\"");
 
 			assertEquals(1, value.asString().length());
 			assertEquals('\ud800', value.asString().charAt(0));
-			assertEquals("\"\\ud800\"", Json2.write(value));
+			assertEquals("\"\\ud800\"", Json.write(value));
 		}
 
 		@Test
 		@DisplayName("un antislash au milieu d'un chemin Windows ressort tel quel")
 		void windowsPath() {
-			assertEquals("C:\\github\\plantuml", Json2.parse("\"C:\\\\github\\\\plantuml\"").asString());
+			assertEquals("C:\\github\\plantuml", Json.parse("\"C:\\\\github\\\\plantuml\"").asString());
 		}
 	}
 
@@ -379,10 +379,10 @@ class Json2Test {
 		@Test
 		@DisplayName("conteneurs vides")
 		void empty() {
-			assertEquals(Monomorphic.createList(), Json2.parse("[]"));
-			assertEquals(Monomorphic.mapBuilder().build(), Json2.parse("{}"));
-			assertEquals(0, Json2.parse("[]").size());
-			assertEquals(0, Json2.parse("{}").size());
+			assertEquals(Monomorphic.createList(), Json.parse("[]"));
+			assertEquals(Monomorphic.mapBuilder().build(), Json.parse("{}"));
+			assertEquals(0, Json.parse("[]").size());
+			assertEquals(0, Json.parse("{}").size());
 		}
 
 		@Test
@@ -392,13 +392,13 @@ class Json2Test {
 					.putList("result", List.of(Monomorphic.mapBuilder().putString("uri", "file:///A.java").build()))
 					.build();
 
-			assertEquals(expected, Json2.parse("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":[{\"uri\":\"file:///A.java\"}]}"));
+			assertEquals(expected, Json.parse("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":[{\"uri\":\"file:///A.java\"}]}"));
 		}
 
 		@Test
 		@DisplayName("rien n'est laissé en Map ou List brute sous la racine")
 		void everythingIsMonomorphic() {
-			final Monomorphic root = Json2.parse("{\"a\":{\"b\":[{\"c\":1}]}}");
+			final Monomorphic root = Json.parse("{\"a\":{\"b\":[{\"c\":1}]}}");
 
 			assertTrue(root.isMap());
 			assertTrue(root.getFromMap("a").isMap());
@@ -410,13 +410,13 @@ class Json2Test {
 		@Test
 		@DisplayName("l'ordre des clés du document est conservé")
 		void keyOrderIsPreserved() {
-			assertEquals(List.of("z", "a", "m"), List.copyOf(Json2.parse("{\"z\":1,\"a\":2,\"m\":3}").asMap().keySet()));
+			assertEquals(List.of("z", "a", "m"), List.copyOf(Json.parse("{\"z\":1,\"a\":2,\"m\":3}").asMap().keySet()));
 		}
 
 		@Test
 		@DisplayName("une clé répétée : la dernière gagne")
 		void duplicateKeyLastWins() {
-			final Monomorphic value = Json2.parse("{\"a\":1,\"a\":2}");
+			final Monomorphic value = Json.parse("{\"a\":1,\"a\":2}");
 
 			assertEquals(1, value.size());
 			assertEquals(2, value.getFromMap("a").asInt());
@@ -425,7 +425,7 @@ class Json2Test {
 		@Test
 		@DisplayName("une clé répétée garde sa place d'origine dans l'ordre")
 		void duplicateKeyKeepsItsFirstPosition() {
-			final Monomorphic value = Json2.parse("{\"a\":1,\"b\":2,\"a\":3}");
+			final Monomorphic value = Json.parse("{\"a\":1,\"b\":2,\"a\":3}");
 
 			assertEquals(List.of("a", "b"), List.copyOf(value.asMap().keySet()));
 			assertEquals(3, value.getFromMap("a").asInt());
@@ -434,15 +434,15 @@ class Json2Test {
 		@Test
 		@DisplayName("une clé vide, ou contenant un échappement, reste une clé")
 		void unusualKeys() {
-			assertEquals(1, Json2.parse("{\"\":1}").getFromMap("").asInt());
-			assertEquals(42, Json2.parse("{\"a\\u0000b\":42}").getFromMap("a\u0000b").asInt());
-			assertEquals("{\"a\\u0000b\":42}", Json2.write(Json2.parse("{\"a\\u0000b\":42}")));
+			assertEquals(1, Json.parse("{\"\":1}").getFromMap("").asInt());
+			assertEquals(42, Json.parse("{\"a\\u0000b\":42}").getFromMap("a\u0000b").asInt());
+			assertEquals("{\"a\\u0000b\":42}", Json.write(Json.parse("{\"a\\u0000b\":42}")));
 		}
 
 		@Test
 		@DisplayName("une liste hétérogène garde le type de chaque élément")
 		void heterogeneousList() {
-			final Monomorphic value = Json2.parse("[null,true,\"x\",1,1.5,[],{}]");
+			final Monomorphic value = Json.parse("[null,true,\"x\",1,1.5,[],{}]");
 
 			assertEquals(7, value.size());
 			assertTrue(value.getFromList(0).isNull());
@@ -458,9 +458,9 @@ class Json2Test {
 		@DisplayName("la map rendue est immuable - elle traverse les threads de LspClient")
 		void parsedMapIsUnmodifiable() {
 			assertThrows(UnsupportedOperationException.class,
-					() -> Json2.parse("{\"a\":1}").asMap().put("b", Monomorphic.createNull()));
+					() -> Json.parse("{\"a\":1}").asMap().put("b", Monomorphic.createNull()));
 			assertThrows(UnsupportedOperationException.class,
-					() -> Json2.parse("[1]").asList().add(Monomorphic.createNull()));
+					() -> Json.parse("[1]").asList().add(Monomorphic.createNull()));
 		}
 	}
 
@@ -474,7 +474,7 @@ class Json2Test {
 			final Monomorphic expected = Monomorphic.mapBuilder().putNumber("a", 1L)
 					.putList("b", List.of(Monomorphic.createNumber(2L), Monomorphic.createNumber(3L))).build();
 
-			assertEquals(expected, Json2.parse("  {\n\t\"a\" : 1 ,\r\n\t\"b\" : [ 2 , 3 ]\n}  "));
+			assertEquals(expected, Json.parse("  {\n\t\"a\" : 1 ,\r\n\t\"b\" : [ 2 , 3 ]\n}  "));
 		}
 
 		@ParameterizedTest
@@ -486,24 +486,24 @@ class Json2Test {
 			// les accepter ferait passer ici un texte que le pair suivant refuse.
 			// Character.isWhitespace() en dirait oui pour plusieurs, d'où le test
 			// explicite des quatre caractères de la spec dans Json2.
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse(text));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse(text));
 		}
 
 		@Test
 		@DisplayName("un conteneur vide mais espacé reste vide")
 		void spacedEmptyContainers() {
-			assertEquals(0, Json2.parse("{ }").size());
-			assertEquals(0, Json2.parse("[ ]").size());
-			assertEquals(0, Json2.parse("{\n\t}").size());
-			assertEquals(0, Json2.parse("[\r\n]").size());
+			assertEquals(0, Json.parse("{ }").size());
+			assertEquals(0, Json.parse("[ ]").size());
+			assertEquals(0, Json.parse("{\n\t}").size());
+			assertEquals(0, Json.parse("[\r\n]").size());
 		}
 
 		@Test
 		@DisplayName("des espaces après la valeur racine ne sont pas du contenu résiduel")
 		void trailingWhitespaceIsFine() {
-			assertTrue(Json2.parse("null ").isNull());
-			assertEquals(0, Json2.parse(" [] \n\t").size());
-			assertEquals(1L, Json2.parse("1\n").asLong());
+			assertTrue(Json.parse("null ").isNull());
+			assertEquals(0, Json.parse(" [] \n\t").size());
+			assertEquals(1L, Json.parse("1\n").asLong());
 		}
 	}
 
@@ -521,7 +521,7 @@ class Json2Test {
 				"\"abc", "\"abc\\", "\"abc\\u12" })
 		void truncatedInput(final String text) {
 			final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-					() -> Json2.parse(text));
+					() -> Json.parse(text));
 
 			assertTrue(thrown.getMessage().contains("position"), thrown.getMessage());
 		}
@@ -530,16 +530,16 @@ class Json2Test {
 		@DisplayName("la position pointe la fin du texte")
 		void positionIsTheEnd() {
 			assertEquals("Unexpected end of JSON at position 0", assertThrows(IllegalArgumentException.class,
-					() -> Json2.parse("")).getMessage());
+					() -> Json.parse("")).getMessage());
 			assertEquals("Unexpected end of JSON at position 6", assertThrows(IllegalArgumentException.class,
-					() -> Json2.parse("{\"a\":1")).getMessage());
+					() -> Json.parse("{\"a\":1")).getMessage());
 		}
 
 		@Test
 		@DisplayName("parse(null) est refusé sans NullPointerException")
 		void rejectsJavaNull() {
 			final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-					() -> Json2.parse(null));
+					() -> Json.parse(null));
 
 			assertTrue(thrown.getMessage().contains("null"), thrown.getMessage());
 		}
@@ -554,36 +554,36 @@ class Json2Test {
 		@ValueSource(strings = { "{\"a\"}", "{\"a\" 1}", "{a:1}", "{1:2}", "[1 2]", "[1;2]", "[,]", "[1,]", "{,}",
 				"{\"a\":1,}", "}", "]", ":", ",", "undefined", "'x'" })
 		void malformed(final String text) {
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse(text));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse(text));
 		}
 
 		@ParameterizedTest
 		@DisplayName("du contenu après la valeur racine est une erreur, pas un silence")
 		@ValueSource(strings = { "1 2", "{} {}", "null null", "[1][2]", "\"a\"\"b\"", "truex" })
 		void trailingContent(final String text) {
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse(text));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse(text));
 		}
 
 		@ParameterizedTest
 		@DisplayName("un littéral approximatif n'est pas accepté")
 		@ValueSource(strings = { "tru", "nul", "flase", "True", "NULL", "t", "n" })
 		void brokenLiterals(final String text) {
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse(text));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse(text));
 		}
 
 		@Test
 		@DisplayName("le message d'erreur nomme le caractère fautif et sa position")
 		void messageNamesTheCulprit() {
 			assertEquals("Unexpected character '}' at position 0",
-					assertThrows(IllegalArgumentException.class, () -> Json2.parse("}")).getMessage());
+					assertThrows(IllegalArgumentException.class, () -> Json.parse("}")).getMessage());
 			// La position est celle du caractère fautif, pas celle de la fin de la
 			// valeur qui précède : les espaces sont sautées avant de se plaindre.
 			// Un caractère de contrôle est nommé par son code plutôt que recopié
 			// tel quel : le message finit dans un log, pas dans un terminal.
 			assertEquals("Unexpected character '\\u0000' at position 0",
-					assertThrows(IllegalArgumentException.class, () -> Json2.parse("\u0000")).getMessage());
+					assertThrows(IllegalArgumentException.class, () -> Json.parse("\u0000")).getMessage());
 			assertEquals("Expected ',' or '}' at position 7",
-					assertThrows(IllegalArgumentException.class, () -> Json2.parse("{\"a\":1 2}")).getMessage());
+					assertThrows(IllegalArgumentException.class, () -> Json.parse("{\"a\":1 2}")).getMessage());
 		}
 	}
 
@@ -596,7 +596,7 @@ class Json2Test {
 		@ValueSource(strings = { "-", "+1", ".5", "1.", "1.e3", "1e", "1e+", "1e-", "--1", "1..2", "0x1F", "Infinity",
 				"NaN", "1d", "1f", "1_000", "1eE2", "0.e1", "9.e+", "1+2", "-123.123foo", "- 1", "-1.0.", "1e2e3" })
 		void malformedNumbers(final String text) {
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse(text));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse(text));
 		}
 
 		@ParameterizedTest
@@ -604,7 +604,7 @@ class Json2Test {
 		@ValueSource(strings = { "01", "007", "-01", "00", "0123" })
 		void leadingZero(final String text) {
 			final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-					() -> Json2.parse(text));
+					() -> Json.parse(text));
 
 			assertTrue(thrown.getMessage().contains("leading zero"), thrown.getMessage());
 		}
@@ -612,16 +612,16 @@ class Json2Test {
 		@Test
 		@DisplayName("un zéro seul, ou suivi d'un point, reste valide")
 		void zeroIsStillFine() {
-			assertEquals(0L, Json2.parse("0").asLong());
-			assertEquals(0.5, Json2.parse("0.5").asDouble());
-			assertEquals(0.0, Json2.parse("0e0").asDouble());
+			assertEquals(0L, Json.parse("0").asLong());
+			assertEquals(0.5, Json.parse("0.5").asDouble());
+			assertEquals(0.0, Json.parse("0e0").asDouble());
 		}
 
 		@Test
 		@DisplayName("un exposant qui déborde du double est refusé plutôt que rendu en Infinity")
 		void overflowRefused() {
 			final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-					() -> Json2.parse("1e400"));
+					() -> Json.parse("1e400"));
 
 			assertTrue(thrown.getMessage().contains("out of range"), thrown.getMessage());
 		}
@@ -631,7 +631,7 @@ class Json2Test {
 		void plainDigitOverflowRefused() {
 			final String text = "1" + "0".repeat(400);
 
-			assertTrue(assertThrows(IllegalArgumentException.class, () -> Json2.parse(text)).getMessage()
+			assertTrue(assertThrows(IllegalArgumentException.class, () -> Json.parse(text)).getMessage()
 					.contains("out of range"));
 		}
 
@@ -639,7 +639,7 @@ class Json2Test {
 		@DisplayName("le message tronque le nombre fautif - il finit dans un log")
 		void overflowMessageIsBounded() {
 			final String message = assertThrows(IllegalArgumentException.class,
-					() -> Json2.parse("1" + "0".repeat(1_000_000))).getMessage();
+					() -> Json.parse("1" + "0".repeat(1_000_000))).getMessage();
 
 			assertTrue(message.length() < 200, "message de " + message.length() + " caractères");
 			assertTrue(message.contains("1000001 characters"), message);
@@ -648,16 +648,16 @@ class Json2Test {
 		@Test
 		@DisplayName("le sous-dépassement s'aplatit à zéro - il n'y a rien à refuser")
 		void underflowIsFlattened() {
-			assertEquals(0.0, Json2.parse("1e-400").asDouble());
+			assertEquals(0.0, Json.parse("1e-400").asDouble());
 			// Le signe survit à l'aplatissement : -1e-400 rend -0.0, pas 0.0.
-			assertEquals(-0.0, Json2.parse("-1e-400").asDouble());
-			assertEquals("-0.0", Json2.write(Json2.parse("-1e-400")));
+			assertEquals(-0.0, Json.parse("-1e-400").asDouble());
+			assertEquals("-0.0", Json.write(Json.parse("-1e-400")));
 		}
 
 		@Test
 		@DisplayName("un long négatif qui déborde bascule en DECIMAL, comme le positif")
 		void negativeLongUnderflowFallsBackToDecimal() {
-			final Monomorphic value = Json2.parse("-9223372036854775809");
+			final Monomorphic value = Json.parse("-9223372036854775809");
 
 			assertTrue(value.isDecimal());
 			assertEquals(-9.223372036854776E18, value.asDouble());
@@ -666,18 +666,18 @@ class Json2Test {
 		@Test
 		@DisplayName("les écritures d'exposant admises par la spec")
 		void exponentSpellings() {
-			assertEquals(100000.0, Json2.parse("1e05").asDouble());
-			assertEquals(100000.0, Json2.parse("1E+05").asDouble());
-			assertEquals(0.0, Json2.parse("0e-0").asDouble());
-			assertEquals(-0.0, Json2.parse("-0.0e+12").asDouble());
-			assertEquals(123e65, Json2.parse("123e65").asDouble());
+			assertEquals(100000.0, Json.parse("1e05").asDouble());
+			assertEquals(100000.0, Json.parse("1E+05").asDouble());
+			assertEquals(0.0, Json.parse("0e-0").asDouble());
+			assertEquals(-0.0, Json.parse("-0.0e+12").asDouble());
+			assertEquals(123e65, Json.parse("123e65").asDouble());
 		}
 
 		@Test
 		@DisplayName("la position du zéro en tête est celle du premier chiffre, pas celle du signe")
 		void leadingZeroPosition() {
 			assertEquals("Number at position 1 has a leading zero",
-					assertThrows(IllegalArgumentException.class, () -> Json2.parse("-01")).getMessage());
+					assertThrows(IllegalArgumentException.class, () -> Json.parse("-01")).getMessage());
 		}
 
 		@Test
@@ -685,7 +685,7 @@ class Json2Test {
 		void nonAsciiDigit() {
 			// Character.isDigit() dit oui, Long.parseLong() aussi : c'est le piège
 			// que la grammaire évite en testant '0'..'9' à la main.
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse("\u0663"));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse("\u0663"));
 		}
 	}
 
@@ -697,7 +697,7 @@ class Json2Test {
 		@DisplayName("un échappement inconnu est refusé")
 		void unknownEscape() {
 			final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-					() -> Json2.parse("\"a\\xb\""));
+					() -> Json.parse("\"a\\xb\""));
 
 			assertTrue(thrown.getMessage().contains("Unknown escape sequence"), thrown.getMessage());
 		}
@@ -706,18 +706,18 @@ class Json2Test {
 		@DisplayName("un \\u mal formé est refusé")
 		@ValueSource(strings = { "\"\\u12g4\"", "\"\\u 123\"", "\"\\u+123\"", "\"\\u12\"", "\"\\u\"" })
 		void badUnicodeEscape(final String text) {
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse(text));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse(text));
 		}
 
 		@Test
 		@DisplayName("un caractère de contrôle brut dans une chaîne est refusé")
 		void rawControlCharacter() {
 			final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-					() -> Json2.parse("\"a\nb\""));
+					() -> Json.parse("\"a\nb\""));
 
 			assertTrue(thrown.getMessage().contains("Unescaped control character"), thrown.getMessage());
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse("\"a\tb\""));
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse("\"a\u0000b\""));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse("\"a\tb\""));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse("\"a\u0000b\""));
 		}
 
 		@Test
@@ -728,7 +728,7 @@ class Json2Test {
 			// en UTF-8. Trois chemins de message, la même règle.
 			for (final String text : new String[] { "\"\\\n\"", "\"\\\u0000\"", "\"\\\ud800\"",
 					"\"\\u12\u0001\u0002\"" }) {
-				final String message = assertThrows(IllegalArgumentException.class, () -> Json2.parse(text))
+				final String message = assertThrows(IllegalArgumentException.class, () -> Json.parse(text))
 						.getMessage();
 
 				for (int i = 0; i < message.length(); i++) {
@@ -743,7 +743,7 @@ class Json2Test {
 		@DisplayName("une clé d'objet doit être une chaîne entre guillemets")
 		void keysMustBeStrings() {
 			assertEquals("Expected '\"' at position 1",
-					assertThrows(IllegalArgumentException.class, () -> Json2.parse("{a:1}")).getMessage());
+					assertThrows(IllegalArgumentException.class, () -> Json.parse("{a:1}")).getMessage());
 		}
 	}
 
@@ -758,7 +758,7 @@ class Json2Test {
 		@DisplayName("une imbrication raisonnable passe")
 		void reasonableNestingWorks() {
 			final int depth = 150;
-			final Monomorphic value = Json2.parse("[".repeat(depth) + "]".repeat(depth));
+			final Monomorphic value = Json.parse("[".repeat(depth) + "]".repeat(depth));
 
 			Monomorphic current = value;
 			for (int i = 0; i < depth - 1; i++) {
@@ -771,17 +771,17 @@ class Json2Test {
 		@Test
 		@DisplayName("la limite est exactement MAX_DEPTH conteneurs, pour des tableaux")
 		void arrayBoundaryIsExact() {
-			assertEquals(MAX_DEPTH - 1, depthOf(Json2.parse(nestedArrays(MAX_DEPTH))));
+			assertEquals(MAX_DEPTH - 1, depthOf(Json.parse(nestedArrays(MAX_DEPTH))));
 
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse(nestedArrays(MAX_DEPTH + 1)));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse(nestedArrays(MAX_DEPTH + 1)));
 		}
 
 		@Test
 		@DisplayName("la limite est la même pour des objets - pas de dissymétrie entre les deux")
 		void objectBoundaryIsTheSame() {
-			assertNotNull(Json2.parse(nestedObjects(MAX_DEPTH)));
+			assertNotNull(Json.parse(nestedObjects(MAX_DEPTH)));
 
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse(nestedObjects(MAX_DEPTH + 1)));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse(nestedObjects(MAX_DEPTH + 1)));
 		}
 
 		@Test
@@ -790,7 +790,7 @@ class Json2Test {
 			final String text = nestedArrays(50_000);
 
 			final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-					() -> Json2.parse(text));
+					() -> Json.parse(text));
 
 			assertTrue(thrown.getMessage().contains("nested deeper"), thrown.getMessage());
 		}
@@ -798,7 +798,7 @@ class Json2Test {
 		@Test
 		@DisplayName("idem pour des objets, et même sans les fermetures")
 		void absurdNestingOfObjects() {
-			assertThrows(IllegalArgumentException.class, () -> Json2.parse("{\"a\":".repeat(50_000)));
+			assertThrows(IllegalArgumentException.class, () -> Json.parse("{\"a\":".repeat(50_000)));
 		}
 
 		@Test
@@ -806,7 +806,7 @@ class Json2Test {
 		void whatParsesCanBeWrittenBack() {
 			final String text = nestedArrays(MAX_DEPTH);
 
-			assertEquals(text, Json2.write(Json2.parse(text)));
+			assertEquals(text, Json.write(Json.parse(text)));
 		}
 
 		@Test
@@ -820,7 +820,7 @@ class Json2Test {
 
 			final Monomorphic value = nested;
 			final IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-					() -> Json2.write(value));
+					() -> Json.write(value));
 
 			assertTrue(thrown.getMessage().contains("nested deeper"), thrown.getMessage());
 		}
@@ -832,7 +832,7 @@ class Json2Test {
 			for (int i = 0; i < MAX_DEPTH; i++)
 				value = Monomorphic.createList(value);
 
-			assertEquals("[".repeat(MAX_DEPTH) + "null" + "]".repeat(MAX_DEPTH), Json2.write(value));
+			assertEquals("[".repeat(MAX_DEPTH) + "null" + "]".repeat(MAX_DEPTH), Json.write(value));
 		}
 
 		private static String nestedArrays(final int depth) {
@@ -869,7 +869,7 @@ class Json2Test {
 				"\"\\n\"", "[]", "{}", "[1,2,3]", "{\"a\":1}", "{\"a\":[1,{\"b\":null}],\"c\":true}",
 				"{\"jsonrpc\":\"2.0\",\"id\":41,\"method\":\"textDocument/definition\"}" })
 		void textIsPreserved(final String text) {
-			assertEquals(text, Json2.write(Json2.parse(text)));
+			assertEquals(text, Json.write(Json.parse(text)));
 		}
 
 		@ParameterizedTest
@@ -877,9 +877,9 @@ class Json2Test {
 		@ValueSource(strings = { "null", "true", "1.5", "41", "\"éàü\"", "\"\uD83D\uDE00\"", "[]", "{}",
 				"{\"a\":[1,2],\"b\":{\"c\":\"d\"}}" })
 		void valueIsPreserved(final String text) {
-			final Monomorphic value = Json2.parse(text);
+			final Monomorphic value = Json.parse(text);
 
-			assertEquals(value, Json2.parse(Json2.write(value)));
+			assertEquals(value, Json.parse(Json.write(value)));
 		}
 
 		@Test
@@ -888,21 +888,21 @@ class Json2Test {
 			// L'aller-retour n'est l'identité textuelle que sur les formes
 			// canoniques : 1e3 est bien relu comme 1000.0, mais se réécrit tel que
 			// Java écrit un double.
-			assertEquals("1000.0", Json2.write(Json2.parse("1e3")));
-			assertEquals("1.0E10", Json2.write(Json2.parse("1e10")));
-			assertEquals("1.0E10", Json2.write(Json2.parse("1.0E10")));
+			assertEquals("1000.0", Json.write(Json.parse("1e3")));
+			assertEquals("1.0E10", Json.write(Json.parse("1e10")));
+			assertEquals("1.0E10", Json.write(Json.parse("1.0E10")));
 		}
 
 		@Test
 		@DisplayName("le zéro négatif entier se réécrit '0' - un long n'a pas de -0")
 		void negativeZeroIntegerIsNormalized() {
-			assertTrue(Json2.parse("-0").isInteger());
-			assertEquals("0", Json2.write(Json2.parse("-0")));
+			assertTrue(Json.parse("-0").isInteger());
+			assertEquals("0", Json.write(Json.parse("-0")));
 
 			// Le -0.0 décimal, lui, est bien conservé : c'est un double, il a un
 			// signe, et Monomorphic distingue les deux valeurs.
-			assertTrue(Json2.parse("-0.0").isDecimal());
-			assertEquals("-0.0", Json2.write(Json2.parse("-0.0")));
+			assertTrue(Json.parse("-0.0").isDecimal());
+			assertEquals("-0.0", Json.write(Json.parse("-0.0")));
 		}
 
 		@Test
@@ -911,7 +911,7 @@ class Json2Test {
 			final String raw = "ligne 1\nligne 2\ttabulée\u0001\u001f fin";
 			final Monomorphic value = Monomorphic.createString(raw);
 
-			assertEquals(raw, Json2.parse(Json2.write(value)).asString());
+			assertEquals(raw, Json.parse(Json.write(value)).asString());
 		}
 
 		@Test
@@ -919,7 +919,7 @@ class Json2Test {
 		void windowsPathSurvives() {
 			final String raw = "C:\\github\\plantuml\\src\\Main.java";
 
-			assertEquals(raw, Json2.parse(Json2.write(Monomorphic.createString(raw))).asString());
+			assertEquals(raw, Json.parse(Json.write(Monomorphic.createString(raw))).asString());
 		}
 	}
 
@@ -941,13 +941,13 @@ class Json2Test {
 
 			assertEquals("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
 					+ "\"params\":{\"processId\":4242,\"rootUri\":\"file:///tmp/projet\",\"trace\":null}}",
-					Json2.write(request));
+					Json.write(request));
 		}
 
 		@Test
 		@DisplayName("une réponse textDocument/definition se navigue sans un seul cast")
 		void readsADefinitionResponse() {
-			final Monomorphic response = Json2.parse("{\"jsonrpc\":\"2.0\",\"id\":41,\"result\":[{"
+			final Monomorphic response = Json.parse("{\"jsonrpc\":\"2.0\",\"id\":41,\"result\":[{"
 					+ "\"uri\":\"file:///tmp/projet/src/A.java\","
 					+ "\"range\":{\"start\":{\"line\":6,\"character\":13},\"end\":{\"line\":6,\"character\":17}}}]}");
 
@@ -964,16 +964,16 @@ class Json2Test {
 		@DisplayName("l'id garde sa valeur exacte au-delà de 2^53 - l'appariement requête/réponse en dépend")
 		void bigIdSurvives() {
 			final long id = 9007199254740993L;
-			final String text = Json2.write(Monomorphic.mapBuilder().putNumber("id", id).build());
+			final String text = Json.write(Monomorphic.mapBuilder().putNumber("id", id).build());
 
 			assertEquals("{\"id\":9007199254740993}", text);
-			assertEquals(id, Json2.parse(text).getFromMap("id").asLong());
+			assertEquals(id, Json.parse(text).getFromMap("id").asLong());
 		}
 
 		@Test
 		@DisplayName("une réponse d'erreur reste lisible, y compris son 'data' de forme libre")
 		void readsAnErrorResponse() {
-			final Monomorphic response = Json2
+			final Monomorphic response = Json
 					.parse("{\"jsonrpc\":\"2.0\",\"id\":7,\"error\":{\"code\":-32601,"
 							+ "\"message\":\"Unsupported method\",\"data\":[\"a\",1,null]}}");
 
@@ -990,8 +990,8 @@ class Json2Test {
 			final Monomorphic message = Monomorphic.mapBuilder().putString("text", source).build();
 
 			assertEquals("{\"text\":\"package a;\\n\\npublic class A {\\n\\tvoid m() {\\n\\t}\\n}\\n\"}",
-					Json2.write(message));
-			assertEquals(source, Json2.parse(Json2.write(message)).getFromMap("text").asString());
+					Json.write(message));
+			assertEquals(source, Json.parse(Json.write(message)).getFromMap("text").asString());
 		}
 	}
 
@@ -1015,9 +1015,9 @@ class Json2Test {
 			for (int i = 0; i < 1000; i++) {
 				final Monomorphic value = randomValue(random, 0);
 
-				final String text = Json2.write(value);
-				assertEquals(value, Json2.parse(text), "arbre " + i + " : " + text);
-				assertEquals(text, Json2.write(Json2.parse(text)), "arbre " + i);
+				final String text = Json.write(value);
+				assertEquals(value, Json.parse(text), "arbre " + i + " : " + text);
+				assertEquals(text, Json.write(Json.parse(text)), "arbre " + i);
 			}
 		}
 
@@ -1034,9 +1034,9 @@ class Json2Test {
 			for (int i = 0; i < 1000; i++) {
 				final Monomorphic value = randomValue(random, 0);
 
-				final byte[] wire = Json2.write(value).getBytes(StandardCharsets.UTF_8);
+				final byte[] wire = Json.write(value).getBytes(StandardCharsets.UTF_8);
 
-				assertEquals(value, Json2.parse(new String(wire, StandardCharsets.UTF_8)), "arbre " + i);
+				assertEquals(value, Json.parse(new String(wire, StandardCharsets.UTF_8)), "arbre " + i);
 			}
 		}
 
