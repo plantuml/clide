@@ -17,8 +17,17 @@ application {
 	mainClass.set("clide.Main")
 }
 
+// flatDir plutôt que mavenCentral() : comme build.xml, ce build ne dépend
+// d'aucun accès réseau - toutes les dépendances sont résolues depuis les .jar
+// déjà commités dans lib/ (voir scripts/fetch_junit.py et
+// scripts/fetch_luajava.py). flatDir fait correspondre chaque coordonnée
+// "group:artifact:version[:classifier]" au nom de fichier
+// "artifact-version[-classifier].jar" - le group est ignoré, c'est donc à la
+// convention de nommage des .jar de lib/ de porter toute l'information.
 repositories {
-	mavenCentral()
+	flatDir {
+		dirs("lib")
+	}
 }
 
 dependencies {
@@ -46,10 +55,37 @@ dependencies {
 	testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.1")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.1")
 	// Le lanceur en ligne de commande, pour que le fat jar sache aussi exécuter
-	// les tests. C'est ce que lib/junit-platform-console-standalone apporte au
-	// build Ant - ici la version non-repackagée, sinon toutes les classes JUnit
-	// se retrouveraient en double dans le jar.
-	testRuntimeOnly("org.junit.platform:junit-platform-console:1.10.1")
+	// les tests - même artefact que lib/junit-platform-console-standalone côté
+	// Ant (voir build.xml) : c'est le seul .jar de ce lib/ à porter le
+	// ConsoleLauncher, la version non-repackagée "junit-platform-console" seule
+	// n'y étant pas commitée. DuplicatesStrategy.EXCLUDE (voir tasks.jar
+	// plus bas) règle les classes qu'il partage avec les .jar discrets déjà
+	// listés ci-dessus.
+	testRuntimeOnly("org.junit.platform:junit-platform-console-standalone:1.10.1")
+
+	// gudzpoz/luajava, backend natif lua51 (JNI) - voir LUA.md et
+	// scripts/fetch_luajava.py. luajava (l'API Lua générique) et lua51 (le
+	// binding JNI concret que Main.runLuaScript instancie via "new Lua51()")
+	// sont des dépendances de compilation : clide.Main les importe directement.
+	implementation("party.iroiro.luajava:luajava:4.1.0")
+	implementation("party.iroiro.luajava:lua51:4.1.0")
+
+	// jspecify : annotations de nullabilité référencées par les signatures de
+	// luajava. Rien dans clide ne les importe, mais elles doivent rester
+	// résolvables au moment de la compilation - et build.xml les embarque aussi
+	// dans le fat jar via -explode-libs, donc implementation ici plutôt que
+	// compileOnly pour rester cohérent entre les deux builds.
+	implementation("org.jspecify:jspecify:1.0.0")
+
+	// lua51-platform (classifier natives-desktop) porte les bibliothèques
+	// natives (.so/.dll/.dylib, Windows/Linux/macOS x86/ARM) que jnigen extrait
+	// et charge au runtime - jamais référencé depuis du code source, donc
+	// runtimeOnly. jnigen-loader/jnigen-commons sont les classes qui font cette
+	// extraction (SharedLibraryLoader, détection Os/Architecture) - même chose,
+	// jamais importées par clide, seulement par lua51 au runtime.
+	runtimeOnly("party.iroiro.luajava:lua51-platform:4.1.0:natives-desktop")
+	runtimeOnly("com.badlogicgames.jnigen:jnigen-loader:3.1.1")
+	runtimeOnly("com.badlogicgames.jnigen:jnigen-commons:3.1.1")
 }
 
 tasks.named<JavaExec>("run") {
@@ -62,6 +98,15 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.test {
 	useJUnitPlatform()
+	// Miroir du "--select-package clide" de build.xml : src/test/java/fixture
+	// vit hors du package clide précisément pour ne pas être ramassé ici (voir
+	// fixture/README.md) - ParameterizedFailing par exemple échoue exprès, il
+	// n'est censé être exécuté qu'en sous-processus par
+	// TestRunnerMainExecutionTest. Sans ce filtre, "gradle test" échoue
+	// systématiquement sur des fixtures qui ne sont pas de vrais tests clide.
+	filter {
+		includeTestsMatching("clide.*")
+	}
 	testLogging {
 		events("passed", "skipped", "failed")
 		exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
@@ -79,9 +124,10 @@ tasks.test {
  *     java -cp build/libs/clide.jar org.junit.platform.console.ConsoleLauncher \
  *          execute --select-package clide
  *
- * clide n'a aucune dépendance d'exécution (voir CLAUDE.md) : tout ce qui est
- * absorbé ici vient de testRuntimeClasspath, c'est-à-dire JUnit. Le jour où une
- * dépendance d'exécution apparaît, elle est absorbée sans rien changer.
+ * clide a maintenant une dépendance d'exécution : luajava/lua51 et leurs
+ * bibliothèques natives (voir LUA.md). Comme JUnit, elles arrivent ici via
+ * runtimeClasspath / testRuntimeClasspath - rien à changer dans ce bloc quand
+ * une dépendance supplémentaire apparaît, tant qu'elle est déclarée plus haut.
  *
  * Trois détails de fusion, les mêmes que côté Ant :
  *
@@ -109,7 +155,10 @@ tasks.test {
  *
  * et de prendre shadowJar à la place de ce bloc.
  *
- * Ce fichier n'a pas été exécuté - le sandbox n'atteint pas Maven Central.
+ * Ce fichier est désormais exécutable hors ligne (flatDir sur lib/, voir plus
+ * haut) : validé avec le Gradle système du sandbox
+ * (/opt/gradle/bin/gradle --offline), le wrapper (gradlew) restant lui bloqué
+ * par l'indisponibilité de services.gradle.org.
  */
 tasks.jar {
 	archiveFileName.set("clide.jar")
