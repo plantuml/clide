@@ -38,22 +38,6 @@ import clide.json.Monomorphic;
  */
 public class JdtlsSession {
 
-	private static final List<String> CONVENTIONAL_SOURCE_FOLDERS = List.of("src/main/java", "src/main/resources",
-			"src/test/java", "src/test/resources");
-
-	/**
-	 * Which of CONVENTIONAL_SOURCE_FOLDERS hold tests rather than production
-	 * code. JDT only knows a source folder is a test folder if the generated
-	 * .classpath says so - see buildDotClasspath().
-	 */
-	private static final List<String> CONVENTIONAL_TEST_FOLDERS = List.of("src/test/java", "src/test/resources");
-
-	/**
-	 * Per-project jar dependency cache - see JDTLS.md. Populated by hand (or by a
-	 * future clide command); clide only reads it.
-	 */
-	private static final String JARS_DIR = ".clide";
-
 	/**
 	 * Directories currentSourceFiles() never walks into - no sources there, and on
 	 * a project like PlantUML they hold far more files than the sources do.
@@ -63,6 +47,7 @@ public class JdtlsSession {
 
 	private final JdtlsLauncher launcher;
 	private final Path projectRoot;
+	private final EclipseDescriptorBuilder descriptor;
 	private LspClient client;
 	private Thread notificationThread;
 	private volatile boolean ready;
@@ -78,6 +63,7 @@ public class JdtlsSession {
 	public JdtlsSession(final JdtlsLauncher launcher, final Path projectRoot) {
 		this.launcher = launcher;
 		this.projectRoot = projectRoot;
+		this.descriptor = EclipseDescriptorBuilder.forProject(projectRoot);
 	}
 
 	public boolean isReady() {
@@ -92,13 +78,13 @@ public class JdtlsSession {
 		if (launcher.isRunning() == false)
 			launcher.start();
 
-		// Before buildDotClasspath() below (via detectJarLibs()) reads .clide/tmp/
-		// jar-junit/ - see JunitVendorJars - so a project with no JUnit of its own
-		// still gets one it can compile its tests against.
+		// Before descriptor.buildDotClasspath() below reads .clide/tmp/jar-junit/ -
+		// see JunitVendorJars - so a project with no JUnit of its own still gets one
+		// it can compile its tests against.
 		JunitVendorJars.ensurePresent(projectRoot);
 
 		eclipseFiles = EclipseProjectFiles.forProject(projectRoot);
-		eclipseFiles.stage(buildDotProject(), buildDotClasspath(detectSourceFolders()));
+		eclipseFiles.stage(descriptor.buildDotProject(), descriptor.buildDotClasspath());
 
 		client = new LspClient(launcher.process().getOutputStream(), launcher.process().getInputStream());
 		notificationThread = new Thread(this::processNotifications, "jdtls-notifications");
@@ -129,140 +115,6 @@ public class JdtlsSession {
 	public void restoreEclipseFiles() throws IOException {
 		if (eclipseFiles != null)
 			eclipseFiles.unstage();
-	}
-
-	/**
-	 * Source folders are guessed heuristically by checking which of the
-	 * conventional Maven/Gradle layout directories actually exist on disk - used
-	 * to build the .project/.classpath content that start() hands to
-	 * EclipseProjectFiles.stage(), whether or not the project already had its
-	 * own (see EclipseProjectFiles).
-	 *
-	 * Deliberately does NOT add a Gradle classpath container: without a real Gradle
-	 * import (disabled - see initializeParams()), such a container never resolves
-	 * anyway, so external dependencies stay unresolved either way - this at least
-	 * gets the project recognized and its own source compiled.
-	 */
-	private List<String> detectSourceFolders() {
-		final List<String> found = new ArrayList<>();
-		for (final String candidate : CONVENTIONAL_SOURCE_FOLDERS)
-			if (Files.isDirectory(projectRoot.resolve(candidate)))
-				found.add(candidate);
-
-		if (found.isEmpty() && Files.isDirectory(projectRoot.resolve("src")))
-			found.add("src");
-
-		return found;
-	}
-
-	private String buildDotProject() {
-		final String name = projectRoot.getFileName().toString();
-		return """
-				<?xml version="1.0" encoding="UTF-8"?>
-				<projectDescription>
-					<name>%s</name>
-					<comment></comment>
-					<projects>
-					</projects>
-					<buildSpec>
-						<buildCommand>
-							<name>org.eclipse.jdt.core.javabuilder</name>
-							<arguments>
-							</arguments>
-						</buildCommand>
-					</buildSpec>
-					<natures>
-						<nature>org.eclipse.jdt.core.javanature</nature>
-					</natures>
-				</projectDescription>
-				""".formatted(name);
-	}
-
-	/**
-	 * Test source folders are marked test="true" and given their own output
-	 * folder (bin/test, production code going to the default bin/main), as
-	 * "gradlew eclipse" would. Without that attribute JDT treats test code as
-	 * production code, with three consequences that all bite later:
-	 * java.project.isTestFile() answers false for a file that plainly is one,
-	 * java.project.getClasspaths() returns the same thing for the "test" and the
-	 * "runtime" scope, and every .class lands in one output folder with no way to
-	 * tell tests from the rest.
-	 *
-	 * The jars of .clide/ stay unmarked, hence visible to production code too:
-	 * nothing here can tell a test-only dependency from a real one, and guessing
-	 * wrong in that direction merely fails to flag a questionable import, where
-	 * guessing wrong in the other one would break a build that was fine.
-	 */
-	private String buildDotClasspath(final List<String> sourceFolders) {
-		final StringBuilder xml = new StringBuilder();
-		xml.append("""
-				<?xml version="1.0" encoding="UTF-8"?>
-				<classpath>
-				""");
-		for (final String folder : sourceFolders)
-			xml.append(sourceEntry(folder));
-
-		for (final String jar : detectJarLibs())
-			xml.append("\t<classpathentry kind=\"lib\" path=\"%s\"/>\n".formatted(jar));
-
-		xml.append("""
-					<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
-					<classpathentry kind="output" path="bin/main"/>
-				</classpath>
-				""");
-		return xml.toString();
-	}
-
-	private String sourceEntry(final String folder) {
-		// No output= on production folders: they land in the project's default
-		// output, declared as bin/main below. Naming a *third* folder here would
-		// declare a default nothing ever writes to, and getClasspaths() reports a
-		// never-created output folder as an Eclipse workspace path ("/proj/bin/
-		// default") instead of a filesystem one - a bogus entry to filter out of
-		// every classpath forever after.
-		if (CONVENTIONAL_TEST_FOLDERS.contains(folder) == false)
-			return "\t<classpathentry kind=\"src\" path=\"%s\"/>\n".formatted(folder);
-
-		return """
-				\t<classpathentry kind="src" output="bin/test" path="%s">
-				\t\t<attributes>
-				\t\t\t<attribute name="test" value="true"/>
-				\t\t</attributes>
-				\t</classpathentry>
-				""".formatted(folder);
-	}
-
-	/**
-	 * Jars found in <project>/.clide (flat, non-recursive) - a per-project cache
-	 * populated ahead of time (e.g. with the JUnit/AssertJ/etc. jars a project's
-	 * tests need), since clide's sandbox cannot reach Maven Central to resolve them
-	 * itself - followed by whatever JunitVendorJars.ensurePresent() (called from
-	 * start(), above) just extracted into .clide/tmp/jar-junit/: a project's own
-	 * choice of JUnit wins by coming first, clide's vendored copy only fills in
-	 * what a project with none of its own would otherwise be missing. Read every
-	 * time start() builds a fresh .classpath to hand jdtls - see
-	 * EclipseProjectFiles - so a jar dropped into .clide/ is picked up by the next
-	 * daemon start without anyone having to delete an old .classpath by hand
-	 * first.
-	 */
-	private List<String> detectJarLibs() {
-		final List<String> jars = new ArrayList<>(jarsIn(projectRoot.resolve(JARS_DIR)));
-		jars.addAll(jarsIn(projectRoot.resolve(JunitVendorJars.TARGET_DIR)));
-		return jars;
-	}
-
-	private static List<String> jarsIn(final Path dir) {
-		if (Files.isDirectory(dir) == false)
-			return List.of();
-
-		final List<String> jars = new ArrayList<>();
-		try (Stream<Path> entries = Files.list(dir)) {
-			entries.filter(p -> p.toString().endsWith(".jar")).sorted()
-					.forEach(p -> jars.add(p.toAbsolutePath().toString().replace('\\', '/')));
-		} catch (final IOException e) {
-			// dir present but unreadable - classpath just ends up without these jars
-		}
-		return jars;
 	}
 
 	/** Triggers a full project build via jdtls and waits for the result. */
@@ -1315,7 +1167,7 @@ public class JdtlsSession {
 	 * Eclipse workspace path rather than a filesystem one.
 	 *
 	 * The "test" scope only differs from "runtime" when the test source folders
-	 * are marked as such in .classpath - see buildDotClasspath().
+	 * are marked as such in .classpath - see EclipseDescriptorBuilder.buildDotClasspath().
 	 */
 	public List<String> testClasspath() throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic result = executeWorkspaceCommand("java.project.getClasspaths",
