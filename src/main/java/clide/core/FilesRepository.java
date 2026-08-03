@@ -3,9 +3,9 @@ package clide.core;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 public class FilesRepository {
@@ -37,13 +37,13 @@ public class FilesRepository {
 	 * skipping the directories that hold no sources but do hold thousands of files
 	 * (.git, build output, the extracted jdtls itself).
 	 */
-	public Map<String, Long> currentSourceFiles() throws IOException {
-		final Map<String, Long> files = new LinkedHashMap<>();
+	public Set<SourceFile> currentSourceFiles() throws IOException {
+		final Set<SourceFile> files = new LinkedHashSet<>();
 		try (Stream<Path> walk = Files.walk(projectRoot)) {
 			walk.filter(path -> path.toString().endsWith(".java")).filter(path -> isSkipped(path) == false)
 					.forEach(path -> {
 						try {
-							files.put(path.toString(), Files.getLastModifiedTime(path).toMillis());
+							files.add(new SourceFile(path.toString(), Files.getLastModifiedTime(path).toMillis()));
 						} catch (final IOException e) {
 							// vanished between the walk and the stat - treat as absent
 						}

@@ -5,14 +5,17 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import clide.core.FilesRepository;
 import clide.core.Position;
+import clide.core.SourceFile;
 import clide.json.Monomorphic;
 
 /**
@@ -149,18 +152,20 @@ public class JdtlsSession {
 	 * from disk is Deleted(3).
 	 */
 	public int refreshChangedFiles() throws IOException {
-		final Map<String, Long> current = filesRepository.currentSourceFiles();
+		final Set<SourceFile> current = filesRepository.currentSourceFiles();
 		final List<Monomorphic> events = new ArrayList<>();
+		final Set<String> currentPaths = new HashSet<>();
 
-		for (final Map.Entry<String, Long> entry : current.entrySet()) {
-			final Long previous = sourceFileTimestamps.get(entry.getKey());
+		for (final SourceFile file : current) {
+			currentPaths.add(file.sourceFilePath());
+			final Long previous = sourceFileTimestamps.get(file.sourceFilePath());
 			if (previous == null)
-				events.add(fileEvent(entry.getKey(), 1));
-			else if (previous.equals(entry.getValue()) == false)
-				events.add(fileEvent(entry.getKey(), 2));
+				events.add(fileEvent(file.sourceFilePath(), 1));
+			else if (previous.equals(file.sourceFileTimestamp()) == false)
+				events.add(fileEvent(file.sourceFilePath(), 2));
 		}
 		for (final String path : sourceFileTimestamps.keySet())
-			if (current.containsKey(path) == false)
+			if (currentPaths.contains(path) == false)
 				events.add(fileEvent(path, 3));
 
 		if (events.isEmpty())
@@ -190,7 +195,8 @@ public class JdtlsSession {
 	private void snapshotSourceFiles() {
 		try {
 			sourceFileTimestamps.clear();
-			sourceFileTimestamps.putAll(filesRepository.currentSourceFiles());
+			for (final SourceFile file : filesRepository.currentSourceFiles())
+				sourceFileTimestamps.put(file.sourceFilePath(), file.sourceFileTimestamp());
 		} catch (final IOException e) {
 			// Best effort: a failure here just means the next
 			// refreshChangedFiles() reports more files than strictly changed.
