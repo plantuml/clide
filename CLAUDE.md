@@ -68,6 +68,46 @@ the daemon or any open transactions — they stay in place for the next
 connection. `terminate` stops the daemon for good; it refuses to run if a
 transaction is still open (close it first).
 
+## Sending a command: one line per token
+
+The client speaks a strictly line-oriented protocol: **one token per
+line**. The keyword goes alone on the first line, then each parameter
+follows on its own line, in the order `help`/`help_ai`/`man` list them.
+Nothing is ever split on spaces — a whole line is one token, always.
+
+This makes one mistake very easy to hit on the very first command:
+
+```
+find_reference method src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession
+```
+
+fails with a bare `?SYNTAX ERROR`. Not because the parameters are wrong,
+but because that entire line was looked up as a keyword and no keyword by
+that name exists. The same command, written correctly:
+
+```
+find_reference
+method
+src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession
+exit
+```
+
+Three consequences worth knowing before sending anything:
+
+- **Nothing prompts for what is still missing.** The default print mode is
+  AI, which emits no `> READY` and no per-parameter prompt — those exist
+  only in HUMAN mode. The arity has to be known up front, and `help_ai`
+  gives it for every command.
+- **A parameter containing spaces needs no quoting**, and must not be
+  given any: the line *is* the value (trimmed), so quotes would end up
+  inside it. `search_regex`'s content regex, typically, is written
+  `private static final String` bare on its own line.
+- **Ending the input mid-command drops the connection**: the daemon
+  answers `?SYNTAX ERROR: missing parameter(s) for <keyword>` and closes
+  that client (the daemon itself stays up). When piping a batch of
+  commands, give every one of them all of its parameters, and finish with
+  `exit`.
+
 ## jdtls and the `.project`/`.classpath` files: fully automatic
 
 **jdtls (Eclipse JDT Language Server) is bundled inside `clide.jar`** —
