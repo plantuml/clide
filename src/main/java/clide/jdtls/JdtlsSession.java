@@ -160,13 +160,13 @@ public class JdtlsSession {
 			currentPaths.add(file.sourceFilePath());
 			final Long previous = sourceFileTimestamps.get(file.sourceFilePath());
 			if (previous == null)
-				events.add(fileEvent(file.sourceFilePath(), 1));
+				events.add(fileEvent(file.sourceFilePath(), FileChangeType.CREATED));
 			else if (previous.equals(file.sourceFileTimestamp()) == false)
-				events.add(fileEvent(file.sourceFilePath(), 2));
+				events.add(fileEvent(file.sourceFilePath(), FileChangeType.CHANGED));
 		}
 		for (final String path : sourceFileTimestamps.keySet())
 			if (currentPaths.contains(path) == false)
-				events.add(fileEvent(path, 3));
+				events.add(fileEvent(path, FileChangeType.DELETED));
 
 		if (events.isEmpty())
 			return 0;
@@ -185,10 +185,10 @@ public class JdtlsSession {
 		return events.size();
 	}
 
-	private Monomorphic fileEvent(final String path, final int type) {
+	private Monomorphic fileEvent(final String path, final FileChangeType type) {
 		return Monomorphic.mapBuilder() //
 				.putString("uri", Paths.get(path).toUri().toString()) //
-				.putNumber("type", type) //
+				.putNumber("type", type.lspValue()) //
 				.build();
 	}
 
