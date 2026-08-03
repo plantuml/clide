@@ -54,6 +54,14 @@ staying alive across multiple launches. There's no separate command to
 launch builds the project automatically; subsequent launches are fast
 (~0.25 s per session once the daemon is up).
 
+`clide --human <project-path>` opens that same session in HUMAN print mode:
+`> READY` before each command, then one `> <parameter> ?` prompt per
+parameter being read. Without the flag a session runs in AI mode, which
+prints nothing but the commands' own output. The flag can go before or
+after the project path, and applies to that one connection only — never to
+the daemon, so a human session and an AI session can use the same daemon in
+turn without either ever seeing the other's prompts.
+
 Three levels of built-in help:
 
 - `help` — a human-readable table (keyword, parameters, description).
@@ -94,10 +102,11 @@ exit
 
 Three consequences worth knowing before sending anything:
 
-- **Nothing prompts for what is still missing.** The default print mode is
-  AI, which emits no `> READY` and no per-parameter prompt — those exist
-  only in HUMAN mode. The arity has to be known up front, and `help_ai`
-  gives it for every command.
+- **Nothing prompts for what is still missing.** In the default AI mode no
+  `> READY` and no `> <parameter> ?` is ever printed, so each command's
+  arity has to be known up front — `help_ai` gives it for every command.
+  `clide --human` (see above) turns those prompts on: worth it when typing
+  by hand, only noise when piping.
 - **A parameter containing spaces needs no quoting**, and must not be
   given any: the line *is* the value (trimmed), so quotes would end up
   inside it. `search_regex`'s content regex, typically, is written

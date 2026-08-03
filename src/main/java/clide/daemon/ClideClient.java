@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import clide.PrintMode;
 import clide.jdtls.EclipseProjectFiles;
 
 /**
@@ -33,6 +34,11 @@ import clide.jdtls.EclipseProjectFiles;
  * is the whole point: many short "clide &lt;project&gt;" runs in a row reuse
  * the same warm jdtls session instead of paying its startup/build cost again
  * each time.
+ *
+ * The one thing this class ever sends on its own behalf, rather than relaying,
+ * is the print-mode handshake - see announcePrintMode(). That handshake is what
+ * makes "clide --human" a property of this one connection rather than of the
+ * daemon every other client shares.
  */
 public final class ClideClient {
 
@@ -40,9 +46,11 @@ public final class ClideClient {
 	private static final int POLL_INTERVAL_MILLIS = 500;
 
 	private final Path projectRoot;
+	private final PrintMode printMode;
 
-	public ClideClient(final Path projectRoot) {
+	public ClideClient(final Path projectRoot, final PrintMode printMode) {
 		this.projectRoot = projectRoot;
+		this.printMode = printMode;
 	}
 
 	public void run() throws IOException, InterruptedException {
@@ -50,7 +58,24 @@ public final class ClideClient {
 		System.out.println("*** clide connected to daemon (pid " + daemon.pid() + ") for " + projectRoot);
 
 		try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), daemon.port())) {
+			announcePrintMode(socket);
 			relay(socket);
+		}
+	}
+
+	/**
+	 * Sends PrintMode.HUMAN_FLAG as this connection's very first line when - and
+	 * only when - HUMAN mode was asked for, before any of this process' own stdin
+	 * is relayed. Nothing at all is sent in the default AI mode, on purpose: an AI
+	 * session's byte stream then stays exactly what it was before the flag
+	 * existed, and a daemon whose first line is not the flag just treats that line
+	 * as the command it is - see ClideDaemon.runSession().
+	 */
+	private void announcePrintMode(final Socket socket) throws IOException {
+		if (printMode == PrintMode.HUMAN) {
+			final OutputStream out = socket.getOutputStream();
+			out.write((PrintMode.HUMAN_FLAG + "\n").getBytes(StandardCharsets.UTF_8));
+			out.flush();
 		}
 	}
 

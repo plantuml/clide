@@ -55,12 +55,10 @@ public final class ClideDaemon {
 
 	private final Path projectRoot;
 	private final Collection<Command> commands;
-	private final PrintMode printMode;
 
-	public ClideDaemon(final Path projectRoot, Collection<Command> commands, PrintMode printMode) {
+	public ClideDaemon(final Path projectRoot, Collection<Command> commands) {
 		this.projectRoot = projectRoot;
 		this.commands = commands;
-		this.printMode = printMode;
 	}
 
 	/** Entry point for the daemon process itself - see the class doc above. */
@@ -69,7 +67,7 @@ public final class ClideDaemon {
 		if (projectRoot == null)
 			return;
 
-		new ClideDaemon(projectRoot, Main.commands, Main.printMode).run();
+		new ClideDaemon(projectRoot, Main.commands).run();
 	}
 
 	public void run() throws IOException, InterruptedException, TimeoutException {
@@ -142,14 +140,28 @@ public final class ClideDaemon {
 		}
 	}
 
+	/**
+	 * Serves one client's commands until it disconnects, in the print mode that
+	 * client announced - see readPrintMode() for how the very first line decides
+	 * it. The mode is a local, not a field: it belongs to this one connection, so
+	 * a "clide --human" session and an AI one can be served in turn by the same
+	 * daemon without either seeing the other's prompts.
+	 */
 	private void runSession(final BufferedReader reader, final PrintStream out, final ClideContext context)
 			throws IOException {
+		final String firstLine = reader.readLine();
+		if (firstLine == null)
+			return; // this client disconnected without saying anything at all
+
+		final PrintMode printMode = readPrintMode(firstLine);
+		// AI mode announces nothing, so in that mode firstLine is not a handshake
+		// but already this session's first command: it has to be processed, not
+		// swallowed. carried holds it until the loop below consumes it.
+		String carried = printMode == PrintMode.HUMAN ? null : firstLine;
+
 		while (context.isShutdownRequested() == false) {
-			if (printMode == PrintMode.HUMAN) {
-				out.println();
-				out.println("> READY");
-			}
-			final String line = reader.readLine();
+			final String line = carried != null ? carried : readCommandLine(reader, out, printMode);
+			carried = null;
 			if (line == null)
 				return; // this client is done, the daemon keeps running for the next one
 
@@ -169,7 +181,7 @@ public final class ClideDaemon {
 				else
 					out.println("> Get '" + keyword + "' expecting now " + command.paramSize() + " parameter(s).");
 
-			final String[] params = readParams(reader, out, command);
+			final String[] params = readParams(reader, out, command, printMode);
 			if (params == null) {
 				out.println("?SYNTAX ERROR: missing parameter(s) for " + keyword);
 				return; // this client's input ended mid-command
@@ -198,6 +210,35 @@ public final class ClideDaemon {
 			if (context.isShutdownRequested() || context.isDisconnectRequested())
 				return;
 		}
+	}
+
+	/**
+	 * HUMAN when a connection's first line is exactly PrintMode.HUMAN_FLAG - the
+	 * handshake ClideClient sends for "clide --human" and nothing else sends -
+	 * AI for every other first line, which is then a command like any other (see
+	 * runSession()). Recognizing the flag rather than requiring a mode line from
+	 * every client is what keeps a bare socket session, netcat included, working
+	 * unchanged: no first command is ever mistaken for a handshake, since no
+	 * command keyword can look like "--human".
+	 */
+	private PrintMode readPrintMode(final String firstLine) {
+		if (firstLine.trim().equals(PrintMode.HUMAN_FLAG))
+			return PrintMode.HUMAN;
+
+		return PrintMode.AI;
+	}
+
+	/**
+	 * Prompts (HUMAN mode only) and reads the next command line, or null on this
+	 * client's EOF.
+	 */
+	private String readCommandLine(final BufferedReader reader, final PrintStream out, final PrintMode printMode)
+			throws IOException {
+		if (printMode == PrintMode.HUMAN) {
+			out.println();
+			out.println("> READY");
+		}
+		return reader.readLine();
 	}
 
 	/**
@@ -241,14 +282,15 @@ public final class ClideDaemon {
 	 * before being fully read: an incomplete command is not a command, whichever
 	 * parameter it broke on.
 	 */
-	private String[] readParams(final BufferedReader reader, final PrintStream out, final Command command)
-			throws IOException {
+	private String[] readParams(final BufferedReader reader, final PrintStream out, final Command command,
+			final PrintMode printMode) throws IOException {
 		final String[] comments = command.getDescriptionParam();
 		final ParamType[] types = command.getParamTypes();
 		final String[] params = new String[comments.length];
 		for (int i = 0; i < comments.length; i++) {
-			final String param = types[i] == ParamType.MULTI_LINE ? readMultiLineParam(reader, out, comments[i])
-					: readSingleLineParam(reader, out, comments[i]);
+			final String param = types[i] == ParamType.MULTI_LINE
+					? readMultiLineParam(reader, out, comments[i], printMode)
+					: readSingleLineParam(reader, out, comments[i], printMode);
 			if (param == null)
 				return null;
 
@@ -258,8 +300,8 @@ public final class ClideDaemon {
 	}
 
 	/** Reads one line, prompted with comment, trimmed. Returns null on EOF. */
-	private String readSingleLineParam(final BufferedReader reader, final PrintStream out, final String comment)
-			throws IOException {
+	private String readSingleLineParam(final BufferedReader reader, final PrintStream out, final String comment,
+			final PrintMode printMode) throws IOException {
 		if (printMode == PrintMode.HUMAN)
 			out.println("> " + comment + " ?");
 		final String line = reader.readLine();
@@ -277,8 +319,8 @@ public final class ClideDaemon {
 	 * very first line - returns ""). Returns null on EOF, whether it happens while
 	 * reading the terminator itself or while reading the block that follows it.
 	 */
-	private String readMultiLineParam(final BufferedReader reader, final PrintStream out, final String comment)
-			throws IOException {
+	private String readMultiLineParam(final BufferedReader reader, final PrintStream out, final String comment,
+			final PrintMode printMode) throws IOException {
 		if (printMode == PrintMode.HUMAN)
 			out.println("> " + comment + ": terminator (any string, ends the block) ?");
 		final String terminatorLine = reader.readLine();
