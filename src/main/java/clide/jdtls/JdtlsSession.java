@@ -93,12 +93,12 @@ public class JdtlsSession {
 	/**
 	 * Puts .project/.classpath back the way stage() (called from start(), above)
 	 * found them - or removes clide's own if there was nothing to restore - now
-	 * that jdtls has actually finished importing the project, not merely
-	 * completed the LSP handshake. Must be called only once build() (the initial
-	 * one, right after start()) has returned - see EclipseProjectFiles' class
-	 * doc for why restoring any earlier would risk a race against jdtls still
-	 * reading the files it was just handed. A no-op if start() never staged
-	 * anything (e.g. this session was never actually started).
+	 * that jdtls has actually finished importing the project, not merely completed
+	 * the LSP handshake. Must be called only once build() (the initial one, right
+	 * after start()) has returned - see EclipseProjectFiles' class doc for why
+	 * restoring any earlier would risk a race against jdtls still reading the files
+	 * it was just handed. A no-op if start() never staged anything (e.g. this
+	 * session was never actually started).
 	 */
 	public void restoreEclipseFiles() throws IOException {
 		if (eclipseFiles != null)
@@ -160,13 +160,13 @@ public class JdtlsSession {
 			currentPaths.add(file.sourceFilePath());
 			final Long previous = sourceFileTimestamps.get(file.sourceFilePath());
 			if (previous == null)
-				events.add(fileEvent(file.sourceFilePath(), FileChangeType.CREATED));
+				events.add(FileChangeType.CREATED.fileEvent(file.sourceFilePath()));
 			else if (previous.equals(file.sourceFileTimestamp()) == false)
-				events.add(fileEvent(file.sourceFilePath(), FileChangeType.CHANGED));
+				events.add(FileChangeType.CHANGED.fileEvent(file.sourceFilePath()));
 		}
 		for (final String path : sourceFileTimestamps.keySet())
 			if (currentPaths.contains(path) == false)
-				events.add(fileEvent(path, FileChangeType.DELETED));
+				events.add(FileChangeType.DELETED.fileEvent(path));
 
 		if (events.isEmpty())
 			return 0;
@@ -185,13 +185,6 @@ public class JdtlsSession {
 		return events.size();
 	}
 
-	private Monomorphic fileEvent(final String path, final FileChangeType type) {
-		return Monomorphic.mapBuilder() //
-				.putString("uri", Paths.get(path).toUri().toString()) //
-				.putNumber("type", type.lspValue()) //
-				.build();
-	}
-
 	private void snapshotSourceFiles() {
 		try {
 			sourceFileTimestamps.clear();
@@ -203,11 +196,10 @@ public class JdtlsSession {
 		}
 	}
 
-
 	/**
 	 * Sends lspMethod ("textDocument/definition", "textDocument/typeDefinition", or
-	 * "textDocument/implementation") at position against this session.
-	 * Shared by GotoDefinitionCommand, GotoTypeDefinitionCommand and
+	 * "textDocument/implementation") at position against this session. Shared by
+	 * GotoDefinitionCommand, GotoTypeDefinitionCommand and
 	 * GotoImplementationCommand - only the LSP method name differs between them.
 	 * See the other overload for requests that also need an LSP request-level
 	 * "context" object (currently only textDocument/references does).
@@ -255,12 +247,11 @@ public class JdtlsSession {
 	 * position itself - as opposed to goToPosition(), which locates some *other*
 	 * place (a definition, an implementation), hover explains this exact symbol
 	 * where it stands. Returns jdtls' hover text verbatim (already Markdown,
-	 * printed as-is - not reformatted), or "<no hover info>" if jdtls had
-	 * nothing to say (e.g. the symbol's type can't be resolved - no matching jar
-	 * in .clide - or hover just doesn't apply to this kind of symbol).
+	 * printed as-is - not reformatted), or "<no hover info>" if jdtls had nothing
+	 * to say (e.g. the symbol's type can't be resolved - no matching jar in .clide
+	 * - or hover just doesn't apply to this kind of symbol).
 	 */
-	public String hover(final Position position)
-			throws IOException, InterruptedException, LspClient.TimeoutException {
+	public String hover(final Position position) throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request("textDocument/hover",
 				JdtlsResponses.positionParams(position.file(), position.line(), position.column()), 30);
 		final Monomorphic error = JdtlsResponses.errorOf(response);
@@ -274,9 +265,9 @@ public class JdtlsSession {
 	 * textDocument/documentSymbol: lists the direct members (methods, fields,
 	 * constructors - not further-nested inner types' own members) of the
 	 * class/interface/enum named position.name(), declared at position.line() of
-	 * position.file() - here position picks which type to inspect rather than
-	 * where to jump/what to explain. Requires hierarchicalDocumentSymbolSupport
-	 * (see initializeParams()) - without declaring it, jdtls falls back to a flat
+	 * position.file() - here position picks which type to inspect rather than where
+	 * to jump/what to explain. Requires hierarchicalDocumentSymbolSupport (see
+	 * initializeParams()) - without declaring it, jdtls falls back to a flat
 	 * SymbolInformation[] with no "children" at all, and this could never find any
 	 * member.
 	 *
@@ -289,24 +280,23 @@ public class JdtlsSession {
 		final Monomorphic typeNode = findTypeNode(JdtlsResponses.documentSymbols(client, uri), position.name(),
 				position.line() - 1);
 		if (typeNode.isMap() == false)
-			throw new IOException("No class/interface/enum named '" + position.name() + "' declared at line "
-					+ position.line() + " of " + position.file()
-					+ " (list_members only inspects types, not methods/fields)");
+			throw new IOException(
+					"No class/interface/enum named '" + position.name() + "' declared at line " + position.line()
+							+ " of " + position.file() + " (list_members only inspects types, not methods/fields)");
 
 		return formatMembers(uri, JdtlsResponses.childrenOf(typeNode));
 	}
 
 	/**
 	 * textDocument/implementation on a *method*, plus a second pass
-	 * (MethodOverrideRecovery) that recovers the overrides jdtls silently omits
-	 * - see that class' doc for why jdtls' own SearchPattern misses generic
+	 * (MethodOverrideRecovery) that recovers the overrides jdtls silently omits -
+	 * see that class' doc for why jdtls' own SearchPattern misses generic
 	 * overrides, and what the recovery pass does about it.
 	 *
-	 * Returns one formatted "path:line: line content" entry per location, in
-	 * jdtls' own order first, recovered ones appended after - formatting
-	 * (project-relative path shortening, reading the line's own text) is this
-	 * class' job; MethodOverrideRecovery only ever deals in raw Monomorphic
-	 * locations.
+	 * Returns one formatted "path:line: line content" entry per location, in jdtls'
+	 * own order first, recovered ones appended after - formatting (project-relative
+	 * path shortening, reading the line's own text) is this class' job;
+	 * MethodOverrideRecovery only ever deals in raw Monomorphic locations.
 	 */
 	public List<String> findMethodImplementations(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
@@ -392,11 +382,10 @@ public class JdtlsSession {
 
 	/**
 	 * Recursively searches a documentSymbol tree (nodes, and each node's own
-	 * "children") for a type-kind node (see JdtlsResponses.isTypeKind()) named
-	 * name and declared at zeroBasedLine (its own selectionRange, i.e. just the
-	 * name token -
-	 * matches position.line()-1, already whole-word-validated by Position.parse()).
-	 * Returns the first match found (depth-first), or null.
+	 * "children") for a type-kind node (see JdtlsResponses.isTypeKind()) named name
+	 * and declared at zeroBasedLine (its own selectionRange, i.e. just the name
+	 * token - matches position.line()-1, already whole-word-validated by
+	 * Position.parse()). Returns the first match found (depth-first), or null.
 	 */
 	private Monomorphic findTypeNode(final List<Monomorphic> nodes, final String name, final int zeroBasedLine) {
 		for (final Monomorphic node : nodes) {
@@ -753,12 +742,15 @@ public class JdtlsSession {
 	 * dropped - jdtls reports an output folder nothing was ever written to as an
 	 * Eclipse workspace path rather than a filesystem one.
 	 *
-	 * The "test" scope only differs from "runtime" when the test source folders
-	 * are marked as such in .classpath - see EclipseDescriptorBuilder.buildDotClasspath().
+	 * The "test" scope only differs from "runtime" when the test source folders are
+	 * marked as such in .classpath - see
+	 * EclipseDescriptorBuilder.buildDotClasspath().
 	 */
 	public List<String> testClasspath() throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic result = executeWorkspaceCommand("java.project.getClasspaths",
-				List.of(Monomorphic.createString(filesRepository.projectUri()), Monomorphic.createString("{\"scope\":\"test\"}")), 60);
+				List.of(Monomorphic.createString(filesRepository.projectUri()),
+						Monomorphic.createString("{\"scope\":\"test\"}")),
+				60);
 		if (result.isMap() == false)
 			throw new IOException("java.project.getClasspaths returned no classpath: " + result);
 
@@ -773,8 +765,8 @@ public class JdtlsSession {
 	}
 
 	/**
-	 * URIs of the java projects jdtls holds - one for a plain checkout, several
-	 * for a multi-module repository.
+	 * URIs of the java projects jdtls holds - one for a plain checkout, several for
+	 * a multi-module repository.
 	 */
 	public List<String> projectUris() throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic result = executeWorkspaceCommand("java.project.getAll", List.of(), 30);

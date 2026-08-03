@@ -1,9 +1,14 @@
 package clide.jdtls;
 
+import java.nio.file.Paths;
+
+import clide.json.Monomorphic;
+
 /**
  * LSP watched-file change kind, as sent in the "type" field of a FileEvent
- * inside a workspace/didChangeWatchedFiles notification (see
- * JdtlsSession.refreshChangedFiles()). The numeric values are fixed by the
+ * inside a workspace/didChangeWatchedFiles notification.
+ * 
+ * (see JdtlsSession.refreshChangedFiles()). The numeric values are fixed by the
  * LSP protocol itself - do not renumber them.
  */
 public enum FileChangeType {
@@ -16,8 +21,11 @@ public enum FileChangeType {
 		this.lspValue = lspValue;
 	}
 
-	public int lspValue() {
-		return lspValue;
+	public Monomorphic fileEvent(String path) {
+		return Monomorphic.mapBuilder() //
+				.putString("uri", Paths.get(path).toUri().toString()) //
+				.putNumber("type", lspValue) //
+				.build();
 	}
 
 }
