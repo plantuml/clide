@@ -43,7 +43,7 @@ public class FilesRepository {
 			walk.filter(path -> path.toString().endsWith(".java")).filter(path -> isSkipped(path) == false)
 					.forEach(path -> {
 						try {
-							files.add(new SourceFile(path.toString(), Files.getLastModifiedTime(path).toMillis()));
+							files.add(SourceFile.fromPath(path));
 						} catch (final IOException e) {
 							// vanished between the walk and the stat - treat as absent
 						}
