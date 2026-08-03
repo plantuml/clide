@@ -1,4 +1,4 @@
-package clide.json;
+package clide.core;
 
 import java.util.ArrayList;
 import java.util.Collections;

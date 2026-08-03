@@ -18,6 +18,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import clide.core.Monomorphic;
+import clide.core.MonomorphicType;
+
 /**
  * Tests de Json2, le lecteur/écrivain JSON qui parle Monomorphic là où Json
  * parle Object et Truc.

@@ -15,7 +15,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import clide.json.Monomorphic;
+import clide.core.Monomorphic;
 
 /**
  * Tests des lectures/constructions pures de JdtlsResponses - tout est ici

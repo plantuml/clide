@@ -5,6 +5,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import clide.core.Monomorphic;
+
 /**
  * Minimal JSON reader/writer, just enough to speak JSON-RPC with jdtls. Not a
  * general-purpose library: no streaming, no custom types, no comments.

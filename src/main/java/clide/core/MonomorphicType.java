@@ -1,4 +1,4 @@
-package clide.json;
+package clide.core;
 
 /**
  * Which of a Monomorphic's payload fields is the meaningful one.

@@ -12,8 +12,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import clide.core.Monomorphic;
 import clide.json.Json;
-import clide.json.Monomorphic;
 
 /**
  * Minimal LSP client: JSON-RPC framing (Content-Length headers) over a

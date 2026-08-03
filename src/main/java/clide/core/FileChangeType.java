@@ -1,8 +1,6 @@
-package clide.jdtls;
+package clide.core;
 
 import java.nio.file.Paths;
-
-import clide.json.Monomorphic;
 
 /**
  * LSP watched-file change kind, as sent in the "type" field of a FileEvent

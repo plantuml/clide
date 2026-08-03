@@ -8,7 +8,7 @@ import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.CommandResult;
-import clide.json.Monomorphic;
+import clide.core.Monomorphic;
 
 /**
  * Every real usage of a symbol across the whole project - replaces the former

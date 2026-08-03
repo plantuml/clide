@@ -9,7 +9,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
-import clide.json.Monomorphic;
+import clide.core.Monomorphic;
 
 /**
  * Low-level reading of a jdtls/LSP JSON-RPC response, and building of the

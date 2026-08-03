@@ -5,18 +5,17 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
+import clide.core.Delta;
 import clide.core.FilesRepository;
+import clide.core.Monomorphic;
 import clide.core.Position;
-import clide.core.SourceFile;
-import clide.json.Monomorphic;
+import clide.core.Snapshot;
 
 /**
  * Drives a full jdtls session end-to-end: LSP handshake (with Gradle/Maven
@@ -42,11 +41,7 @@ public class JdtlsSession {
 	private EclipseProjectFiles eclipseFiles;
 	private final Map<String, List<Monomorphic>> diagnosticsByUri = new ConcurrentHashMap<>();
 
-	/**
-	 * Absolute path -&gt; mtime, as of the end of the last build() - see
-	 * refreshChangedFiles().
-	 */
-	private final Map<String, Long> sourceFileTimestamps = new ConcurrentHashMap<>();
+	private Snapshot snapshot = Snapshot.empty();
 
 	public JdtlsSession(final JdtlsLauncher launcher, final FilesRepository filesRepository) {
 		this.launcher = launcher;
@@ -108,9 +103,9 @@ public class JdtlsSession {
 	/** Triggers a full project build via jdtls and waits for the result. */
 	public void build() throws IOException, InterruptedException, LspClient.TimeoutException {
 		// Snapshotted before the build, not after: a file edited while the build
-		// is running would otherwise be recorded with its new timestamp and
+		// is running would otherwise be recorded with its new content and
 		// counted as already built, and the next rebuild would skip it.
-		snapshotSourceFiles();
+		snapshot = Snapshot.build(filesRepository);
 		diagnosticsByUri.clear();
 		final Monomorphic response = client.request("java/buildWorkspace", Monomorphic.createBoolean(true), 300);
 		final Monomorphic error = JdtlsResponses.errorOf(response);
@@ -146,30 +141,18 @@ public class JdtlsSession {
 	 * diagnostics would otherwise linger after the file is gone). Sending events
 	 * for edits too costs nothing and keeps one code path.
 	 *
-	 * The comparison is a plain path/mtime snapshot taken at the end of every
-	 * build(), diffed against the tree as it stands now: a file whose timestamp
-	 * moved is Changed(2), one absent from the snapshot is Created(1), one gone
-	 * from disk is Deleted(3).
+	 * Which files those are is Snapshot's own business: the snapshot taken by the
+	 * last build(), compared with one taken of the tree as it stands now, yields
+	 * the events to send - see Snapshot.fileEventsTo(). All that is left here is
+	 * sending them and waiting for jdtls to catch up.
 	 */
 	public int refreshChangedFiles() throws IOException {
-		final Set<SourceFile> current = filesRepository.currentSourceFiles();
-		final List<Monomorphic> events = new ArrayList<>();
-		final Set<String> currentPaths = new HashSet<>();
+		final Delta delta = Snapshot.build(filesRepository).compareWithPreviousSnapshot(snapshot);
 
-		for (final SourceFile file : current) {
-			currentPaths.add(file.sourceFilePath());
-			final Long previous = sourceFileTimestamps.get(file.sourceFilePath());
-			if (previous == null)
-				events.add(FileChangeType.CREATED.fileEvent(file.sourceFilePath()));
-			else if (previous.equals(file.sourceFileTimestamp()) == false)
-				events.add(FileChangeType.CHANGED.fileEvent(file.sourceFilePath()));
-		}
-		for (final String path : sourceFileTimestamps.keySet())
-			if (currentPaths.contains(path) == false)
-				events.add(FileChangeType.DELETED.fileEvent(path));
-
-		if (events.isEmpty())
+		if (delta.size() == 0)
 			return 0;
+
+		final List<Monomorphic> events = delta.fileEvents();
 
 		client.notify("workspace/didChangeWatchedFiles", Monomorphic.mapBuilder().putList("changes", events).build());
 
@@ -183,17 +166,6 @@ public class JdtlsSession {
 		}
 
 		return events.size();
-	}
-
-	private void snapshotSourceFiles() {
-		try {
-			sourceFileTimestamps.clear();
-			for (final SourceFile file : filesRepository.currentSourceFiles())
-				sourceFileTimestamps.put(file.sourceFilePath(), file.sourceFileTimestamp());
-		} catch (final IOException e) {
-			// Best effort: a failure here just means the next
-			// refreshChangedFiles() reports more files than strictly changed.
-		}
 	}
 
 	/**

@@ -8,8 +8,8 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import clide.core.Monomorphic;
 import clide.core.Position;
-import clide.json.Monomorphic;
 
 /**
  * textDocument/implementation on a *method*, plus a second pass that recovers

@@ -4,9 +4,9 @@ import java.util.List;
 
 import clide.core.ClideContext;
 import clide.core.CommandResult;
+import clide.core.Monomorphic;
 import clide.core.Position;
 import clide.jdtls.JdtlsSession;
-import clide.json.Monomorphic;
 
 /**
  * Shared parse-resolve-format pipeline behind every position-based command -

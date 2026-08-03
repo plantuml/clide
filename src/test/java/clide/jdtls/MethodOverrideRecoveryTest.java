@@ -9,7 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import clide.json.Monomorphic;
+import clide.core.Monomorphic;
 
 /**
  * Tests de la partie purement textuelle/arborescente de MethodOverrideRecovery
