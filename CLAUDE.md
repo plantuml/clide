@@ -62,11 +62,12 @@ after the project path, and applies to that one connection only — never to
 the daemon, so a human session and an AI session can use the same daemon in
 turn without either ever seeing the other's prompts.
 
-Three levels of built-in help:
+Two levels of built-in help:
 
-- `help` — a human-readable table (keyword, parameters, description).
-- `help_ai` — the same content, one line per command, no formatting —
-  meant to be read by an AI client.
+- `help` — every command with its parameters and one-line description.
+  The print mode picks the shape: one bare line per command in AI mode,
+  a human-readable ASCII table under `--human`. Same content either way,
+  so there is nothing to strip before parsing and nothing to squint at.
 - `man <keyword>` — a detailed page per command (`man(1)` format, ERRORS/
   SEE ALSO sections), explaining edge cases and what to chain next.
   Enough to use a command without reading this document.
@@ -80,7 +81,7 @@ transaction is still open (close it first).
 
 The client speaks a strictly line-oriented protocol: **one token per
 line**. The keyword goes alone on the first line, then each parameter
-follows on its own line, in the order `help`/`help_ai`/`man` list them.
+follows on its own line, in the order `help`/`man` list them.
 Nothing is ever split on spaces — a whole line is one token, always.
 
 This makes one mistake very easy to hit on the very first command:
@@ -104,7 +105,7 @@ Three consequences worth knowing before sending anything:
 
 - **Nothing prompts for what is still missing.** In the default AI mode no
   `> READY` and no `> <parameter> ?` is ever printed, so each command's
-  arity has to be known up front — `help_ai` gives it for every command.
+  arity has to be known up front — `help` gives it for every command.
   `clide --human` (see above) turns those prompts on: worth it when typing
   by hand, only noise when piping.
 - **A parameter containing spaces needs no quoting**, and must not be
@@ -257,8 +258,7 @@ commits first, most recent rollbacks first).
 
 | Command | Role |
 |---|---|
-| `help` | Lists all commands, readable table format. |
-| `help_ai` | Same list, compact format for an AI client. |
+| `help` | Lists all commands: one line each in AI mode, an ASCII table under `--human`. |
 | `man <keyword>` | Detailed page for a command. |
 | `exit` / `quit` | Disconnects cleanly; the daemon and any open transactions survive. |
 | `terminate` | Stops the daemon; refuses if a transaction is still open. |

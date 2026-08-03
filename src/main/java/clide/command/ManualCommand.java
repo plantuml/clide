@@ -23,12 +23,12 @@ public class ManualCommand extends Command {
 
 			DESCRIPTION
 				Prints the manual page written for the command named <keyword>.
-				Where help and help_ai each give one line per command - just
-				enough to remind you a command exists and what its parameters
-				are - man is the long-form page for a single command: what it
-				actually does, how it behaves at its edges, and why it works
-				the way it does. Run help or help_ai first to find the keyword
-				you want, then man it.
+				Where help gives one line per command - just enough to remind
+				you a command exists and what its parameters are - man is the
+				long-form page for a single command: what it actually does,
+				how it behaves at its edges, and why it works the way it
+				does. Run help first to find the keyword you want, then man
+				it.
 
 				Not every command has a manual page written for it yet; one
 				that doesn't returns an empty result, not an error. man itself
@@ -40,7 +40,7 @@ public class ManualCommand extends Command {
 				command registered with clide.
 
 			SEE ALSO
-				help(1), help_ai(1)
+				help(1)
 			""")
 	public ManualCommand() {
 

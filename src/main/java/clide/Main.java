@@ -12,7 +12,6 @@ import clide.command.FindDeclarationCommand;
 import clide.command.FindImplementationCommand;
 import clide.command.FindReferenceCommand;
 import clide.command.FindSymbolCommand;
-import clide.command.HelpAiCommand;
 import clide.command.HelpCommand;
 import clide.command.HoverCommand;
 import clide.command.ListMembersCommand;
@@ -52,7 +51,7 @@ public class Main {
 
 	public static final String VERSION = "0.0.1";
 
-	public static final List<Command> commands = List.of(new HelpCommand(), new ManualCommand(), new HelpAiCommand(),
+	public static final List<Command> commands = List.of(new HelpCommand(), new ManualCommand(),
 			new ExitCommand(), new QuitCommand(), new TerminateCommand(), new RebuildCommand(),
 			new PrintDiagnosticsCommand(),
 			new ResearchRegexCommand(), new FindSymbolCommand(), new HoverCommand(), new ListMembersCommand(),

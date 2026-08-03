@@ -145,7 +145,9 @@ public final class ClideDaemon {
 	 * client announced - see readPrintMode() for how the very first line decides
 	 * it. The mode is a local, not a field: it belongs to this one connection, so
 	 * a "clide --human" session and an AI one can be served in turn by the same
-	 * daemon without either seeing the other's prompts.
+	 * daemon without either seeing the other's prompts. It is also published to
+	 * the context, for the commands whose own output depends on it - see
+	 * ClideContext.setPrintMode() and HelpCommand.
 	 */
 	private void runSession(final BufferedReader reader, final PrintStream out, final ClideContext context)
 			throws IOException {
@@ -154,6 +156,7 @@ public final class ClideDaemon {
 			return; // this client disconnected without saying anything at all
 
 		final PrintMode printMode = readPrintMode(firstLine);
+		context.setPrintMode(printMode);
 		// AI mode announces nothing, so in that mode firstLine is not a handshake
 		// but already this session's first command: it has to be processed, not
 		// swallowed. carried holds it until the loop below consumes it.

@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.TreeMap;
 
+import clide.PrintMode;
 import clide.jdtls.JdtlsSession;
 
 /**
@@ -25,6 +26,12 @@ import clide.jdtls.JdtlsSession;
  * ClideDaemon resets isDisconnectRequested() at the start of every new
  * connection; isShutdownRequested() is one-way and checked by both the
  * per-connection loop and the daemon's own accept loop.
+ *
+ * getPrintMode() is per-connection too, in the same sense: ClideDaemon sets it
+ * from the handshake the moment a connection announces its mode, and it stays
+ * that connection's mode until the next one overwrites it. Sharing one field
+ * for that is safe because the daemon serves clients strictly one at a time
+ * (see ClideDaemon's class doc) - never two connections at once.
  */
 public class ClideContext {
 
@@ -35,6 +42,7 @@ public class ClideContext {
 	private final TransactionStack transactions;
 	private boolean shutdownRequested;
 	private boolean disconnectRequested;
+	private PrintMode printMode = PrintMode.AI;
 
 	public ClideContext(final Path projectRoot, final JdtlsSession session, Collection<Command> commands) {
 		this.projectRoot = projectRoot;
@@ -108,6 +116,24 @@ public class ClideContext {
 	 */
 	public void clearDisconnectRequested() {
 		disconnectRequested = false;
+	}
+
+	/**
+	 * The print mode of the connection currently being served - AI unless that
+	 * client announced otherwise (see ClideDaemon.readPrintMode()). A command
+	 * reads this when its output should differ for a human and for a machine;
+	 * HelpCommand is the one that does today.
+	 */
+	public PrintMode getPrintMode() {
+		return printMode;
+	}
+
+	/**
+	 * Set at the start of every new connection, once its handshake has been read
+	 * - see ClideDaemon.runSession().
+	 */
+	public void setPrintMode(final PrintMode printMode) {
+		this.printMode = printMode;
 	}
 
 	/** "terminate": end this connection and shut the whole daemon down. */
