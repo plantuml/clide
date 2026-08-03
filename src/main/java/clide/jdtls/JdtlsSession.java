@@ -3,17 +3,15 @@ package clide.jdtls;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
 
+import clide.core.FilesRepository;
 import clide.core.Position;
 import clide.json.Monomorphic;
 
@@ -32,15 +30,8 @@ import clide.json.Monomorphic;
  */
 public class JdtlsSession {
 
-	/**
-	 * Directories currentSourceFiles() never walks into - no sources there, and on
-	 * a project like PlantUML they hold far more files than the sources do.
-	 */
-	private static final List<String> SKIPPED_DIRECTORIES = List.of(".git", "bin", "build", "target", "out", "jdtls",
-			"node_modules", ".gradle", ".clide");
-
 	private final JdtlsLauncher launcher;
-	private final Path projectRoot;
+	private final FilesRepository filesRepository;
 	private final EclipseDescriptorBuilder descriptor;
 	private LspClient client;
 	private Thread notificationThread;
@@ -54,10 +45,10 @@ public class JdtlsSession {
 	 */
 	private final Map<String, Long> sourceFileTimestamps = new ConcurrentHashMap<>();
 
-	public JdtlsSession(final JdtlsLauncher launcher, final Path projectRoot) {
+	public JdtlsSession(final JdtlsLauncher launcher, final FilesRepository filesRepository) {
 		this.launcher = launcher;
-		this.projectRoot = projectRoot;
-		this.descriptor = EclipseDescriptorBuilder.forProject(projectRoot);
+		this.filesRepository = filesRepository;
+		this.descriptor = EclipseDescriptorBuilder.forProject(filesRepository.getProjectRoot());
 	}
 
 	public boolean isReady() {
@@ -75,9 +66,9 @@ public class JdtlsSession {
 		// Before descriptor.buildDotClasspath() below reads .clide/tmp/jar-junit/ -
 		// see JunitVendorJars - so a project with no JUnit of its own still gets one
 		// it can compile its tests against.
-		JunitVendorJars.ensurePresent(projectRoot);
+		JunitVendorJars.ensurePresent(filesRepository.getProjectRoot());
 
-		eclipseFiles = EclipseProjectFiles.forProject(projectRoot);
+		eclipseFiles = EclipseProjectFiles.forProject(filesRepository.getProjectRoot());
 		eclipseFiles.stage(descriptor.buildDotProject(), descriptor.buildDotClasspath());
 
 		client = new LspClient(launcher.process().getOutputStream(), launcher.process().getInputStream());
@@ -158,7 +149,7 @@ public class JdtlsSession {
 	 * from disk is Deleted(3).
 	 */
 	public int refreshChangedFiles() throws IOException {
-		final Map<String, Long> current = currentSourceFiles();
+		final Map<String, Long> current = filesRepository.currentSourceFiles();
 		final List<Monomorphic> events = new ArrayList<>();
 
 		for (final Map.Entry<String, Long> entry : current.entrySet()) {
@@ -199,40 +190,13 @@ public class JdtlsSession {
 	private void snapshotSourceFiles() {
 		try {
 			sourceFileTimestamps.clear();
-			sourceFileTimestamps.putAll(currentSourceFiles());
+			sourceFileTimestamps.putAll(filesRepository.currentSourceFiles());
 		} catch (final IOException e) {
 			// Best effort: a failure here just means the next
 			// refreshChangedFiles() reports more files than strictly changed.
 		}
 	}
 
-	/**
-	 * Absolute path -&gt; last-modified time of every .java file under the project,
-	 * skipping the directories that hold no sources but do hold thousands of files
-	 * (.git, build output, the extracted jdtls itself).
-	 */
-	private Map<String, Long> currentSourceFiles() throws IOException {
-		final Map<String, Long> files = new LinkedHashMap<>();
-		try (Stream<Path> walk = Files.walk(projectRoot)) {
-			walk.filter(path -> path.toString().endsWith(".java")).filter(path -> isSkipped(path) == false)
-					.forEach(path -> {
-						try {
-							files.put(path.toString(), Files.getLastModifiedTime(path).toMillis());
-						} catch (final IOException e) {
-							// vanished between the walk and the stat - treat as absent
-						}
-					});
-		}
-		return files;
-	}
-
-	private boolean isSkipped(final Path path) {
-		for (final Path segment : projectRoot.relativize(path))
-			if (SKIPPED_DIRECTORIES.contains(segment.toString()))
-				return true;
-
-		return false;
-	}
 
 	/**
 	 * Sends lspMethod ("textDocument/definition", "textDocument/typeDefinition", or
@@ -625,7 +589,7 @@ public class JdtlsSession {
 	}
 
 	private String shortName(final String uri) {
-		final String prefix = projectUri();
+		final String prefix = filesRepository.projectUri();
 		if (uri.equals(prefix))
 			return "(project)";
 		if (uri.startsWith(prefix))
@@ -681,11 +645,11 @@ public class JdtlsSession {
 	}
 
 	private Monomorphic initializeParams() {
-		final String rootUri = projectUri();
+		final String rootUri = filesRepository.projectUri();
 
 		final Monomorphic workspaceFolder = Monomorphic.mapBuilder() //
 				.putString("uri", rootUri) //
-				.putString("name", projectRoot.getFileName().toString()) //
+				.putString("name", filesRepository.getProjectRoot().getFileName().toString()) //
 				.build();
 
 		// The same immutable value for both - a Monomorphic cannot be modified
@@ -788,7 +752,7 @@ public class JdtlsSession {
 	 */
 	public List<String> testClasspath() throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic result = executeWorkspaceCommand("java.project.getClasspaths",
-				List.of(Monomorphic.createString(projectUri()), Monomorphic.createString("{\"scope\":\"test\"}")), 60);
+				List.of(Monomorphic.createString(filesRepository.projectUri()), Monomorphic.createString("{\"scope\":\"test\"}")), 60);
 		if (result.isMap() == false)
 			throw new IOException("java.project.getClasspaths returned no classpath: " + result);
 
@@ -831,11 +795,6 @@ public class JdtlsSession {
 		} catch (final Exception unresolvable) {
 			return null;
 		}
-	}
-
-	private String projectUri() {
-		final String uri = projectRoot.toAbsolutePath().toUri().toString();
-		return uri.endsWith("/") ? uri.substring(0, uri.length() - 1) : uri;
 	}
 
 }

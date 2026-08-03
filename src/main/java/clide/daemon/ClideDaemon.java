@@ -85,7 +85,7 @@ public final class ClideDaemon {
 		System.out.print("(2/4) Initializing IDE ...");
 		final JdtlsLauncher launcher = new JdtlsLauncher(jdtlsHome());
 		final FilesRepository filesRepository = new FilesRepository(projectRoot);
-		final JdtlsSession session = new JdtlsSession(launcher, projectRoot);
+		final JdtlsSession session = new JdtlsSession(launcher, filesRepository);
 		System.out.println(" [OK]");
 
 		System.out.print("(3/4) Starting session ...");
