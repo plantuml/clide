@@ -10,7 +10,9 @@ current state, kept up to date.
 
 To go further: `HISTORY.md` (past reflections and decisions), `TESTS.md`
 (journal of test campaigns on PlantUML, kept up to date), `TODO.md`
-(backlog), `JDTLS.md` (low-level LSP protocol details), `JAVALENSE.md`/
+(backlog), `RESULTS.md` (the shape of every answer, field by field — for
+writing a command or a client, not for asking a question), `JDTLS.md`
+(low-level LSP protocol details), `JAVALENSE.md`/
 `LUA.md`/`ASTPARSER.md` (explorations for future work, not implemented),
 `CODING.md` (style conventions for clide's own source code — unrelated to
 using it).
@@ -156,6 +158,10 @@ hint: find_symbol Foo locates it
   on its line, and clide answered about the first occurrence — see the notation
   section above) and `TRANSACTIONS_STILL_OPEN`.
 - **anything else** — the answer itself.
+
+`RESULTS.md` documents every answer shape field by field, with an example
+each — worth reading before writing a client that parses this output, and
+unnecessary for simply using clide.
 
 **Finding nothing is not an error.** `find_reference` with no usage,
 `list_members` on a type with no members, `search_regex` with no match: all
