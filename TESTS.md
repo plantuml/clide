@@ -267,6 +267,248 @@ CLAUDE.md (section « Notation... ») mais qui vaut la peine d'être
 redit ici : une tentative naïve avec juste le nom de classe échoue en
 `SYNTAX ERROR`, pas en « test introuvable ».
 
+## Campagne 5 — 2026-08-04 (tests libres, HEAD)
+
+RAZ complet : clone `--depth 1` de `plantuml/clide` et de `plantuml/plantuml`,
+`apt-get install ant`, `ant dist` (8 s, `clide.jar` = 56 Mo, jdtls embarqué),
+daemon neuf sur PlantUML (6363 fichiers, 584 fichiers Java compilés).
+Particularité d'environnement importante pour le point 17 : `JAVA_TOOL_OPTIONS`
+est positionné dans ce sandbox.
+
+Campagne sans consigne : vérifier librement que clide marche. La méthode a été
+de ne pas se contenter de constater que les commandes *répondent*, mais de
+contre-vérifier leurs réponses contre `grep` et contre le code, dans les deux
+sens (ce que clide ajoute, ce qu'il retire).
+
+### Mise en place
+
+| Étape | Mesure |
+|---|---|
+| `ant dist` | 8 s, aucun accès réseau |
+| Démarrage à froid du daemon (1er CWD) | 45 s, extraction jdtls incluse |
+| Reconnexion à un daemon vivant | **0,13 – 0,65 s** — conforme au `~0,25 s` annoncé |
+| Build initial | 0 erreur, 1300 warnings, 584 fichiers |
+
+Le protocole « un token par ligne » se comporte comme documenté : la commande
+écrite sur une seule ligne renvoie bien `?SYNTAX ERROR` nu, la même éclatée en
+lignes fonctionne. Validation de surface toujours nette (`Line 99999 out of
+range (file has 79 line(s))`, `'notThere' not found on line 56`, `Not a file`).
+
+### Requêtes sémantiques : exactitude contre-vérifiée
+
+C'est le point le plus important de cette campagne. Les réponses de clide ont
+été diffées avec celles de `grep` :
+
+**`find_reference` sur `UGraphic.flushUg()`** → 10 emplacements.
+`grep -rn "\.flushUg()"` en trouve 11. Le 11ᵉ est
+`gtile/GtileGroup.java:207: //  interceptor2.flushUg();` — **ligne commentée**.
+clide a raison, `grep` a un faux positif.
+
+**`find_implementation method` sur `UGraphic.draw`** → 25 emplacements
+(stable depuis la correction d'érasure de C2). Le motif `grep` équivalent
+remonte 28 fichiers ; les 3 écarts sont tous des faux positifs de `grep` :
+
+| Remonté par grep, exclu par clide | Pourquoi clide a raison |
+|---|---|
+| `decoration/symbol/USymbolFrame.java:179` | méthode **commentée** |
+| `emoji/UGraphicWithScale.java:94` | classe qui **n'implémente pas** `UGraphic` — homonymie pure |
+| `klimt/drawing/UGraphic.java:70` | c'est la **déclaration** de l'interface |
+
+Et inversement clide remonte ce que le motif `grep` naïf raterait : la
+générique `AbstractUGraphic.draw(SHAPE)` et deux **classes anonymes de test**
+(`SvgNanoParserTest:84`, `SvgSaxParserFontWeightTest:195`).
+
+**`find_reference` sur un champ** (`SvgGraphics:97:DEFAULT_FONT_FAMILY`) → 2
+usages, corrects. Le point 12 ne concerne bien que `find_symbol`, pas les
+commandes positionnelles — précision utile, la limite est plus étroite que ce
+que CLAUDE.md laisse craindre.
+
+`hover`, `list_members` (13 membres directs de `UGraphic`), `find_declaration
+type` sur type projet, `find_symbol`, `search_regex` : tous conformes.
+
+### `rebuild` : le scénario « refactor incomplet »
+
+Test décisif, plus large que celui de C3 : changement de la signature d'une
+méthode d'interface très implémentée, `UGraphic.flushUg()` → `flushUg(int
+pass)`, puis `rebuild errors` :
+
+```
+jdtls: 47 error(s), 1299 warning(s) in 619 file(s)
+  [error] line 59: The type CollisionDetector must implement the inherited abstract method UGraphic.flushUg(int)
+  [error] line 259: The method flushUg(int) in the type UGraphic is not applicable for the arguments ()
+  ...
+  [error] line 180: The type SvgSaxParserFontWeightTest.RecordingUGraphic must implement ...
+```
+
+47 erreurs : implémentations manquantes **et** sites d'appel, classes internes
+et anonymes de test comprises. C'est exactement la classe de bug qu'un agent ne
+peut pas attraper en relisant son propre diff.
+
+Sur un cas simple (2 erreurs injectées dans `UGraphicNull`), fichier, ligne et
+message exacts, et rafraîchissement du modèle confirmé une fois de plus
+(`find_symbol deliberateTypo` : rien avant `rebuild`, trouvé après).
+`print_diagnostics` rejoue le résultat en **0,13 s** sans recompiler.
+
+Coût mesuré du `rebuild` : **14 à 21 s** (3 mesures : 20,8 / 17,4 / 14,2 s),
+contre les « 9 à 12 s » annoncés dans CLAUDE.md — chiffre à réactualiser.
+
+### `run_tests` : le point 15 est levé
+
+```
+run_tests: 3063 test(s), 2976 passed, 79 failed, 8 skipped in 28018 ms
+```
+
+**28 secondes pour 3063 tests**, sur toute la suite PlantUML. L'avertissement
+de C4 (« jamais terminé dans les 10 min du sandbox ») et celui de CLAUDE.md
+(« peut ne jamais finir ») sont obsolètes.
+
+Décomposition des 79 « échecs » : 70 `HeadlessException` (pas de X11 dans le
+conteneur — environnemental), 1 `IOException`, et **5 `TestAbortedException`**
+qui ne sont pas des échecs du tout — voir point 18.
+
+À noter : `run_tests` modifie 3 fichiers de `src/test/resources/vega/`. C'est
+PlantUML qui les réécrit, pas clide, mais c'est à savoir avant de lancer la
+suite sur un arbre de travail non commité.
+
+### Nouveaux problèmes trouvés
+
+**16. `run_test` ne sait pas lancer une méthode qui prend des paramètres.**
+Échoue sur **tout `@ParameterizedTest`**, et plus généralement sur toute
+méthode à paramètres. Sur PlantUML c'est massif : `StringUtilsTest`,
+`UrlBuilderTest`, `MathTest`, `StringDecipherTest`… n'ont *que* des tests
+paramétrés. C4 n'a pas vu le trou parce qu'elle lançait ces tests au niveau
+**classe**, ce qui marche parfaitement.
+
+```
+run_test .../UrlBuilderTest.java:32:testUrl        → Error: the test JVM failed ...
+run_test .../UrlBuilderTest.java:8:UrlBuilderTest  → 20 test(s), 20 passed  ✔
+```
+
+Cause : `TestSelector.selector()` produit `--method Class#nomMethode`, sans
+types de paramètres. `DiscoverySelectors.selectMethod(String)` interprète alors
+l'absence de parenthèses comme « méthode sans argument » et lève
+`PreconditionViolationException: Could not find method with name [testUrl] in
+class [...]` → `TestRunnerMain.main` attrape le `Throwable` et sort en
+`EXIT_BROKEN` (vérifié : code 3).
+
+Pistes : émettre la signature complète `Class#method(java.lang.String,
+boolean)` en lisant les types depuis jdtls (le symbole est déjà résolu) ; ou,
+plus robuste, sélectionner la **classe** et filtrer le plan de test sur le nom
+de méthode côté `TestRunnerMain` — ce qui couvre gratuitement les surcharges.
+
+(`ProjectTests.report()` gère déjà correctement le cas « 0 test trouvé » ; ici
+on ne l'atteint jamais, la discovery ayant explosé avant.)
+
+**17. Le message d'échec de `run_test` est mangé par la bannière de la JVM.**
+Symptôme du point 16, tel qu'il arrive au client :
+
+```
+Error: the test JVM failed to run the tests: Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=... [1400 caractères]
+```
+
+`ProjectTests.firstLine(stderr)` prend littéralement la première ligne de
+stderr. Or quand `JAVA_TOOL_OPTIONS` est défini — sandbox Claude, CI,
+conteneurs Docker d'entreprise — la JVM fille écrit d'abord `Picked up
+JAVA_TOOL_OPTIONS: …`. **La vraie exception n'est jamais affichée**, et le
+diagnostic devient impossible sans lire le source de clide.
+
+Petit correctif, gros gain : ignorer les lignes de bruit JVM (`Picked up
+JAVA_TOOL_OPTIONS`, `Picked up _JAVA_OPTIONS`, `OpenJDK ... VM warning`) avant
+de choisir la ligne à rapporter ; mieux encore, rapporter la première ligne
+ressemblant à une exception (`^[\w.]+(Exception|Error):`) ou le dernier
+`Caused by:` — ici `PreconditionViolationException: Could not find method with
+name [testUrl]`, qui aurait donné le diagnostic immédiatement.
+
+> Note de méthode : j'ai d'abord cru à une **sortie vide**, donc à un bug bien
+> plus grave. C'était mon propre `grep -v "Picked up JAVA_TOOL_OPTIONS"` qui
+> mangeait la ligne ; le daemon, interrogé en socket brut, renvoyait bien le
+> message. La leçon reste : ce message est indistinguable du bruit, y compris
+> pour un filtre naïf.
+
+**18. Un test *aborted* (assumption) est compté comme *failed*.**
+`TestRunnerMain.Recorder.executionFinished` ne teste que `SUCCESSFUL` ; tout le
+reste est compté `failed`. Or JUnit distingue `FAILED` de **`ABORTED`** — le
+statut d'un `Assumptions.assumeTrue(...)` non satisfait, c'est-à-dire « test
+volontairement non exécuté ».
+
+```
+Error: run_test: 1 test(s), 0 passed, 1 failed in 1147 ms
+  [failed] .../InputFileUrlTest.java:38: testNewInputStream_containsTitle
+     org.opentest4j.TestAbortedException: Assumption failed: Network unavailable, skipping test
+```
+
+Gradle, Maven et la console JUnit rapportent ce test comme **skipped, 0
+failure**. PlantUML s'appuie beaucoup sur les assumptions (`allow-failure:
+true` de Vega, gardes réseau) : 5 des 79 « échecs » du run complet sont dans ce
+cas. Pour un agent qui utilise clide pour décider « est-ce que ma modif a cassé
+quelque chose », c'est un faux positif qui coûte cher. `ABORTED` devrait
+alimenter le compteur `skipped`, déjà présent.
+
+**19. `jdtls/` (62 Mo) est extrait dans le répertoire courant.**
+`ClideDaemon.jdtlsHome()` renvoie `Paths.get("jdtls")` — chemin **relatif**,
+résolu contre le CWD du daemon. Lancer `clide .` ou `clide /chemin/projet`
+**depuis** le projet y dépose donc un répertoire `jdtls/` de 62 Mo, non suivi
+par git :
+
+```
+$ git status --short
+?? jdtls/
+$ du -sh jdtls
+62M     jdtls
+```
+
+Ce qui contredit CLAUDE.md : « a `git status` on the opened project never shows
+anything moving at its root because of clide ». (PlantUML `.gitignore` bien
+`.project` et `.classpath` — mais pas `jdtls/`.) Effet secondaire mesuré : la
+ré-extraction par CWD fait payer 62 Mo à chaque nouveau répertoire de
+lancement — 2ᵉ démarrage à froid depuis un CWD différent : **77 s** contre
+45 s. `CLIDE_JDTLS_HOME` permet de contourner, mais le défaut devrait être un
+emplacement stable et partagé (`~/.clide/jdtls`, `$XDG_CACHE_HOME/clide/jdtls`).
+
+**20. Les commandes de transaction sont documentées mais désactivées.**
+CLAUDE.md consacre une section entière aux transactions (« The transaction
+mechanism below exists and works ») avec 5 commandes et les règles des
+sous-transactions imbriquées. Aucune n'est utilisable :
+`open_transaction` → `?SYNTAX ERROR`. `Main.java` lignes 61-62 : les cinq sont
+**commentées** dans la liste `commands`, donc absentes de `help` aussi. Le code
+des commandes et `TransactionStack` existent bien. (C2 les testait encore —
+elles ont été débranchées depuis.) Soit les réactiver, soit signaler dans
+CLAUDE.md que la section décrit du code présent mais non branché.
+
+### Points anciens revérifiés
+
+- **Point 5** (`typeDefinition` vers un type JDK) : toujours ouvert, reproduit
+  sur daemon neuf — mais l'échec est désormais **propre et clair**, ce que
+  CLAUDE.md ne dit pas : `Error: find_declaration failed: No response for
+  textDocument/typeDefinition (id=83) after 30s` en 30,2 s. Reste le coût des
+  30 s, plus le message.
+- **Point 6** (`@Help` de `man`) : toujours « please write help of man ».
+- **Point 12** : `find_symbol DEFAULT_FONT_FAMILY` → rien, conforme.
+- **Point 13** : confirmé, `rebuild` à 0 changement paie le build complet.
+- **Limite « this repository holds N modules »** : ne s'est **jamais**
+  déclenchée sur PlantUML — cohérent, PlantUML n'embarque pas ses propres
+  fichiers Eclipse.
+- **Propreté** : `.classpath` bien retiré après le build initial, mais
+  **`.project` survit tant que le daemon tourne** et n'est retiré qu'au
+  `terminate` — la formulation « erased once the initial build finishes » de
+  CLAUDE.md est inexacte. Sans effet sur `git status` ici (PlantUML l'ignore).
+  `bin/` (sortie de compilation jdtls) est également déposé à la racine, lui
+  aussi gitignoré par PlantUML. Après `terminate` et suppression de `jdtls/`,
+  `git status` est propre.
+
+### Conclusion
+
+Ce qui est annoncé comme prioritaire dans CLAUDE.md fonctionne, dans l'ordre
+annoncé : compiler et obtenir les erreurs exactes (excellent, y compris sur
+refactor cassé à 47 sites), requêtes sémantiques (exactes là où `grep` produit
+des faux positifs), lancer un test ciblé — **partiellement cassé, point 16**.
+
+Ordre de correction proposé : 16 (bloque `run_test` sur une large part des
+suites Java modernes), 17 (deux lignes, transforme un message inutilisable en
+diagnostic immédiat), 18 (faux « échecs » sur tout projet utilisant
+`Assumptions`), 19 (62 Mo déposés dans le dépôt de l'utilisateur, contre une
+promesse explicite), 20 (documentation à réaligner sur le code).
+
 ## État des points
 
 | # | Point | Origine | Statut |
@@ -285,4 +527,10 @@ redit ici : une tentative naïve avec juste le nom de classe échoue en
 | 12 | Recherche de champs par nom | C1 | limite jdtls, non actionnable |
 | 13 | `rebuild` à 0 changement paie le build complet (~11 s) | C3 | ouvert (mineur, peut-être voulu) |
 | 14 | Compilation des tests cassée sans JUnit dans `.clide/` du projet cible (6058 erreurs sur PlantUML) | C4 | **corrigé** (C4, `JunitVendorJars` — extraction depuis `clide.jar` vers `.clide/tmp/jar-junit/`, aucun commit requis côté projet cible) |
-| 15 | `run_tests` (suite complète, 259 classes PlantUML) : jamais terminé dans les 10 min du sandbox, probablement `graphviz`/`dot` manquant | C4 | ouvert |
+| 15 | `run_tests` (suite complète, 259 classes PlantUML) : jamais terminé dans les 10 min du sandbox, probablement `graphviz`/`dot` manquant | C4 | **levé** (C5 : 3063 tests en 28 s ; avertissement à retirer de CLAUDE.md) |
+| 16 | `run_test` sur une méthode à paramètres (tout `@ParameterizedTest`) échoue : `TestSelector` émet `Class#method` sans types, JUnit ne résout qu'une méthode sans argument → `EXIT_BROKEN` | C5 | ouvert (**priorité 1**) |
+| 17 | `ProjectTests.firstLine(stderr)` rapporte la bannière `Picked up JAVA_TOOL_OPTIONS:` au lieu de l'exception — diagnostic impossible dès que la variable est définie (CI, Docker, sandbox) | C5 | ouvert (**priorité 2**, correctif trivial) |
+| 18 | Un test `ABORTED` (assumption non satisfaite) est compté `failed` au lieu de `skipped` — 5 faux échecs sur la suite PlantUML | C5 | ouvert |
+| 19 | `jdtls/` (62 Mo) extrait dans le CWD (`Paths.get("jdtls")`) : pollue le projet si clide est lancé depuis sa racine, contre la promesse « rien ne bouge à la racine » | C5 | ouvert |
+| 20 | Commandes de transaction documentées dans CLAUDE.md mais commentées dans `Main.java` (lignes 61-62) → `?SYNTAX ERROR`, absentes de `help` | C5 | ouvert (doc vs code) |
+| 21 | CLAUDE.md : `rebuild` annoncé « 9 à 12 s », mesuré **14 à 21 s** sur PlantUML ; `.project` annoncé effacé après le build initial, en fait retiré seulement au `terminate` | C5 | ouvert (mineur, doc) |
