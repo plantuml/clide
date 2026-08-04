@@ -2,6 +2,17 @@
 
 Spécification de la notation utilisée par clide pour désigner un symbole (fichier, classe, champ, méthode) dans le code Java. Objectif : rester la plus courte possible tout en restant non ambiguë, en s'appuyant sur des conventions déjà connues (Java, outils Unix) plutôt qu'en inventant de nouveaux sigles.
 
+Notation canonique PATH_LINE_COLUMN
+
+On commence à compter à 1.
+
+`chemin/complet.java:ligne:colonne:nom` — le plus précis.
+
+Il y a un contrôle de cohérence: "nom" doit bien être présent dans la colonne spécifiée.
+
+
+
+
 ## Principe cardinal
 
 **Toute ambiguïté doit produire une erreur explicite**, listant les candidats trouvés — jamais de résolution silencieuse vers le premier match trouvé. Ce principe s'applique à chaque niveau ci-dessous, sans exception.
