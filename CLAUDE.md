@@ -141,9 +141,15 @@ hint: find_symbol Foo locates it
   `TEST_CLASS_NOT_COMPILED`, `TEST_TIMEOUT`, `TEST_RUNNER_BROKEN`,
   `MULTI_MODULE_PROJECT`, `NO_OUTPUT_FOLDER`, `CLASSPATH_UNAVAILABLE`,
   `TERMINATE_REFUSED`, `NO_OPEN_TRANSACTION`, `TRANSACTION_REFUSED`,
-  `TRANSACTION_IO_FAILED`, `IO_FAILED`. An optional `hint:` line on the next
-  line says what to actually do about it. This replaces the old
+  `TRANSACTION_IO_FAILED`, `IO_FAILED`. This replaces the old
   `?SYNTAX ERROR` / `Error:` pair, which said only *that* something was wrong.
+
+  A `hint:` line may follow, and usually does not. It appears only when clide
+  has something to add that the message and this document do not already give
+  you: a path it computed, a cause that is not the obvious one, or a next
+  command with its arguments already filled in. Absence of a hint means clide
+  has nothing useful to add — never that the error is unimportant, and never
+  that it knows the cause and kept it to itself.
 - **`!WARNING <CODE>: <message>`** — the answer stands and is printed as usual;
   something about it is worth knowing. Two exist today:
   `AMBIGUOUS_NAME_ON_LINE` (the `<name>` of a `<symbol>` occurs more than once

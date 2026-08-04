@@ -57,8 +57,7 @@ public class ManualCommand extends Command {
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final Command command = context.getCommand(params[0]);
 		if (command == null)
-			return CommandResult.error(ErrorCode.UNKNOWN_KEYWORD, "Invalid keyword '" + params[0] + "'",
-					"run help to list every command");
+			return CommandResult.error(ErrorCode.UNKNOWN_KEYWORD, "Invalid keyword '" + params[0] + "'");
 
 		return CommandResult.ok(new CommandPayload.Text(command.getManual()));
 	}

@@ -61,8 +61,7 @@ public class FindSymbolCommand extends Command {
 
 		final String query = params[0];
 		if (query.isEmpty())
-			return CommandResult.error(ErrorCode.EMPTY_PARAMETER, "find_symbol needs a <name> to look for",
-					"run 'man find_symbol' for what it matches");
+			return CommandResult.error(ErrorCode.EMPTY_PARAMETER, "find_symbol needs a <name> to look for");
 
 		try {
 			return CommandResult.ok(

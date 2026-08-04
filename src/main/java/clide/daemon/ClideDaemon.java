@@ -180,10 +180,13 @@ public final class ClideDaemon {
 
 			final Command command = context.getCommand(keyword);
 			if (command == null) {
+				// The hint is diagnostic, not prescriptive: it says the error is
+				// probably not the one it looks like. A whole command written on one
+				// line is the mistake CLAUDE.md documents as the first one everybody
+				// hits, and it surfaces here as a keyword nobody recognizes.
 				printResult(out, null, CommandResult.error(ErrorCode.UNKNOWN_KEYWORD,
 						"Unknown command '" + keyword + "'",
-						"run help to list every command - and remember one token per line, "
-								+ "so a whole command written on a single line reads as one unknown keyword"),
+						"one token per line - a whole command written on a single line reads as one keyword"),
 						printMode);
 				continue;
 			}
@@ -198,7 +201,7 @@ public final class ClideDaemon {
 			if (params == null) {
 				printResult(out, command, CommandResult.error(ErrorCode.MISSING_PARAMETERS,
 						"missing parameter(s) for " + keyword,
-						"help gives the arity of every command; give them all, then finish with exit"), printMode);
+						"this connection is now closed - when piping a batch, finish it with exit"), printMode);
 				return; // this client's input ended mid-command
 			}
 
@@ -210,7 +213,7 @@ public final class ClideDaemon {
 
 			if (command.needsOpenTransaction() && context.getTransactions().hasAnyOpen() == false) {
 				printResult(out, command, CommandResult.error(ErrorCode.NO_OPEN_TRANSACTION,
-						keyword + " requires an open transaction", "open_transaction $some_id first"), printMode);
+						keyword + " requires an open transaction - see open_transaction"), printMode);
 				continue;
 			}
 

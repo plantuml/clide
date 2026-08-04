@@ -78,8 +78,11 @@ public final class ProjectTests {
 		try {
 			classpath = session.testClasspath();
 		} catch (final Exception e) {
+			// No hint: whether a rebuild would fix this is not something clide knows,
+			// and a guess an agent will act on costs it a 10s build and leaves it
+			// exactly as stuck - see CODING.md on what a hint may claim.
 			return CommandResult.error(ErrorCode.CLASSPATH_UNAVAILABLE,
-					"could not read the project classpath from jdtls: " + e.getMessage(), "run rebuild first");
+					"could not read the project classpath from jdtls: " + e.getMessage());
 		}
 
 		// Scanning the whole classpath would walk every jar too - slow, and it can
@@ -112,7 +115,7 @@ public final class ProjectTests {
 			classpath = context.getCurrentSession().testClasspath();
 		} catch (final Exception e) {
 			return CommandResult.error(ErrorCode.CLASSPATH_UNAVAILABLE,
-					"could not read the project classpath from jdtls: " + e.getMessage(), "run rebuild first");
+					"could not read the project classpath from jdtls: " + e.getMessage());
 		}
 
 		final Outcome outcome = fork(context, classpath, selector, timeoutSeconds);

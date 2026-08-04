@@ -61,8 +61,8 @@ public class TerminateCommand extends Command {
 		final List<String> open = context.getTransactions().openIds();
 		if (open.isEmpty() == false)
 			return CommandResult.error(ErrorCode.TERMINATE_REFUSED,
-					"Refusing to terminate while transaction(s) are still open: " + String.join(", ", open),
-					"commit_transaction or rollback_transaction each one first");
+					"Refusing to terminate while transaction(s) are still open - commit_transaction or "
+							+ "rollback_transaction each one first: " + String.join(", ", open));
 
 		context.stopSession();
 		context.requestShutdown();
