@@ -121,14 +121,50 @@
         </fileset>
     </path>
 
+    <!--
+        Both compile targets wipe their destination directory first, for one
+        shared reason: javac only ever *adds* to a destination directory. A
+        class that is renamed, moved to another package, or deleted outright
+        leaves its old .class behind forever, and nothing downstream reads the
+        sources to notice it should be gone.
+
+        What that stale copy then does differs between the two, which is why
+        each target says it in its own words below - but neither symptom is
+        one a green build would ever point at.
+
+        Full recompilation each time is the price. On this project (64 main
+        sources, 18 test ones) it is about 3.3 s instead of 0.6 s for the main
+        classes and 2.6 s instead of 0.5 s for the tests - a few seconds, on a
+        build that spends far longer packaging the jar or running the suite.
+        A project two orders of magnitude larger would have to weigh this
+        differently; this one does not.
+    -->
+
+    <!--
+        Stale here means a class that no longer exists in the sources still
+        being packaged into clide.jar by dist, which jars ${classes.dir}
+        wholesale. Seen for real: HelpAiCommand, deleted when help and help_ai
+        were merged, kept shipping in every jar built without a clean.
+    -->
     <target name="compile" description="Compile the main classes into build/classes - no jar">
+        <delete dir="${classes.dir}"/>
         <mkdir dir="${classes.dir}"/>
         <javac srcdir="${src.dir}" destdir="${classes.dir}" release="21" debug="on" encoding="UTF-8" includeantruntime="false">
             <classpath refid="main.compile.classpath"/>
         </javac>
     </target>
 
+    <!--
+        Stale here means a test that keeps being executed, from the package it
+        used to be in, because the run below selects tests by scanning
+        ${test.classes.dir} rather than by reading the sources. Harmless while
+        both copies pass; the day a test is moved *and* changed, the abandoned
+        one still reports green and hides the change. Seen for real:
+        MonomorphicTest moved from clide.json to clide.core and both copies
+        ran, 48 tests counted twice.
+    -->
     <target name="test-compile" depends="compile" description="Compile the unit tests into build/test-classes">
+        <delete dir="${test.classes.dir}"/>
         <mkdir dir="${test.classes.dir}"/>
         <javac srcdir="${test.src.dir}" destdir="${test.classes.dir}" release="21" debug="on" encoding="UTF-8" includeantruntime="false">
             <classpath refid="test.compile.classpath"/>
