@@ -17,7 +17,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import clide.core.ClideContext;
-import clide.core.CommandResult;
+import clide.result.CommandPayload;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
+import clide.result.Listing;
+import clide.result.TestOutcome;
 import clide.jdtls.JdtlsLauncher;
 import clide.jdtls.JdtlsSession;
 
@@ -56,33 +60,34 @@ public final class ProjectTests {
 
 	/** run_test: every test of one class, or one single test method. */
 	public static CommandResult runSelection(final ClideContext context, final String[] selector, final String what) {
-		final String wrongShape = onlyOneProject(context);
+		final CommandResult wrongShape = onlyOneProject(context);
 		if (wrongShape != null)
-			return CommandResult.error(wrongShape);
+			return wrongShape;
 
 		return run(context, selector, SINGLE_TIMEOUT_SECONDS, false, "run_test", what);
 	}
 
 	/** run_tests: everything discoverable in the project's test output folders. */
 	public static CommandResult runEverything(final ClideContext context, final boolean failuresOnly) {
-		final String wrongShape = onlyOneProject(context);
+		final CommandResult wrongShape = onlyOneProject(context);
 		if (wrongShape != null)
-			return CommandResult.error(wrongShape);
+			return wrongShape;
 
 		final JdtlsSession session = context.getCurrentSession();
 		final List<String> classpath;
 		try {
 			classpath = session.testClasspath();
 		} catch (final Exception e) {
-			return CommandResult.error("could not read the project classpath from jdtls: " + e.getMessage());
+			return CommandResult.error(ErrorCode.CLASSPATH_UNAVAILABLE,
+					"could not read the project classpath from jdtls: " + e.getMessage(), "run rebuild first");
 		}
 
 		// Scanning the whole classpath would walk every jar too - slow, and it can
 		// turn up tests that are not the project's. The output folders are enough.
 		final List<String> roots = outputFolders(context.getProjectRoot(), classpath);
 		if (roots.isEmpty())
-			return CommandResult.error(
-					"no compiled output folder found for this project - run rebuild first, and check that "
+			return CommandResult.error(ErrorCode.NO_OUTPUT_FOLDER,
+					"no compiled output folder found for this project", "run rebuild first, and check that "
 							+ context.getProjectRoot().resolve(".classpath") + " declares a test source folder");
 
 		final List<String> records = new ArrayList<>();
@@ -91,7 +96,7 @@ public final class ProjectTests {
 			final Outcome outcome = fork(context, classpath, new String[] { "--scan", root },
 					SUITE_TIMEOUT_SECONDS);
 			if (outcome.failure != null)
-				return CommandResult.error(outcome.failure);
+				return CommandResult.error(outcome.failureCode, outcome.failure);
 
 			records.addAll(outcome.records);
 			millis += outcome.millis;
@@ -106,12 +111,13 @@ public final class ProjectTests {
 		try {
 			classpath = context.getCurrentSession().testClasspath();
 		} catch (final Exception e) {
-			return CommandResult.error("could not read the project classpath from jdtls: " + e.getMessage());
+			return CommandResult.error(ErrorCode.CLASSPATH_UNAVAILABLE,
+					"could not read the project classpath from jdtls: " + e.getMessage(), "run rebuild first");
 		}
 
 		final Outcome outcome = fork(context, classpath, selector, timeoutSeconds);
 		if (outcome.failure != null)
-			return CommandResult.error(outcome.failure);
+			return CommandResult.error(outcome.failureCode, outcome.failure);
 
 		return report(context, label, outcome.records, outcome.millis, failuresOnly, what);
 	}
@@ -124,8 +130,8 @@ public final class ProjectTests {
 			final long timeoutSeconds) {
 		final List<String> own = ownClasspath();
 		if (own.isEmpty())
-			return Outcome.broken("clide cannot locate its own classpath, so it cannot hand the JUnit platform "
-					+ "to the test JVM");
+			return Outcome.broken(ErrorCode.TEST_RUNNER_BROKEN,
+					"clide cannot locate its own classpath, so it cannot hand the JUnit platform to the test JVM");
 
 		// Project first, clide last: a project shipping its own JUnit keeps it.
 		final List<String> full = new ArrayList<>(classpath);
@@ -145,7 +151,7 @@ public final class ProjectTests {
 		try {
 			process = new ProcessBuilder(command).directory(context.getProjectRoot().toFile()).start();
 		} catch (final IOException e) {
-			return Outcome.broken("could not start the test JVM: " + e.getMessage());
+			return Outcome.broken(ErrorCode.TEST_RUNNER_BROKEN, "could not start the test JVM: " + e.getMessage());
 		}
 
 		final StringBuilder stderr = new StringBuilder();
@@ -164,12 +170,12 @@ public final class ProjectTests {
 		} catch (final InterruptedException interrupted) {
 			Thread.currentThread().interrupt();
 			process.destroyForcibly();
-			return Outcome.broken("interrupted while running the tests");
+			return Outcome.broken(ErrorCode.TEST_RUNNER_BROKEN, "interrupted while running the tests");
 		}
 
 		if (finished == false) {
 			process.destroyForcibly();
-			return Outcome.broken("the tests did not finish within " + timeoutSeconds
+			return Outcome.broken(ErrorCode.TEST_TIMEOUT, "the tests did not finish within " + timeoutSeconds
 					+ "s and were killed - this is a timeout, not a test failure");
 		}
 
@@ -182,7 +188,8 @@ public final class ProjectTests {
 
 		final int exit = process.exitValue();
 		if (exit == TestRunnerMain.EXIT_BROKEN)
-			return Outcome.broken("the test JVM failed to run the tests: " + firstLine(stderr.toString()));
+			return Outcome.broken(ErrorCode.TEST_RUNNER_BROKEN,
+					"the test JVM failed to run the tests: " + firstLine(stderr.toString()));
 
 		return Outcome.of(lines);
 	}
@@ -240,30 +247,47 @@ public final class ProjectTests {
 		for (final String record : records) {
 			final List<String> fields = TestRunnerMain.parseRecord(record);
 			if (fields.get(0).equals(TestRunnerMain.NOCLASS))
-				return CommandResult.error(fields.get(1)
-						+ " is not in the compiled output - run rebuild first if you have just written or renamed "
-						+ "it, since run_test never compiles anything itself");
+				return CommandResult.error(ErrorCode.TEST_CLASS_NOT_COMPILED,
+						fields.get(1) + " is not in the compiled output",
+						"run rebuild first if you have just written or renamed it - " + label
+								+ " never compiles anything itself");
 		}
 
 		final int[] tally = tally(records);
 		final int passed = tally[0];
 		final int failed = tally[1];
 		final int skipped = tally[2];
-		final int total = passed + failed + skipped;
-		if (total == 0)
-			return CommandResult.error("no test found in " + what
-					+ " - an empty run is far more often a wrong selector or a missing rebuild than a project "
-					+ "with no tests");
+		if (passed + failed + skipped == 0)
+			return CommandResult.error(ErrorCode.NO_TEST_FOUND, "no test found in " + what,
+					"an empty run is far more often a wrong selector or a missing rebuild than a project "
+							+ "with no tests");
 
-		final StringBuilder out = new StringBuilder();
-		out.append(label).append(": ").append(total).append(" test(s), ").append(passed).append(" passed, ")
-				.append(failed).append(" failed");
-		if (skipped > 0)
-			out.append(", ").append(skipped).append(" skipped");
+		final List<TestOutcome> outcomes = outcomes(context, records, failuresOnly);
+		final CommandPayload payload = new CommandPayload.TestRun(what, passed, failed, skipped, millis,
+				Listing.of(outcomes, context.getMaxResults()), failuresOnly);
 
-		out.append(" in ").append(millis).append(" ms");
+		// A run that completed with failures is still reported as an ERROR, as it
+		// always has been - "did my tests pass" is the question, and a client that
+		// only looks at the status must not read a red suite as a green one. The
+		// payload rides along all the same, so the failures are listed under the
+		// error header rather than lost with it.
+		if (failed == 0)
+			return CommandResult.ok(payload);
 
+		return CommandResult.error(ErrorCode.TEST_FAILURES, failed + " test(s) failed out of "
+				+ (passed + failed + skipped), "", payload);
+	}
+
+	/**
+	 * One TestOutcome per record, minus the ones failuresOnly filters out. The
+	 * counts above are tallied from the full record list before this runs, so
+	 * "12 test(s), 9 passed" stays a statement about the run even when only the 3
+	 * failures are listed.
+	 */
+	private static List<TestOutcome> outcomes(final ClideContext context, final List<String> records,
+			final boolean failuresOnly) {
 		final Map<String, String> resolved = new HashMap<>();
+		final List<TestOutcome> outcomes = new ArrayList<>();
 		for (final String record : records) {
 			final List<String> fields = TestRunnerMain.parseRecord(record);
 			final String kind = fields.get(0);
@@ -271,7 +295,7 @@ public final class ProjectTests {
 				continue;
 
 			if (kind.equals(TestRunnerMain.FAIL)) {
-				out.append('\n').append(failureLines(context, fields, resolved));
+				outcomes.add(failure(context, fields, resolved));
 				continue;
 			}
 
@@ -279,12 +303,41 @@ public final class ProjectTests {
 				continue;
 
 			if (kind.equals(TestRunnerMain.PASS))
-				out.append("\n[passed] ").append(name(fields));
+				outcomes.add(TestOutcome.passed(name(fields)));
 			else if (kind.equals(TestRunnerMain.SKIP))
-				out.append("\n[skipped] ").append(name(fields)).append(": ").append(fields.get(4));
+				outcomes.add(TestOutcome.skipped(name(fields), fields.get(4)));
+		}
+		return outcomes;
+	}
+
+	/**
+	 * One failure. location is "path:line" in the same shape every find_* command
+	 * prints, so the answer can be pasted straight into hover or find_reference.
+	 * origin is only filled in when the exception came from somewhere other than
+	 * the test's own line - for a plain failed assertion the two are the same
+	 * place, and repeating it would be noise.
+	 */
+	private static TestOutcome failure(final ClideContext context, final List<String> fields,
+			final Map<String, String> resolved) {
+		final String className = fields.get(1);
+		final String methodName = fields.get(2);
+		final String displayName = fields.get(3);
+		final String message = fields.get(4);
+		final String testFrame = fields.get(5);
+		final String originFrame = fields.get(6);
+
+		final String where = locate(context, testFrame, resolved);
+		final String label = displayName.isEmpty() || displayName.equals(methodName + "()") ? methodName
+				: methodName + " " + displayName;
+
+		String origin = "";
+		if (originFrame.isEmpty() == false && originFrame.equals(testFrame) == false) {
+			final String located = locate(context, originFrame, resolved);
+			origin = located.isEmpty() ? originFrame : located;
 		}
 
-		return failed == 0 ? CommandResult.ok(out.toString()) : CommandResult.error(out.toString());
+		return new TestOutcome(TestOutcome.Status.FAILED, className + "." + label,
+				where.isEmpty() ? className : where, List.of(message.split("\n")), origin);
 	}
 
 	/**
@@ -333,37 +386,6 @@ public final class ProjectTests {
 			return qualified;
 
 		return qualified + " " + displayName;
-	}
-
-	/**
-	 * One failure, in the same "path:line:" shape every find_* command prints, so
-	 * the answer can be pasted straight into hover or find_reference. The origin
-	 * frame is only shown when the exception came from somewhere other than the
-	 * test's own line - for a plain failed assertion the two are the same place.
-	 */
-	private static String failureLines(final ClideContext context, final List<String> fields,
-			final Map<String, String> resolved) {
-		final String className = fields.get(1);
-		final String methodName = fields.get(2);
-		final String message = fields.get(4);
-		final String testFrame = fields.get(5);
-		final String originFrame = fields.get(6);
-
-		final String where = locate(context, testFrame, resolved);
-		final StringBuilder out = new StringBuilder();
-		final String displayName = fields.get(3);
-		final String label = displayName.isEmpty() || displayName.equals(methodName + "()") ? methodName
-				: methodName + " " + displayName;
-		out.append("[failed] ").append(where.isEmpty() ? className : where).append(": ").append(label);
-		for (final String line : message.split("\n"))
-			out.append("\n    ").append(line);
-
-		if (originFrame.isEmpty() == false && originFrame.equals(testFrame) == false) {
-			final String origin = locate(context, originFrame, resolved);
-			out.append("\n    thrown at ").append(origin.isEmpty() ? originFrame : origin);
-		}
-
-		return out.toString();
 	}
 
 	/**
@@ -422,19 +444,21 @@ public final class ProjectTests {
 	 * suite. Naming them and stopping is the honest answer until run_test takes a
 	 * module.
 	 */
-	private static String onlyOneProject(final ClideContext context) {
+	private static CommandResult onlyOneProject(final ClideContext context) {
 		final List<String> projects;
 		try {
 			projects = context.getCurrentSession().projectUris();
 		} catch (final Exception e) {
-			return "could not list the project's modules: " + e.getMessage();
+			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED,
+					"could not list the project's modules: " + e.getMessage());
 		}
 
 		if (projects.size() <= 1)
 			return null;
 
-		return "this repository holds " + projects.size()
-				+ " modules and clide cannot yet be told which one to test: " + String.join(", ", projects);
+		return CommandResult.error(ErrorCode.MULTI_MODULE_PROJECT,
+				"this repository holds " + projects.size() + " modules and clide cannot yet be told which one to test: "
+						+ String.join(", ", projects));
 	}
 
 	private static String firstLine(final String text) {
@@ -449,19 +473,21 @@ public final class ProjectTests {
 		private final List<String> records;
 		private long millis;
 		private final String failure;
+		private final ErrorCode failureCode;
 
-		private Outcome(final List<String> records, final String failure) {
+		private Outcome(final List<String> records, final String failure, final ErrorCode failureCode) {
 			this.records = records;
 			this.failure = failure;
+			this.failureCode = failureCode;
 		}
 
-		private static Outcome broken(final String failure) {
-			return new Outcome(List.of(), failure);
+		private static Outcome broken(final ErrorCode failureCode, final String failure) {
+			return new Outcome(List.of(), failure, failureCode);
 		}
 
 		/** SUMMARY is read for the elapsed time only - the counts come from the records. */
 		private static Outcome of(final List<String> lines) {
-			final Outcome outcome = new Outcome(new ArrayList<>(lines), null);
+			final Outcome outcome = new Outcome(new ArrayList<>(lines), null, ErrorCode.NONE);
 			for (final String line : lines) {
 				final List<String> fields = TestRunnerMain.parseRecord(line);
 				if (fields.get(0).equals(TestRunnerMain.SUMMARY) && fields.size() >= 6)

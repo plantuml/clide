@@ -15,3 +15,9 @@ Règles de style pour qui écrit ou modifie le code Java de clide lui-même
 - Variables locales `final` par défaut, dès que possible.
 - Négation de booléen : préférer une condition positive (`foo == false`)
   plutôt que l'opérateur de négation (`!foo`).
+  - **Exception : les patterns `instanceof`.** `if (x instanceof Truc t == false)`
+    compile, mais ne rend *pas* `t` visible dans la suite de la méthode : la
+    portée de flux d'une variable de motif n'est définie par le JLS que pour
+    `!`, `&&`, `||` et `?:`, jamais pour `== false`. Écrire la forme
+    positive — `if (x instanceof Truc t) { ... }`, le cas de repli après le
+    bloc — plutôt que de retomber sur `!`.

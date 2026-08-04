@@ -2,6 +2,7 @@ package clide.command;
 
 import java.io.IOException;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -9,7 +10,9 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
+import clide.result.CommandPayload;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
 
 /**
  * Opens a transaction (or sub-transaction) - see TransactionStack, CLAUDE.md.
@@ -63,10 +66,17 @@ public class OpenTransactionCommand extends Command {
 		final String id = params[0];
 		try {
 			context.getTransactions().open(id);
-		} catch (final IOException | IllegalArgumentException e) {
-			return CommandResult.error(e.getMessage());
+		} catch (final IOException e) {
+			return CommandResult.error(ErrorCode.TRANSACTION_IO_FAILED, e.getMessage());
+		} catch (final IllegalArgumentException e) {
+			return CommandResult.error(ErrorCode.TRANSACTION_REFUSED, e.getMessage());
 		}
-		return CommandResult.ok("Transaction " + id + " opened.");
+		return CommandResult.ok(new CommandPayload.Transaction(id, CommandPayload.Transaction.Action.OPENED, ""));
+	}
+
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		return TransactionRendering.render(result);
 	}
 
 }

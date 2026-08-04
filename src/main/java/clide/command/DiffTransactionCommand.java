@@ -3,6 +3,7 @@ package clide.command;
 import java.io.IOException;
 import java.util.List;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -10,8 +11,11 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
 import clide.core.TransactionStack;
+import clide.result.CommandPayload;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
+import clide.result.Listing;
 import clide.util.UnifiedDiff;
 
 /**
@@ -66,32 +70,53 @@ public class DiffTransactionCommand extends Command {
 
 		try {
 			if (filePath.isEmpty())
-				return listModifiedFiles(transactions, id);
+				return listModifiedFiles(context, transactions, id);
 
 			return diffOneFile(transactions, id, filePath);
-		} catch (final IOException | IllegalArgumentException e) {
-			return CommandResult.error(e.getMessage());
+		} catch (final IOException e) {
+			return CommandResult.error(ErrorCode.TRANSACTION_IO_FAILED, e.getMessage());
+		} catch (final IllegalArgumentException e) {
+			return CommandResult.error(ErrorCode.TRANSACTION_REFUSED, e.getMessage());
 		}
 	}
 
-	private CommandResult listModifiedFiles(final TransactionStack transactions, final String id)
-			throws IOException {
-		final List<String> files = transactions.modifiedFiles(id);
-		if (files.isEmpty())
-			return CommandResult.ok("Transaction " + id + " has not modified any file yet.");
-
-		return CommandResult.ok(String.join("\n", files));
+	private CommandResult listModifiedFiles(final ClideContext context, final TransactionStack transactions,
+			final String id) throws IOException {
+		return CommandResult.ok(new CommandPayload.ModifiedFiles(id,
+				Listing.of(transactions.modifiedFiles(id), context.getMaxResults())));
 	}
 
 	private CommandResult diffOneFile(final TransactionStack transactions, final String id, final String filePath)
 			throws IOException {
 		final List<String> before = transactions.beforeLines(id, filePath);
 		final List<String> current = transactions.currentLines(filePath);
-		final String diff = UnifiedDiff.render(before, current, "a/" + filePath, "b/" + filePath);
-		if (diff.isEmpty())
-			return CommandResult.ok("No differences (current content matches the pre-transaction backup).");
+		return CommandResult.ok(new CommandPayload.Diff(id, filePath,
+				UnifiedDiff.render(before, current, "a/" + filePath, "b/" + filePath)));
+	}
 
-		return CommandResult.ok(diff);
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		if (result.payload() instanceof CommandPayload.ModifiedFiles listed) {
+			final Listing<String> files = listed.files();
+			if (files.totalCount() == 0)
+				return "Transaction " + listed.transactionId() + " has not modified any file yet.";
+
+			final StringBuilder out = new StringBuilder();
+			out.append("diff_transaction: ").append(files.summarize("file"));
+			for (final String file : files.items())
+				out.append('\n').append(file);
+
+			return out.toString();
+		}
+
+		if (result.payload() instanceof CommandPayload.Diff diff) {
+			if (diff.unifiedDiff().isEmpty())
+				return "No differences (current content matches the pre-transaction backup).";
+
+			return diff.unifiedDiff();
+		}
+
+		return "";
 	}
 
 }

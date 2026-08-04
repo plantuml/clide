@@ -1,9 +1,7 @@
 package clide.command;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -11,8 +9,9 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
 import clide.jdtls.JdtlsSession;
+import clide.result.CommandPayload;
+import clide.result.CommandResult;
 
 /**
  * Reports the diagnostics collected by the last build() of the project this
@@ -59,11 +58,17 @@ public class PrintDiagnosticsCommand extends Command {
 		final JdtlsSession session = context.getCurrentSession();
 
 		final boolean errorsOnly = params[0].equals("errors");
-		final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-		try (PrintStream out = new PrintStream(buffer, true, StandardCharsets.UTF_8)) {
-			session.reportDiagnostics(out, errorsOnly);
+		return CommandResult
+				.ok(new CommandPayload.Diagnostics(session.diagnosticsReport(errorsOnly, context.getMaxResults())));
+	}
+
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		if (result.payload() instanceof CommandPayload.Diagnostics found) {
+			return DiagnosticsRendering.render(found.report());
 		}
-		return CommandResult.ok(buffer.toString(StandardCharsets.UTF_8).strip());
+
+		return "";
 	}
 
 }

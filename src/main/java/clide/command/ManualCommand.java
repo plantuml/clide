@@ -7,7 +7,9 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
+import clide.result.CommandPayload;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
 
 public class ManualCommand extends Command {
 
@@ -55,9 +57,10 @@ public class ManualCommand extends Command {
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final Command command = context.getCommand(params[0]);
 		if (command == null)
-			return CommandResult.error("Invalid keyword '" + params[0] + "'");
+			return CommandResult.error(ErrorCode.UNKNOWN_KEYWORD, "Invalid keyword '" + params[0] + "'",
+					"run help to list every command");
 
-		return CommandResult.ok(command.getManual());
+		return CommandResult.ok(new CommandPayload.Text(command.getManual()));
 	}
 
 }

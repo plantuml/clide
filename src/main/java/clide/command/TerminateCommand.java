@@ -7,7 +7,8 @@ import clide.annotation.Keyword;
 import clide.annotation.Manual;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
 
 /** Stops the jdtls session and shuts down the clide daemon entirely. */
 public class TerminateCommand extends Command {
@@ -59,12 +60,13 @@ public class TerminateCommand extends Command {
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final List<String> open = context.getTransactions().openIds();
 		if (open.isEmpty() == false)
-			return CommandResult.error("Refusing to terminate while transaction(s) are still open - "
-					+ "commit_transaction or rollback_transaction each one first: " + String.join(", ", open));
+			return CommandResult.error(ErrorCode.TERMINATE_REFUSED,
+					"Refusing to terminate while transaction(s) are still open: " + String.join(", ", open),
+					"commit_transaction or rollback_transaction each one first");
 
 		context.stopSession();
 		context.requestShutdown();
-		return CommandResult.ok("");
+		return CommandResult.empty();
 	}
 
 }

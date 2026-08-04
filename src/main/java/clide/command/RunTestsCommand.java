@@ -1,5 +1,6 @@
 package clide.command;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -7,7 +8,7 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
+import clide.result.CommandResult;
 import clide.test.ProjectTests;
 
 /**
@@ -69,6 +70,11 @@ public class RunTestsCommand extends Command {
 		// Same convention as rebuild and print_diagnostics: only the exact
 		// literal narrows the listing, any other value reports everything.
 		return ProjectTests.runEverything(context, params[0].equals("failures"));
+	}
+
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		return TestRunRendering.render("run_tests", result);
 	}
 
 }

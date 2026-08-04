@@ -1,12 +1,18 @@
 package clide.command;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
+import clide.result.CommandPayload;
+import clide.result.CommandResult;
+import clide.result.CommandSummary;
+import clide.result.Listing;
 import clide.util.TextTable;
 
 /**
@@ -57,20 +63,46 @@ public class HelpCommand extends Command {
 		return false;
 	}
 
+	/**
+	 * Collects what every registered command says about itself. Never capped: help
+	 * listing only some of the commands would be a listing a client cannot trust,
+	 * and the count is a couple of dozen by construction - so Listing.of() gets the
+	 * full size as its own limit rather than this connection's max_results.
+	 */
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
-		if (context.getPrintMode() == PrintMode.HUMAN)
-			return CommandResult.ok(renderTable(context));
+		final List<CommandSummary> summaries = new ArrayList<>();
+		for (final Command command : context.getAllCommands())
+			summaries.add(new CommandSummary(command.getKeyword(), List.of(command.getDescriptionParam()),
+					command.getHelp()));
 
-		return CommandResult.ok(renderOneLinePerCommand(context));
+		return CommandResult.ok(new CommandPayload.CommandList(Listing.of(summaries, summaries.size())));
+	}
+
+	/**
+	 * The one command whose rendering genuinely differs by print mode - and the
+	 * reason Command.render() is handed one at all. Both shapes say exactly the
+	 * same thing, off the same payload: nothing for an AI client to strip, nothing
+	 * for a person to squint at.
+	 */
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		if (result.payload() instanceof CommandPayload.CommandList listed) {
+			if (printMode == PrintMode.HUMAN)
+				return renderTable(listed.commands().items());
+
+			return renderOneLinePerCommand(listed.commands().items());
+		}
+
+		return "";
 	}
 
 	/** HUMAN rendering: a fixed-width ASCII table, one row per command. */
-	private String renderTable(final ClideContext context) {
+	private String renderTable(final List<CommandSummary> commands) {
 		final TextTable table = new TextTable(80, "Keyword", "Parameters", "Description");
 
-		for (final Command command : context.getAllCommands()) {
-			table.addRow(command.getKeyword(), formatParams(command), command.getHelp());
+		for (final CommandSummary command : commands) {
+			table.addRow(command.keyword(), String.join("\n", bracketed(command)), command.help());
 			table.addEmptyRow();
 		}
 
@@ -78,28 +110,30 @@ public class HelpCommand extends Command {
 	}
 
 	/** AI rendering: "keyword &lt;param&gt; ... - description", one line per command. */
-	private String renderOneLinePerCommand(final ClideContext context) {
+	private String renderOneLinePerCommand(final List<CommandSummary> commands) {
 		final StringBuilder text = new StringBuilder();
 
-		for (final Command command : context.getAllCommands()) {
-			text.append(command.getKeyword());
-			for (final String paramDescription : command.getDescriptionParam())
-				text.append(" <").append(paramDescription).append('>');
-			text.append(" - ").append(command.getHelp()).append('\n');
+		for (final CommandSummary command : commands) {
+			if (text.length() > 0)
+				text.append('\n');
+
+			text.append(command.keyword());
+			if (command.parameters().isEmpty() == false)
+				text.append(' ').append(command.parametersDisplay());
+
+			text.append(" - ").append(command.help());
 		}
 
-		return text.toString().strip();
+		return text.toString();
 	}
 
-	private String formatParams(final Command command) {
-		final StringBuilder params = new StringBuilder();
-		for (final String paramDescription : command.getDescriptionParam()) {
-			if (params.length() > 0)
-				params.append('\n');
-			params.append('<').append(paramDescription).append('>');
-		}
+	/** The parameter labels, each in its own angle brackets - one per table line. */
+	private List<String> bracketed(final CommandSummary command) {
+		final List<String> params = new ArrayList<>();
+		for (final String parameter : command.parameters())
+			params.add("<" + parameter + ">");
 
-		return params.toString();
+		return params;
 	}
 
 }

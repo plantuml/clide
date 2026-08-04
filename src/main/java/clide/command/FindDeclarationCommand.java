@@ -1,5 +1,6 @@
 package clide.command;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -7,7 +8,7 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
+import clide.result.CommandResult;
 
 /**
  * Where a symbol is really declared - <what> picks which LSP request goes
@@ -58,16 +59,18 @@ public class FindDeclarationCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
-		final String what = params[0];
-		final String lspMethod;
-		if (what.equals("method"))
-			lspMethod = "textDocument/definition";
-		else if (what.equals("type"))
-			lspMethod = "textDocument/typeDefinition";
-		else
-			return CommandResult.error("Invalid <what> '" + what + "' - expected \"method\" or \"type\"");
+		final CommandResult rejected = CommandResults.rejectUnlessOneOf("what", params[0], "method", "type");
+		if (rejected != null)
+			return rejected;
 
-		return PositionCommandSupport.goToAndFormat(context, "find_declaration", lspMethod, params[1], null);
+		final String lspMethod = params[0].equals("method") ? "textDocument/definition"
+				: "textDocument/typeDefinition";
+		return PositionCommandSupport.goTo(context, "find_declaration", lspMethod, params[1], null);
+	}
+
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		return PositionCommandSupport.render("find_declaration", result, printMode);
 	}
 
 }

@@ -1,7 +1,9 @@
 package clide.command;
 
+import java.io.IOException;
 import java.util.List;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -9,9 +11,13 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
 import clide.core.Position;
 import clide.jdtls.JdtlsSession;
+import clide.result.CommandPayload;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
+import clide.result.Listing;
+import clide.result.SymbolHit;
 
 /**
  * textDocument/documentSymbol: lists the direct members (methods, fields,
@@ -58,23 +64,41 @@ public class ListMembersCommand extends Command {
 		try {
 			position = Position.parse(params[0], context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
-			return CommandResult.error(e.getMessage());
+			return CommandResults.positionFailure(e);
 		}
 
 		try {
-			final List<String> members = session.listMembers(position);
-			if (members.isEmpty())
-				return CommandResult.ok("list_members: " + position.name() + " has no members");
-
-			final StringBuilder output = new StringBuilder();
-			output.append("list_members: ").append(members.size()).append(" member(s)\n");
-			for (final String member : members)
-				output.append(member).append('\n');
-
-			return CommandResult.ok(output.toString().strip());
+			final CommandPayload payload = new CommandPayload.Symbols(position.name(),
+					Listing.of(session.listMembers(position), context.getMaxResults()));
+			return CommandResult.ok(payload).withWarnings(CommandResults.ambiguityWarnings(position));
+		} catch (final IOException e) {
+			// listMembers() raises this exact IOException when position names something
+			// that is not a class/interface/enum - a mistake worth its own code, since
+			// the fix is to point at a type rather than to retry.
+			return CommandResult.error(ErrorCode.NOT_A_TYPE, e.getMessage(),
+					"find_symbol " + position.name() + " lists where that name is declared as a type");
 		} catch (final Exception e) {
-			return CommandResult.error("list_members failed: " + e.getMessage());
+			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, "list_members failed: " + e.getMessage());
 		}
+	}
+
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		if (result.payload() instanceof CommandPayload.Symbols found) {
+			final Listing<SymbolHit> members = found.symbols();
+			if (members.totalCount() == 0)
+				return "list_members: " + found.subject()
+						+ " has no direct members (inherited ones are never listed - see man list_members)";
+
+			final StringBuilder out = new StringBuilder();
+			out.append("list_members: ").append(members.summarize("member"));
+			for (final SymbolHit member : members.items())
+				out.append('\n').append(member.display());
+
+			return out.toString();
+		}
+
+		return "";
 	}
 
 }

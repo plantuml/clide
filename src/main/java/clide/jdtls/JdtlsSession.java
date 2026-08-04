@@ -1,7 +1,6 @@
 package clide.jdtls;
 
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -16,6 +15,11 @@ import clide.core.FilesRepository;
 import clide.core.Monomorphic;
 import clide.core.Position;
 import clide.core.Snapshot;
+import clide.result.CodeLocation;
+import clide.result.Diagnostic;
+import clide.result.DiagnosticsReport;
+import clide.result.Listing;
+import clide.result.SymbolHit;
 
 /**
  * Drives a full jdtls session end-to-end: LSP handshake (with Gradle/Maven
@@ -189,7 +193,7 @@ public class JdtlsSession {
 	 * Returns one formatted "path:line: line content" entry per location in the
 	 * response, in server order; an empty list if the response was empty/null.
 	 */
-	public List<String> goToPosition(final String lspMethod, final Position position)
+	public List<CodeLocation> goToPosition(final String lspMethod, final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		return goToPosition(lspMethod, position, null);
 	}
@@ -203,7 +207,7 @@ public class JdtlsSession {
 	 * three goto_* commands keep going through the 2-arg overload above, which
 	 * passes null here.
 	 */
-	public List<String> goToPosition(final String lspMethod, final Position position, final Monomorphic context)
+	public List<CodeLocation> goToPosition(final String lspMethod, final Position position, final Monomorphic context)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request(lspMethod,
 				JdtlsResponses.positionParams(position.file(), position.line(), position.column(), context), 30);
@@ -211,7 +215,7 @@ public class JdtlsSession {
 		if (error != null)
 			throw new IOException(lspMethod + " failed: " + error);
 
-		return formatLocations(response.getOrNull("result"));
+		return collectLocations(response.getOrNull("result"));
 	}
 
 	/**
@@ -246,7 +250,7 @@ public class JdtlsSession {
 	 * Returns one "[kind] path:line: line content" entry per member, in
 	 * documentSymbol's own order.
 	 */
-	public List<String> listMembers(final Position position)
+	public List<SymbolHit> listMembers(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final String uri = position.file().toUri().toString();
 		final Monomorphic typeNode = findTypeNode(JdtlsResponses.documentSymbols(client, uri), position.name(),
@@ -256,7 +260,7 @@ public class JdtlsSession {
 					"No class/interface/enum named '" + position.name() + "' declared at line " + position.line()
 							+ " of " + position.file() + " (list_members only inspects types, not methods/fields)");
 
-		return formatMembers(uri, JdtlsResponses.childrenOf(typeNode));
+		return collectMembers(uri, JdtlsResponses.childrenOf(typeNode));
 	}
 
 	/**
@@ -270,15 +274,15 @@ public class JdtlsSession {
 	 * path shortening, reading the line's own text) is this class' job;
 	 * MethodOverrideRecovery only ever deals in raw Monomorphic locations.
 	 */
-	public List<String> findMethodImplementations(final Position position)
+	public List<CodeLocation> findMethodImplementations(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final List<Monomorphic> merged = new MethodOverrideRecovery(client).find(position);
 
-		final List<String> formatted = new ArrayList<>();
+		final List<CodeLocation> located = new ArrayList<>();
 		for (final Monomorphic location : merged)
-			formatted.add(formatLocation(location));
+			located.add(locationOf(location));
 
-		return formatted;
+		return located;
 	}
 
 	/**
@@ -291,7 +295,7 @@ public class JdtlsSession {
 	 * response, in server order - see formatSymbol(); an empty list if the response
 	 * was empty/null.
 	 */
-	public List<String> findSymbol(final String query)
+	public List<SymbolHit> findSymbol(final String query)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic params = Monomorphic.mapBuilder().putString("query", query).build();
 
@@ -300,32 +304,32 @@ public class JdtlsSession {
 		if (error != null)
 			throw new IOException("workspace/symbol failed: " + error);
 
-		return formatSymbols(response.getOrNull("result"));
+		return collectSymbols(response.getOrNull("result"));
 	}
 
 	/** Accepts either a SymbolInformation[], or null/absent. */
-	private List<String> formatSymbols(final Monomorphic result) {
-		final List<String> formatted = new ArrayList<>();
+	private List<SymbolHit> collectSymbols(final Monomorphic result) {
+		final List<SymbolHit> symbols = new ArrayList<>();
 		for (final Monomorphic item : result.elementsOf())
 			if (item.isMap())
-				formatted.add(formatSymbol(item));
+				symbols.add(symbolOf(item));
 
-		return formatted;
+		return symbols;
 	}
 
 	/**
-	 * "[kind] path:line: line content" - the location part reuses formatLocation()
-	 * as-is: a SymbolInformation's own "location" field is a plain Location
-	 * (uri+range), the same shape formatLocation() already renders for
-	 * find_declaration/find_implementation.
+	 * One workspace/symbol hit. The location part reuses locationOf() as-is: a
+	 * SymbolInformation's own "location" field is a plain Location (uri+range),
+	 * the same shape locationOf() already reads for
+	 * find_declaration/find_implementation. A symbol jdtls returned without a
+	 * location keeps a null one rather than being dropped - SymbolHit.display()
+	 * falls back to its name, so it is still reported, just not navigable.
 	 */
-	private String formatSymbol(final Monomorphic symbol) {
+	private SymbolHit symbolOf(final Monomorphic symbol) {
 		final Monomorphic location = symbol.getOrNull("location");
-		final String locationText = location.isMap() == false
-				? String.valueOf(symbol.getOrNull("name").stringOrNull()) + ": <no location>"
-				: formatLocation(location);
-
-		return "[" + symbolKindLabel(symbol.getOrNull("kind")) + "] " + locationText;
+		final String name = String.valueOf(symbol.getOrNull("name").stringOrNull());
+		return new SymbolHit(symbolKindLabel(symbol.getOrNull("kind")), name,
+				location.isMap() ? locationOf(location) : null);
 	}
 
 	/**
@@ -401,30 +405,31 @@ public class JdtlsSession {
 		return angle < 0 ? name : name.substring(0, angle);
 	}
 
-	private List<String> formatMembers(final String uri, final List<Monomorphic> children) {
-		final List<String> formatted = new ArrayList<>();
+	private List<SymbolHit> collectMembers(final String uri, final List<Monomorphic> children) {
+		final List<SymbolHit> members = new ArrayList<>();
 		for (final Monomorphic member : children)
 			if (member.isMap())
-				formatted.add(formatMember(uri, member));
+				members.add(memberOf(uri, member));
 
-		return formatted;
+		return members;
 	}
 
 	/**
-	 * "[kind] path:line: line content" - built the same way formatSymbol() builds
-	 * one for workspace/symbol, except a documentSymbol child has no "location" of
-	 * its own (uri+range together): the uri is the containing file's (same for
-	 * every child, passed in), only "selectionRange" is on the child itself. A
-	 * synthetic {"uri":..., "range":...} map lets formatLocation() render it
-	 * exactly the same way regardless.
+	 * One member of a type, built the same way symbolOf() builds one for
+	 * workspace/symbol, except a documentSymbol child has no "location" of its own
+	 * (uri+range together): the uri is the containing file's (same for every child,
+	 * passed in), only "selectionRange" is on the child itself. A synthetic
+	 * {"uri":..., "range":...} map lets locationOf() read it exactly the same way
+	 * regardless.
 	 */
-	private String formatMember(final String uri, final Monomorphic member) {
+	private SymbolHit memberOf(final String uri, final Monomorphic member) {
 		final Monomorphic location = Monomorphic.mapBuilder() //
 				.putString("uri", uri) //
 				.put("range", member.getOrNull("selectionRange")) //
 				.build();
 
-		return "[" + symbolKindLabel(member.getOrNull("kind")) + "] " + formatLocation(location);
+		final String name = String.valueOf(member.getOrNull("name").stringOrNull());
+		return new SymbolHit(symbolKindLabel(member.getOrNull("kind")), name, locationOf(location));
 	}
 
 	/**
@@ -475,12 +480,12 @@ public class JdtlsSession {
 	 * Accepts either a single Location, a Location[], or null/absent - the LSP
 	 * response shapes allowed for definition/typeDefinition.
 	 */
-	private List<String> formatLocations(final Monomorphic result) {
-		final List<String> formatted = new ArrayList<>();
+	private List<CodeLocation> collectLocations(final Monomorphic result) {
+		final List<CodeLocation> locations = new ArrayList<>();
 		for (final Monomorphic location : JdtlsResponses.rawLocations(result))
-			formatted.add(formatLocation(location));
+			locations.add(locationOf(location));
 
-		return formatted;
+		return locations;
 	}
 
 	/**
@@ -488,29 +493,42 @@ public class JdtlsSession {
 	 * future capabilities change makes jdtls prefer that shape over plain Location
 	 * (uri/range) - harmless either way since only one shape is ever populated.
 	 */
-	private String formatLocation(final Monomorphic location) {
+	private CodeLocation locationOf(final Monomorphic location) {
 		final String uri = JdtlsResponses.uriOf(location);
 		final int zeroBasedLine = JdtlsResponses.lineOf(JdtlsResponses.startOf(JdtlsResponses.rangeOf(location)));
-		final long line = zeroBasedLine == -1 ? -1 : zeroBasedLine + 1;
+		final int line = zeroBasedLine == -1 ? -1 : zeroBasedLine + 1;
 
-		final String locationLabel = shortName(uri) + ":" + line;
 		final String lineText = JdtlsResponses.readLineSafely(uri, line);
-		return lineText == null ? locationLabel : locationLabel + ": " + lineText;
+		return new CodeLocation(shortName(uri), line, lineText == null ? "" : lineText);
 	}
 
 	/**
-	 * Prints a summary of the diagnostics collected by the last build(). If
-	 * printOnlyError is true, only error-level diagnostics are listed in detail
-	 * (warnings/info are still counted in the summary line, just not printed one by
-	 * one).
+	 * What the last build() found, as data - the counts over every diagnostic it
+	 * collected, plus the (filtered, then capped) diagnostics themselves.
+	 *
+	 * Used to print its own summary to a PrintStream; it now returns a
+	 * DiagnosticsReport and lets print_diagnostics/rebuild render it, so the same
+	 * facts can be counted, capped and (one day) serialized instead of existing
+	 * only as text.
+	 *
+	 * Two things the counts deliberately do NOT depend on. They are tallied over
+	 * every diagnostic, before errorsOnly filters anything out - "3 error(s), 12
+	 * warning(s)" is a statement about the project, and it would quietly become a
+	 * statement about the excerpt if the filter came first. And they are tallied
+	 * before maxResults caps anything, so Listing.truncated() compares against the
+	 * real total rather than against the cap (see Listing).
+	 *
+	 * An empty diagnosticsByUri returns DiagnosticsReport.untracked(): jdtls holds
+	 * nothing at all for this project, which means nothing was analyzed - a
+	 * different statement from "analyzed and found clean", and not one to blur
+	 * into it.
 	 */
-	public void reportDiagnostics(final PrintStream out, boolean printOnlyError) {
-		if (diagnosticsByUri.isEmpty()) {
-			out.println("jdtls: no diagnostics (project not recognized, or nothing to report)");
-			return;
-		}
+	public DiagnosticsReport diagnosticsReport(final boolean errorsOnly, final int maxResults) {
+		if (diagnosticsByUri.isEmpty())
+			return DiagnosticsReport.untracked();
 
 		final Map<String, List<Monomorphic>> sorted = new TreeMap<>(diagnosticsByUri);
+		final List<Diagnostic> kept = new ArrayList<>();
 		int errorCount = 0;
 		int warningCount = 0;
 		int filesWithIssues = 0;
@@ -520,39 +538,30 @@ public class JdtlsSession {
 				continue;
 
 			filesWithIssues++;
-			boolean headerPrinted = false;
 			for (final Monomorphic diagnostic : diagnostics) {
-				final long severityCode = diagnostic.getOrNull("severity").longOrDefault(0);
-				if (severityCode == 1)
+				final Diagnostic.Severity severity = Diagnostic.Severity
+						.ofLspCode(diagnostic.getOrNull("severity").longOrDefault(0));
+				if (severity == Diagnostic.Severity.ERROR)
 					errorCount++;
-				else if (severityCode == 2)
+				else if (severity == Diagnostic.Severity.WARNING)
 					warningCount++;
 
-				if (printOnlyError && severityCode != 1)
+				if (errorsOnly && severity != Diagnostic.Severity.ERROR)
 					continue;
 
-				if (headerPrinted == false) {
-					out.println(shortName(entry.getKey()) + ":");
-					headerPrinted = true;
-				}
-				out.println("  " + formatDiagnostic(diagnostic));
+				kept.add(diagnosticOf(shortName(entry.getKey()), severity, diagnostic));
 			}
 		}
 
-		if (errorCount == 0 && warningCount == 0)
-			out.println("jdtls: " + sorted.size() + " file(s) with tracked diagnostics, no errors or warnings");
-		else
-			out.println("jdtls: " + errorCount + " error(s), " + warningCount + " warning(s) in " + filesWithIssues
-					+ " file(s)");
-
+		return new DiagnosticsReport(Listing.of(kept, maxResults), errorCount, warningCount, filesWithIssues,
+				errorsOnly, true);
 	}
 
-	private String formatDiagnostic(final Monomorphic diagnostic) {
-		final long severityCode = diagnostic.getOrNull("severity").longOrDefault(0);
-		final String severityLabel = severityCode == 1 ? "error" : severityCode == 2 ? "warning" : "info";
+	private Diagnostic diagnosticOf(final String path, final Diagnostic.Severity severity,
+			final Monomorphic diagnostic) {
 		final int zeroBasedLine = JdtlsResponses.lineOf(JdtlsResponses.startOf(diagnostic.getOrNull("range")));
-		final long line = zeroBasedLine == -1 ? -1 : zeroBasedLine + 1;
-		return "[" + severityLabel + "] line " + line + ": " + diagnostic.getOrNull("message").stringOrNull();
+		final int line = zeroBasedLine == -1 ? -1 : zeroBasedLine + 1;
+		return new Diagnostic(path, line, severity, String.valueOf(diagnostic.getOrNull("message").stringOrNull()));
 	}
 
 	private String shortName(final String uri) {

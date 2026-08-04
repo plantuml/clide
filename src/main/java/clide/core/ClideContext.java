@@ -37,12 +37,28 @@ public class ClideContext {
 
 	private final Map<String, Command> commandsByKeywords = new TreeMap<>();
 
+	/**
+	 * How many entries a listing command returns unless this connection says
+	 * otherwise. High enough that a normal question is answered in full, low
+	 * enough that find_reference on something like PlantUML's UGraphic does not
+	 * bury the answer under its own output.
+	 */
+	public static final int DEFAULT_MAX_RESULTS = 100;
+
+	/**
+	 * The largest value set_max_results accepts. Not a silent clamp: a request
+	 * above it is refused, naming the ceiling, because a cap that quietly ignores
+	 * what it was told is how a client ends up believing it disabled truncation.
+	 */
+	public static final int MAX_RESULTS_CEILING = 10000;
+
 	private final Path projectRoot;
 	private final JdtlsSession session;
 	private final TransactionStack transactions;
 	private boolean shutdownRequested;
 	private boolean disconnectRequested;
 	private PrintMode printMode = PrintMode.AI;
+	private int maxResults = DEFAULT_MAX_RESULTS;
 
 	public ClideContext(final Path projectRoot, final JdtlsSession session, Collection<Command> commands) {
 		this.projectRoot = projectRoot;
@@ -110,13 +126,6 @@ public class ClideContext {
 		return disconnectRequested;
 	}
 
-	/**
-	 * Reset at the start of every new connection - see
-	 * ClideDaemon.serveOneClient().
-	 */
-	public void clearDisconnectRequested() {
-		disconnectRequested = false;
-	}
 
 	/**
 	 * The print mode of the connection currently being served - AI unless that
@@ -134,6 +143,41 @@ public class ClideContext {
 	 */
 	public void setPrintMode(final PrintMode printMode) {
 		this.printMode = printMode;
+	}
+
+	/**
+	 * How many entries the commands that answer with a list return at most - see
+	 * Listing, and set_max_results to change it.
+	 *
+	 * A setting of the connection being served, not of the daemon: it goes back to
+	 * DEFAULT_MAX_RESULTS at the start of every connection (see
+	 * resetPerConnectionSettings()), exactly as printMode is re-read from every
+	 * handshake. Inheriting a cap somebody else set in an earlier session, with no
+	 * way to notice it had been set, would be a fine way to read a truncated
+	 * answer as a complete one.
+	 */
+	public int getMaxResults() {
+		return maxResults;
+	}
+
+	public void setMaxResults(final int maxResults) {
+		if (maxResults < 0)
+			throw new IllegalArgumentException("maxResults must not be negative: " + maxResults);
+
+		if (maxResults > MAX_RESULTS_CEILING)
+			throw new IllegalArgumentException("maxResults must not exceed " + MAX_RESULTS_CEILING);
+
+		this.maxResults = maxResults;
+	}
+
+	/**
+	 * Puts back everything a connection is allowed to change for itself alone -
+	 * called by ClideDaemon.serveOneClient() before a new client is served. Today:
+	 * the disconnect flag an earlier exit/quit may have left set, and maxResults.
+	 */
+	public void resetPerConnectionSettings() {
+		disconnectRequested = false;
+		maxResults = DEFAULT_MAX_RESULTS;
 	}
 
 	/** "terminate": end this connection and shut the whole daemon down. */

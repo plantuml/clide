@@ -1,5 +1,6 @@
 package clide.command;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -7,8 +8,8 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
 import clide.core.Monomorphic;
+import clide.result.CommandResult;
 
 /**
  * Every real usage of a symbol across the whole project - replaces the former
@@ -61,12 +62,17 @@ public class FindReferenceCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
-		final String what = params[0];
-		if (what.equals("method") == false && what.equals("type") == false)
-			return CommandResult.error("Invalid <what> '" + what + "' - expected \"method\" or \"type\"");
+		final CommandResult rejected = CommandResults.rejectUnlessOneOf("what", params[0], "method", "type");
+		if (rejected != null)
+			return rejected;
 
-		return PositionCommandSupport.goToAndFormat(context, "find_reference", "textDocument/references", params[1],
+		return PositionCommandSupport.goTo(context, "find_reference", "textDocument/references", params[1],
 				Monomorphic.mapBuilder().putBoolean("includeDeclaration", false).build());
+	}
+
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		return PositionCommandSupport.render("find_reference", result, printMode);
 	}
 
 }

@@ -14,6 +14,12 @@ package clide.annotation;
  * (see clide.core.Position.parse()) - the file path relative to the open
  * project, never the daemon's own current directory - and name must actually
  * appear as a whole word on that line of that file.</li>
+ * <li>NON_NEGATIVE_INTEGER must parse as a base-10 integer that is zero or
+ * more. Zero is accepted and means zero, never quietly turned into one: a
+ * client that asks for no results gets none, and a client that asks for -1 or
+ * for "many" is told which parameter it got wrong rather than having a value
+ * guessed for it. Any upper bound is the command's own business, not this
+ * type's - see set_max_results and ClideContext.MAX_RESULTS_CEILING.</li>
  * </ul>
  * SINGLE_LINE accepts any text unchecked, read as exactly one line by
  * ClideDaemon.readParams().
@@ -33,5 +39,5 @@ package clide.annotation;
  * "\n".
  */
 public enum ParamType {
-	TRANSACTION_ID, REGEX, POSITION, SINGLE_LINE, MULTI_LINE
+	TRANSACTION_ID, REGEX, POSITION, NON_NEGATIVE_INTEGER, SINGLE_LINE, MULTI_LINE
 }

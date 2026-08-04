@@ -20,11 +20,14 @@ import clide.PrintMode;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
-import clide.core.CommandStatus;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
+import clide.result.ResultEnvelope;
+import clide.result.CommandStatus;
 import clide.core.FilesRepository;
 import clide.core.Md5Repository;
 import clide.core.Position;
+import clide.core.PositionException;
 import clide.core.TransactionStack;
 import clide.jdtls.EclipseProjectFiles;
 import clide.jdtls.JdtlsLauncher;
@@ -130,7 +133,9 @@ public final class ClideDaemon {
 	 * connection, and the whole daemon via run()'s loop condition).
 	 */
 	private void serveOneClient(final ServerSocket serverSocket, final ClideContext context) throws IOException {
-		context.clearDisconnectRequested(); // fresh connection - an earlier exit/quit must not leak into this one
+		// fresh connection: an earlier exit/quit must not leak into this one, and
+		// neither must a max_results somebody else set - see ClideContext.
+		context.resetPerConnectionSettings();
 		try (Socket client = serverSocket.accept();
 				BufferedReader reader = new BufferedReader(
 						new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
@@ -175,7 +180,11 @@ public final class ClideDaemon {
 
 			final Command command = context.getCommand(keyword);
 			if (command == null) {
-				out.println("?SYNTAX ERROR");
+				printResult(out, null, CommandResult.error(ErrorCode.UNKNOWN_KEYWORD,
+						"Unknown command '" + keyword + "'",
+						"run help to list every command - and remember one token per line, "
+								+ "so a whole command written on a single line reads as one unknown keyword"),
+						printMode);
 				continue;
 			}
 
@@ -187,30 +196,33 @@ public final class ClideDaemon {
 
 			final String[] params = readParams(reader, out, command, printMode);
 			if (params == null) {
-				out.println("?SYNTAX ERROR: missing parameter(s) for " + keyword);
+				printResult(out, command, CommandResult.error(ErrorCode.MISSING_PARAMETERS,
+						"missing parameter(s) for " + keyword,
+						"help gives the arity of every command; give them all, then finish with exit"), printMode);
 				return; // this client's input ended mid-command
 			}
 
-			final String paramError = validateParams(command, params, context.getProjectRoot());
+			final CommandResult paramError = validateParams(command, params, context.getProjectRoot());
 			if (paramError != null) {
-				out.println("?SYNTAX ERROR: " + paramError);
+				printResult(out, command, paramError, printMode);
 				continue; // surface-invalid parameter - back to READY, the command never runs
 			}
 
 			if (command.needsOpenTransaction() && context.getTransactions().hasAnyOpen() == false) {
-				printResult(out, CommandResult.error(keyword + " requires an open transaction - see open_transaction"));
+				printResult(out, command, CommandResult.error(ErrorCode.NO_OPEN_TRANSACTION,
+						keyword + " requires an open transaction", "open_transaction $some_id first"), printMode);
 				continue;
 			}
 
 			if (command.needsJdtlsSession()) {
 				final CommandResult restartFailure = ensureSessionReady(out, context);
 				if (restartFailure != null) {
-					printResult(out, restartFailure);
+					printResult(out, command, restartFailure, printMode);
 					continue;
 				}
 			}
 
-			printResult(out, command.executeCommand(context, params));
+			printResult(out, command, command.executeCommand(context, params), printMode);
 			if (context.isShutdownRequested() || context.isDisconnectRequested())
 				return;
 		}
@@ -270,7 +282,8 @@ public final class ClideDaemon {
 			}
 			return null;
 		} catch (final Exception e) {
-			return CommandResult.error("Failed to restart jdtls session: " + e.getMessage());
+			return CommandResult.error(ErrorCode.SESSION_START_FAILED,
+					"Failed to restart jdtls session: " + e.getMessage());
 		}
 	}
 
@@ -356,10 +369,10 @@ public final class ClideDaemon {
 	 * for (see CLAUDE.md, ParamType). Returns the first error message found, or
 	 * null once every parameter has passed.
 	 */
-	private String validateParams(final Command command, final String[] params, final Path projectRoot) {
+	private CommandResult validateParams(final Command command, final String[] params, final Path projectRoot) {
 		final ParamType[] types = command.getParamTypes();
 		for (int i = 0; i < params.length; i++) {
-			final String error = validate(types[i], params[i], projectRoot);
+			final CommandResult error = validate(types[i], params[i], projectRoot);
 			if (error != null)
 				return error;
 		}
@@ -374,40 +387,81 @@ public final class ClideDaemon {
 	 * null when value is acceptable, or an error message fit to send back to the
 	 * client as-is otherwise.
 	 */
-	private String validate(final ParamType type, final String value, final Path projectRoot) {
+	private CommandResult validate(final ParamType type, final String value, final Path projectRoot) {
 		switch (type) {
 		case TRANSACTION_ID:
 			if (TransactionStack.ID_PATTERN.matcher(value).matches() == false)
-				return "Invalid transaction id '" + value + "' - expected $segment, lowercase word characters only "
-						+ "(e.g. $refactor_foo, $refactor_foo$part1)";
+				return CommandResult.error(ErrorCode.INVALID_TRANSACTION_ID, "Invalid transaction id '" + value
+						+ "' - expected $segment, lowercase word characters only "
+						+ "(e.g. $refactor_foo, $refactor_foo$part1)");
 			return null;
 		case REGEX:
 			try {
 				Pattern.compile(value);
 			} catch (final PatternSyntaxException e) {
-				return "Invalid regex '" + value + "': " + e.getMessage();
+				return CommandResult.error(ErrorCode.INVALID_REGEX,
+						"Invalid regex '" + value + "': " + e.getMessage());
 			}
 			return null;
 		case POSITION:
 			try {
 				Position.parse(value, projectRoot);
 			} catch (final IllegalArgumentException e) {
-				return e.getMessage();
+				// PositionException carries which of the four ways it failed; anything
+				// else would be a bug in Position, reported rather than swallowed.
+				return CommandResult.error(PositionException.codeOf(e), e.getMessage());
 			}
 			return null;
+		case NON_NEGATIVE_INTEGER:
+			return validateNonNegativeInteger(value);
 		default:
 			return null;
 		}
 	}
 
-	private void printResult(final PrintStream out, final CommandResult result) {
-		if (result.message().isEmpty())
+	/**
+	 * Zero is accepted and means zero; a negative or unparsable value is refused
+	 * naming the parameter rather than repaired into something plausible. Any upper
+	 * bound belongs to the command, not to the type - see SetMaxResultsCommand.
+	 */
+	private CommandResult validateNonNegativeInteger(final String value) {
+		final int parsed;
+		try {
+			parsed = Integer.parseInt(value.strip());
+		} catch (final NumberFormatException e) {
+			return CommandResult.error(ErrorCode.INVALID_INTEGER,
+					"Invalid count '" + value + "' - expected an integer of 0 or more");
+		}
+
+		if (parsed < 0)
+			return CommandResult.error(ErrorCode.INVALID_INTEGER,
+					"Invalid count '" + value + "' - expected an integer of 0 or more, not a negative one");
+
+		return null;
+	}
+
+	/**
+	 * Renders result and writes it out - the one place a CommandResult becomes
+	 * text.
+	 *
+	 * Two steps, deliberately separate. The body is the command's own business
+	 * (Command.render(), which knows what its payload means); the envelope around
+	 * it - the "?ERROR &lt;CODE&gt;" header, the hint, the warning lines - is the
+	 * same for every command and belongs to ResultEnvelope. command is null only
+	 * for the unknown-keyword case, where there is no command to ask and the
+	 * envelope is the whole of the answer.
+	 *
+	 * Nothing at all is printed when there is nothing to say: a successful exit
+	 * with no open transaction stays as silent as it always was.
+	 */
+	private void printResult(final PrintStream out, final Command command, final CommandResult result,
+			final PrintMode printMode) {
+		final String body = command == null ? "" : command.render(result, printMode);
+		final String text = ResultEnvelope.render(result, body);
+		if (text.isEmpty())
 			return;
 
-		if (result.status() == CommandStatus.ERROR)
-			out.println("Error: " + result.message());
-		else
-			out.println(result.message());
+		out.println(text);
 	}
 
 	private void shutdown(final JdtlsSession session, final ServerSocket serverSocket) {

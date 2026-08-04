@@ -90,9 +90,10 @@ This makes one mistake very easy to hit on the very first command:
 find_reference method src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession
 ```
 
-fails with a bare `?SYNTAX ERROR`. Not because the parameters are wrong,
-but because that entire line was looked up as a keyword and no keyword by
-that name exists. The same command, written correctly:
+fails with `?ERROR UNKNOWN_KEYWORD: Unknown command 'find_reference method
+src/...'`. Not because the parameters are wrong, but because that entire line
+was looked up as a keyword and no keyword by that name exists. The same
+command, written correctly:
 
 ```
 find_reference
@@ -113,10 +114,66 @@ Three consequences worth knowing before sending anything:
   inside it. `search_regex`'s content regex, typically, is written
   `private static final String` bare on its own line.
 - **Ending the input mid-command drops the connection**: the daemon
-  answers `?SYNTAX ERROR: missing parameter(s) for <keyword>` and closes
-  that client (the daemon itself stays up). When piping a batch of
-  commands, give every one of them all of its parameters, and finish with
-  `exit`.
+  answers `?ERROR MISSING_PARAMETERS: missing parameter(s) for <keyword>`
+  and closes that client (the daemon itself stays up). When piping a batch
+  of commands, give every one of them all of its parameters, and finish
+  with `exit`.
+
+## Reading a result: three shapes, and only three
+
+Every command answers in the same envelope, whatever it was asked. There is
+nothing to strip on success — the answer is the whole output — and exactly two
+markers to recognize otherwise:
+
+```
+?ERROR LINE_OUT_OF_RANGE: Line 999 out of range (file has 312 line(s)): Foo.java
+hint: find_symbol Foo locates it
+!WARNING AMBIGUOUS_NAME_ON_LINE: 'add' appears 3 times on line 12 (columns 10, 14, 25) - answered about the first one
+```
+
+- **`?ERROR <CODE>: <message>`** — the command refused. `<CODE>` names *why*,
+  so a caller branches on the kind of failure instead of matching on wording:
+  `UNKNOWN_KEYWORD`, `MISSING_PARAMETERS`, `INVALID_ENUM_VALUE`,
+  `INVALID_REGEX`, `INVALID_INTEGER`, `VALUE_OUT_OF_RANGE`, `NOT_A_DIRECTORY`,
+  `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`,
+  `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NOT_A_TYPE`, `JDTLS_REQUEST_FAILED`,
+  `BUILD_FAILED`, `SESSION_START_FAILED`, `TEST_FAILURES`, `NO_TEST_FOUND`,
+  `TEST_CLASS_NOT_COMPILED`, `TEST_TIMEOUT`, `TEST_RUNNER_BROKEN`,
+  `MULTI_MODULE_PROJECT`, `NO_OUTPUT_FOLDER`, `CLASSPATH_UNAVAILABLE`,
+  `TERMINATE_REFUSED`, `NO_OPEN_TRANSACTION`, `TRANSACTION_REFUSED`,
+  `TRANSACTION_IO_FAILED`, `IO_FAILED`. An optional `hint:` line on the next
+  line says what to actually do about it. This replaces the old
+  `?SYNTAX ERROR` / `Error:` pair, which said only *that* something was wrong.
+- **`!WARNING <CODE>: <message>`** — the answer stands and is printed as usual;
+  something about it is worth knowing. Two exist today:
+  `AMBIGUOUS_NAME_ON_LINE` (the `<name>` of a `<symbol>` occurs more than once
+  on its line, and clide answered about the first occurrence — see the notation
+  section above) and `TRANSACTIONS_STILL_OPEN`.
+- **anything else** — the answer itself.
+
+**Finding nothing is not an error.** `find_reference` with no usage,
+`list_members` on a type with no members, `search_regex` with no match: all
+succeed, and say so in words. Only a question clide could not answer at all
+gets a `?ERROR`.
+
+### Truncation: `set_max_results`
+
+Every command that answers with a list caps it — 100 entries by default — and
+reports the real total either way:
+
+```
+find_reference: 50 location(s) shown out of 312, truncated - raise the limit with set_max_results
+```
+
+Two guarantees worth relying on. The total is counted before the cap is
+applied, so it is the real one; and a result of exactly `max_results` entries
+with nothing left over is *not* reported as truncated.
+
+`set_max_results <count>` changes the cap for the current session only — a new
+session starts back at 100 — and prints the previous value alongside the new
+one, which is also the only way to read the setting back (the protocol's fixed
+arity leaves no room for an argument-less form). `0` is honoured literally;
+values above 10000 are refused naming the ceiling rather than clamped.
 
 ## jdtls and the `.project`/`.classpath` files: fully automatic
 
@@ -214,9 +271,12 @@ the question — a grep remains blind to inheritance and polymorphism.
 | `list_members <symbol>` | **Direct** members (methods, fields, constructors) of a type — never inherited members. |
 
 All accept the `<symbol>` notation above, except `find_symbol` which takes
-a bare name. All fail cleanly (`?SYNTAX ERROR: ...`) on a nonexistent
-file, an out-of-bounds line, or a symbol absent from the given line —
-before any request even reaches jdtls.
+a bare name. All fail cleanly — and namefully: `?ERROR FILE_NOT_FOUND`,
+`?ERROR LINE_OUT_OF_RANGE`, `?ERROR NAME_NOT_ON_LINE` — before any request
+even reaches jdtls. See "Reading a result" below.
+
+All of them cap their listing at `max_results` (100 by default) and say so
+when they do; `set_max_results <count>` changes it for the session.
 
 ### Tests of the opened project
 
@@ -260,6 +320,7 @@ commits first, most recent rollbacks first).
 |---|---|
 | `help` | Lists all commands: one line each in AI mode, an ASCII table under `--human`. |
 | `man <keyword>` | Detailed page for a command. |
+| `set_max_results <count>` | Caps how many entries a listing command returns, for this session only — see "Truncation" above. |
 | `exit` / `quit` | Disconnects cleanly; the daemon and any open transactions survive. |
 | `terminate` | Stops the daemon; refuses if a transaction is still open. |
 
@@ -271,7 +332,9 @@ commits first, most recent rollbacks first).
 - **`list_members`** only lists a type's direct members, never those
   inherited from a superclass.
 - **`find_symbol`** never finds a field by its name (types and methods
-  only) — a jdtls limitation, not clide's.
+  only) — a jdtls limitation, not clide's. An empty `find_symbol` result now
+  says so in place, so "no symbol found" on a field is not mistaken for "that
+  field does not exist".
 - **`rebuild` with nothing changed** still pays the cost of a full build —
   no shortcut to the already-known diagnostics.
 - On a very large test suite with missing system dependencies,

@@ -6,12 +6,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import clide.jdtls.JdtlsSession;
 import clide.jdtls.LspClient;
+import clide.result.ErrorCode;
 
 /**
  * A position in clide's client-facing notation:
@@ -45,12 +47,14 @@ public final class Position {
 	private final int line;
 	private final String name;
 	private final int column;
+	private final List<Integer> columnsOnLine;
 
-	private Position(final Path file, final int line, final String name, final int column) {
+	private Position(final Path file, final int line, final String name, final List<Integer> columnsOnLine) {
 		this.file = file;
 		this.line = line;
 		this.name = name;
-		this.column = column;
+		this.column = columnsOnLine.get(0);
+		this.columnsOnLine = List.copyOf(columnsOnLine);
 	}
 
 	/** Absolute path of the file this position is in. */
@@ -74,6 +78,27 @@ public final class Position {
 	}
 
 	/**
+	 * Every 0-based column name() occurs at as a whole word on line(), in order -
+	 * column() is the first of them, and the one every jdtls request is sent
+	 * against.
+	 *
+	 * More than one is not an error, and resolving the first is what lets a result
+	 * printed by one command be pasted straight into the next. But it is the one
+	 * case where clide may quietly have answered about a different symbol than the
+	 * one meant - "a.foo(b.foo())" names two unrelated methods on one line - so
+	 * commands report it as a WarningCode.AMBIGUOUS_NAME_ON_LINE rather than
+	 * letting it pass unmentioned. See CommandResults.ambiguityWarnings().
+	 */
+	public List<Integer> columnsOnLine() {
+		return columnsOnLine;
+	}
+
+	/** Whether name() occurs more than once as a whole word on line(). */
+	public boolean isAmbiguousOnLine() {
+		return columnsOnLine.size() > 1;
+	}
+
+	/**
 	 * Parses "&lt;file path&gt;:&lt;line&gt;:&lt;name&gt;", the file path
 	 * resolved against projectRoot - never the current working directory, so the
 	 * same notation means the same thing regardless of where the clide daemon
@@ -83,21 +108,24 @@ public final class Position {
 	 * plain-text, no jdtls involved (a stronger, jdtls-backed check only happens
 	 * once a command actually runs and asks jdtls itself).
 	 *
-	 * @throws IllegalArgumentException with a message fit to send back to the
-	 *                                  client as-is, on any failure: malformed
-	 *                                  notation, missing file, out-of-range
-	 *                                  line, or name absent from that line.
+	 * @throws PositionException with a message fit to send back to the client
+	 *                           as-is, and the ErrorCode saying which of the
+	 *                           failures it was: MALFORMED_POSITION,
+	 *                           FILE_NOT_FOUND, FILE_UNREADABLE,
+	 *                           LINE_OUT_OF_RANGE or NAME_NOT_ON_LINE. Still an
+	 *                           IllegalArgumentException, so every catch site
+	 *                           written before the codes existed keeps working.
 	 */
 	public static Position parse(final String token, final Path projectRoot) {
 		final Matcher notation = NOTATION.matcher(token.trim());
 		if (notation.matches() == false)
-			throw new IllegalArgumentException(
+			throw new PositionException(ErrorCode.MALFORMED_POSITION,
 					"Invalid position '" + token + "' - expected <file path>:<line>:<name>");
 
 		final String pathArgument = notation.group(1);
 		final Path file = resolvePath(pathArgument, projectRoot);
 		if (Files.isRegularFile(file) == false)
-			throw new IllegalArgumentException("Not a file: " + pathArgument);
+			throw new PositionException(ErrorCode.FILE_NOT_FOUND, "Not a file: " + pathArgument);
 
 		final int line = Integer.parseInt(notation.group(2));
 		final String name = notation.group(3);
@@ -106,18 +134,19 @@ public final class Position {
 		try {
 			lines = Files.readAllLines(file, StandardCharsets.UTF_8);
 		} catch (final IOException e) {
-			throw new IllegalArgumentException("Could not read " + pathArgument + ": " + e.getMessage());
+			throw new PositionException(ErrorCode.FILE_UNREADABLE,
+					"Could not read " + pathArgument + ": " + e.getMessage());
 		}
 		if (line < 1 || line > lines.size())
-			throw new IllegalArgumentException(
+			throw new PositionException(ErrorCode.LINE_OUT_OF_RANGE,
 					"Line " + line + " out of range (file has " + lines.size() + " line(s)): " + pathArgument);
 
-		final int column = wholeWordColumn(lines.get(line - 1), name);
-		if (column < 0)
-			throw new IllegalArgumentException(
+		final List<Integer> columns = wholeWordColumns(lines.get(line - 1), name);
+		if (columns.isEmpty())
+			throw new PositionException(ErrorCode.NAME_NOT_ON_LINE,
 					"'" + name + "' not found on line " + line + " of " + pathArgument);
 
-		return new Position(file, line, name, column);
+		return new Position(file, line, name, columns);
 	}
 
 	/**
@@ -162,10 +191,24 @@ public final class Position {
 		return pathArgument.regionMatches(true, 0, "file:", 0, 5);
 	}
 
-	/** 0-based column of the first whole-word match of name on line, or -1. */
-	private static int wholeWordColumn(final String line, final String name) {
+	/**
+	 * Every 0-based column at which name occurs as a whole word on line, in
+	 * order; empty when it does not occur at all.
+	 *
+	 * Used to stop at the first match and return just that one. It still resolves
+	 * to the first - changing which occurrence wins would break the copy-a-result-
+	 * into-the-next-command chaining that the whole notation exists for - but the
+	 * others are now kept rather than discarded, so a command can warn that the
+	 * line was ambiguous instead of silently picking one of several unrelated
+	 * symbols. See columnsOnLine().
+	 */
+	private static List<Integer> wholeWordColumns(final String line, final String name) {
+		final List<Integer> columns = new ArrayList<>();
 		final Matcher matcher = Pattern.compile("\\b" + Pattern.quote(name) + "\\b").matcher(line);
-		return matcher.find() ? matcher.start() : -1;
+		while (matcher.find())
+			columns.add(matcher.start());
+
+		return columns;
 	}
 
 	/**

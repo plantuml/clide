@@ -7,9 +7,11 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
 import clide.core.Position;
 import clide.jdtls.JdtlsSession;
+import clide.result.CommandPayload;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
 
 /**
  * textDocument/hover: the signature/Javadoc jdtls knows for the symbol at one
@@ -63,13 +65,17 @@ public class HoverCommand extends Command {
 		try {
 			position = Position.parse(params[0], context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
-			return CommandResult.error(e.getMessage());
+			return CommandResults.positionFailure(e);
 		}
 
 		try {
-			return CommandResult.ok(position.retrieveJavadoc(session));
+			// Text, not a parsed structure: what comes back is jdtls' own markdown,
+			// "Source:" footer included, and clide passes it through untouched - see
+			// CommandPayload.Text.
+			final CommandPayload payload = new CommandPayload.Text(position.retrieveJavadoc(session));
+			return CommandResult.ok(payload).withWarnings(CommandResults.ambiguityWarnings(position));
 		} catch (final Exception e) {
-			return CommandResult.error("hover failed: " + e.getMessage());
+			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, "hover failed: " + e.getMessage());
 		}
 	}
 

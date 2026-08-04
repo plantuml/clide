@@ -1,9 +1,7 @@
 package clide.command;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -11,8 +9,10 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
 import clide.jdtls.JdtlsSession;
+import clide.result.CommandPayload;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
 
 /**
  * Recompiles the project and reports the diagnostics of that build - the
@@ -81,18 +81,26 @@ public class RebuildCommand extends Command {
 			refreshed = session.refreshChangedFiles();
 			session.build();
 		} catch (final Exception e) {
-			return CommandResult.error("rebuild failed: " + e.getMessage());
+			// The build itself broke, as opposed to succeeding while reporting compile
+			// errors - the previous build's diagnostics are left untouched, so
+			// print_diagnostics still describes the last build that did complete.
+			return CommandResult.error(ErrorCode.BUILD_FAILED, "rebuild failed: " + e.getMessage());
 		}
 		final long elapsed = System.currentTimeMillis() - startedAt;
 
 		final boolean errorsOnly = params[0].equals("errors");
-		final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-		try (PrintStream out = new PrintStream(buffer, true, StandardCharsets.UTF_8)) {
-			out.println("rebuild: " + refreshed + " file(s) changed since the last build, rebuilt in " + elapsed
-					+ " ms");
-			session.reportDiagnostics(out, errorsOnly);
+		return CommandResult.ok(new CommandPayload.Rebuild(refreshed, elapsed,
+				session.diagnosticsReport(errorsOnly, context.getMaxResults())));
+	}
+
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		if (result.payload() instanceof CommandPayload.Rebuild built) {
+			return "rebuild: " + built.changedFiles() + " file(s) changed since the last build, rebuilt in "
+					+ built.elapsedMillis() + " ms\n" + DiagnosticsRendering.render(built.report());
 		}
-		return CommandResult.ok(buffer.toString(StandardCharsets.UTF_8).strip());
+
+		return "";
 	}
 
 }

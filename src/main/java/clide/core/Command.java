@@ -2,11 +2,14 @@ package clide.core;
 
 import java.lang.reflect.Constructor;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
+import clide.result.CommandResult;
+import clide.result.ResultEnvelope;
 
 /**
  * A single clide command: identified by a @Keyword, documented by @Help,
@@ -44,6 +47,35 @@ public abstract class Command implements Comparable<Command> {
 	 * always equals paramSize().
 	 */
 	public abstract CommandResult executeCommand(ClideContext context, String... params);
+
+	/**
+	 * Turns what this command found into the text a client reads - its handler,
+	 * and the only place that decides how this command's results look.
+	 *
+	 * Kept on the command rather than in a registry keyed by keyword, for the same
+	 * reason @Keyword/@Help/@Param/@Manual are: a command already describes
+	 * itself, and a parallel table indexed by name is one more thing that can
+	 * drift out of step with the command it describes, for no gain. Here the
+	 * producer of a payload and its reader are the same class, and the sealed
+	 * CommandPayload hierarchy means reading a shape the command never produces
+	 * does not compile.
+	 *
+	 * Returns the <b>body</b> only. The error header, the hint and the warning
+	 * lines are identical for every command and are added around this by
+	 * ResultEnvelope - see ClideDaemon.printResult(). Returning "" is normal: a
+	 * command with nothing to say says nothing.
+	 *
+	 * printMode is passed because a few commands legitimately read differently for
+	 * a person and for a program (help is the one that does today). Most ignore it
+	 * - one rendering that needs no stripping beats two that can disagree.
+	 *
+	 * The default handles the payloads that need no interpretation (Nothing,
+	 * Text) and falls back to the record's own toString() for anything else -
+	 * only reachable from a command that has not written its handler yet.
+	 */
+	public String render(final CommandResult result, final PrintMode printMode) {
+		return ResultEnvelope.defaultBody(result.payload());
+	}
 
 	/**
 	 * Whether this command needs the project's jdtls session to be running.

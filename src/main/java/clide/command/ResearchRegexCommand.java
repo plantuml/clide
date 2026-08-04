@@ -4,11 +4,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Stream;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -16,8 +18,12 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
 import clide.core.Position;
+import clide.result.CommandPayload;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
+import clide.result.Listing;
+import clide.result.SearchMatch;
 
 public class ResearchRegexCommand extends Command {
 
@@ -102,8 +108,9 @@ public class ResearchRegexCommand extends Command {
 		final Path projectRoot = context.getProjectRoot();
 		final Path initialPath = Position.resolvePath(params[0], projectRoot);
 		if (Files.isDirectory(initialPath) == false)
-			return CommandResult.error("Not a directory: '" + params[0] + "' (resolved against the project root "
-					+ projectRoot + ", giving " + initialPath + ")");
+			return CommandResult.error(ErrorCode.NOT_A_DIRECTORY,
+					"Not a directory: '" + params[0] + "' (resolved against the project root " + projectRoot
+							+ ", giving " + initialPath + ")");
 
 		final Pattern pathPattern;
 		final Pattern contentPattern;
@@ -111,12 +118,15 @@ public class ResearchRegexCommand extends Command {
 			pathPattern = Pattern.compile(params[1]);
 			contentPattern = Pattern.compile(params[2]);
 		} catch (final PatternSyntaxException e) {
-			return CommandResult.error("Invalid regex: " + e.getMessage());
+			return CommandResult.error(ErrorCode.INVALID_REGEX, "Invalid regex: " + e.getMessage());
 		}
 
-		final StringBuilder output = new StringBuilder();
+		// Every match is collected, then capped by Listing.of() below - never
+		// stopped at max_results here. Walking only as far as the cap would make
+		// the reported total "how far we walked", and truncated() would compare a
+		// number against itself; see Listing.
+		final List<SearchMatch> matches = new ArrayList<>();
 		int matchingFiles = 0;
-		int matchingLines = 0;
 		try (Stream<Path> walk = Files.walk(initialPath)) {
 			final List<Path> files = walk.filter(Files::isRegularFile).toList();
 			for (final Path file : files) {
@@ -133,10 +143,8 @@ public class ResearchRegexCommand extends Command {
 				boolean fileHasMatch = false;
 				for (int i = 0; i < lines.size(); i++)
 					if (contentPattern.matcher(lines.get(i)).find()) {
-						matchingLines++;
 						fileHasMatch = true;
-						output.append(normalizedPath).append(':').append(i + 1).append(": ").append(lines.get(i))
-								.append('\n');
+						matches.add(new SearchMatch(normalizedPath, i + 1, lines.get(i)));
 					}
 
 				if (fileHasMatch)
@@ -144,12 +152,32 @@ public class ResearchRegexCommand extends Command {
 
 			}
 		} catch (final IOException e) {
-			return CommandResult.error("search_regex failed: " + e.getMessage());
+			return CommandResult.error(ErrorCode.IO_FAILED, "search_regex failed: " + e.getMessage());
 		}
 
-		output.append("search_regex: ").append(matchingLines).append(" match(es) in ").append(matchingFiles)
-				.append(" file(s)");
-		return CommandResult.ok(output.toString().strip());
+		return CommandResult.ok(
+				new CommandPayload.SearchMatches(Listing.of(matches, context.getMaxResults()), matchingFiles));
+	}
+
+	/**
+	 * The matched lines, then the tally. The tally goes last on purpose: it is the
+	 * line a reader wants after scrolling through the matches, and it is where the
+	 * truncation notice belongs when there were more matches than max_results.
+	 */
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		if (result.payload() instanceof CommandPayload.SearchMatches found) {
+			final Listing<SearchMatch> matches = found.matches();
+			final StringBuilder out = new StringBuilder();
+			for (final SearchMatch match : matches.items())
+				out.append(match.display()).append('\n');
+
+			out.append("search_regex: ").append(matches.summarize("match")).append(" in ").append(found.fileCount())
+					.append(" file(s)");
+			return out.toString();
+		}
+
+		return "";
 	}
 
 	/**

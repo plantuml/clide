@@ -1,5 +1,6 @@
 package clide.command;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -7,7 +8,7 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
+import clide.result.CommandResult;
 
 /**
  * Which concrete classes/methods actually implement or override a symbol -
@@ -62,9 +63,9 @@ public class FindImplementationCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
-		final String what = params[0];
-		if (what.equals("method") == false && what.equals("type") == false)
-			return CommandResult.error("Invalid <what> '" + what + "' - expected \"method\" or \"type\"");
+		final CommandResult rejected = CommandResults.rejectUnlessOneOf("what", params[0], "method", "type");
+		if (rejected != null)
+			return rejected;
 
 		// <what> used to be documentation only - jdtls resolves type-vs-method
 		// from the position alone. It now genuinely selects a code path: on a
@@ -72,12 +73,16 @@ public class FindImplementationCommand extends Command {
 		// renamed-type-variable overrides of a generic method), so that case goes
 		// through a recovering pass - see JdtlsSession.findMethodImplementations().
 		// On a type, the plain request is already exhaustive.
-		if (what.equals("method"))
-			return PositionCommandSupport.findMethodImplementationsAndFormat(context, "find_implementation",
-					params[1]);
+		if (params[0].equals("method"))
+			return PositionCommandSupport.findMethodImplementations(context, "find_implementation", params[1]);
 
-		return PositionCommandSupport.goToAndFormat(context, "find_implementation", "textDocument/implementation",
-				params[1], null);
+		return PositionCommandSupport.goTo(context, "find_implementation", "textDocument/implementation", params[1],
+				null);
+	}
+
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		return PositionCommandSupport.render("find_implementation", result, printMode);
 	}
 
 }

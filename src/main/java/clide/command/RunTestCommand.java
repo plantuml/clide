@@ -2,6 +2,7 @@ package clide.command;
 
 import java.io.IOException;
 
+import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
@@ -9,8 +10,9 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
 import clide.core.Position;
+import clide.result.CommandResult;
+import clide.result.ErrorCode;
 import clide.test.ProjectTests;
 import clide.test.TestSelector;
 
@@ -86,18 +88,25 @@ public class RunTestCommand extends Command {
 		final Position position;
 		try {
 			position = Position.parse(params[0], context.getProjectRoot());
-		} catch (final Exception e) {
-			return CommandResult.error("Invalid <position> '" + params[0] + "': " + e.getMessage());
+		} catch (final IllegalArgumentException e) {
+			return CommandResults.positionFailure(e);
 		}
 
 		final String[] selector;
 		try {
 			selector = TestSelector.forFile(position.file(), position.name());
 		} catch (final IOException e) {
-			return CommandResult.error("could not read " + position.file() + ": " + e.getMessage());
+			return CommandResult.error(ErrorCode.FILE_UNREADABLE,
+					"could not read " + position.file() + ": " + e.getMessage());
 		}
 
-		return ProjectTests.runSelection(context, selector, selector[1]);
+		return ProjectTests.runSelection(context, selector, selector[1])
+				.withWarnings(CommandResults.ambiguityWarnings(position));
+	}
+
+	@Override
+	public String render(final CommandResult result, final PrintMode printMode) {
+		return TestRunRendering.render("run_test", result);
 	}
 
 }

@@ -4,7 +4,9 @@ import java.util.List;
 
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.CommandResult;
+import clide.result.CommandResult;
+import clide.result.Warning;
+import clide.result.WarningCode;
 
 /**
  * Shared logic behind exit and quit: both stop the jdtls session but leave the
@@ -33,10 +35,15 @@ public abstract class DisconnectCommand extends Command {
 
 		final List<String> open = context.getTransactions().openIds();
 		if (open.isEmpty())
-			return CommandResult.ok("");
+			return CommandResult.empty();
 
-		return CommandResult.ok("Warning: transaction(s) still open, unaffected by exit/quit - reconnect to "
-				+ "commit_transaction/rollback_transaction them: " + String.join(", ", open));
+		// A real Warning now rather than a sentence starting with "Warning:" - same
+		// information, but a client can tell it apart from the answer without
+		// matching on a prefix, and the result stays OK because nothing was blocked.
+		return CommandResult.empty()
+				.withWarning(Warning.of(WarningCode.TRANSACTIONS_STILL_OPEN,
+						"transaction(s) still open, unaffected by exit/quit - reconnect to "
+								+ "commit_transaction/rollback_transaction them: " + String.join(", ", open)));
 	}
 
 }
