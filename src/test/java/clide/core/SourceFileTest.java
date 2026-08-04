@@ -31,10 +31,10 @@ class SourceFileTest {
 	@DisplayName("deux lectures du même fichier intact donnent le même SourceFile, mtime bougé ou non")
 	void theMtimeDoesNotShow(@TempDir final Path directory) throws IOException {
 		final Path file = write(directory, "Alpha.java", "class Alpha {}");
-		final SourceFile before = SourceFile.fromPath(file);
+		final SourceFile before = SourceFile.fromPath(Md5Repository.none(), file);
 
 		Files.setLastModifiedTime(file, FileTime.fromMillis(9_000_000));
-		final SourceFile after = SourceFile.fromPath(file);
+		final SourceFile after = SourceFile.fromPath(Md5Repository.none(), file);
 
 		assertEquals(before, after);
 		assertEquals(before.hashCode(), after.hashCode());
@@ -45,18 +45,18 @@ class SourceFileTest {
 	@DisplayName("un contenu différent donne un md5 différent, donc un SourceFile différent")
 	void adifferentContentShows(@TempDir final Path directory) throws IOException {
 		final Path file = write(directory, "Alpha.java", "class Alpha {}");
-		final SourceFile before = SourceFile.fromPath(file);
+		final SourceFile before = SourceFile.fromPath(Md5Repository.none(), file);
 
 		write(directory, "Alpha.java", "class Alpha { int i; }");
 
-		assertNotEquals(before, SourceFile.fromPath(file));
+		assertNotEquals(before, SourceFile.fromPath(Md5Repository.none(), file));
 	}
 
 	@Test
 	@DisplayName("deux fichiers de même contenu restent distincts par leur chemin")
 	void thePathIsPartOfTheIdentity(@TempDir final Path directory) throws IOException {
-		final SourceFile alpha = SourceFile.fromPath(write(directory, "Alpha.java", "class X {}"));
-		final SourceFile beta = SourceFile.fromPath(write(directory, "Beta.java", "class X {}"));
+		final SourceFile alpha = SourceFile.fromPath(Md5Repository.none(), write(directory, "Alpha.java", "class X {}"));
+		final SourceFile beta = SourceFile.fromPath(Md5Repository.none(), write(directory, "Beta.java", "class X {}"));
 
 		assertEquals(alpha.sourceFileMd5(), beta.sourceFileMd5());
 		assertNotEquals(alpha, beta);
@@ -65,7 +65,7 @@ class SourceFileTest {
 	@Test
 	@DisplayName("le md5 est celui du contenu, en hexadécimal minuscule")
 	void theMd5IsTheWellKnownOne(@TempDir final Path directory) throws IOException {
-		final SourceFile file = SourceFile.fromPath(write(directory, "Alpha.java", "abc"));
+		final SourceFile file = SourceFile.fromPath(Md5Repository.none(), write(directory, "Alpha.java", "abc"));
 
 		assertEquals("900150983cd24fb0d6963f7d28e17f72", file.sourceFileMd5());
 	}
@@ -73,7 +73,7 @@ class SourceFileTest {
 	@Test
 	@DisplayName("un fichier absent remonte l'erreur plutôt que de rendre un SourceFile vide")
 	void anAbsentFileFails(@TempDir final Path directory) {
-		assertThrows(NoSuchFileException.class, () -> SourceFile.fromPath(directory.resolve("Absent.java")));
+		assertThrows(NoSuchFileException.class, () -> SourceFile.fromPath(Md5Repository.none(), directory.resolve("Absent.java")));
 	}
 
 	private Path write(final Path directory, final String name, final String content) throws IOException {

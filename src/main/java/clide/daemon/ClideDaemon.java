@@ -23,6 +23,7 @@ import clide.core.Command;
 import clide.core.CommandResult;
 import clide.core.CommandStatus;
 import clide.core.FilesRepository;
+import clide.core.Md5Repository;
 import clide.core.Position;
 import clide.core.TransactionStack;
 import clide.jdtls.EclipseProjectFiles;
@@ -82,7 +83,8 @@ public final class ClideDaemon {
 
 		System.out.print("(2/4) Initializing IDE ...");
 		final JdtlsLauncher launcher = new JdtlsLauncher(jdtlsHome());
-		final FilesRepository filesRepository = new FilesRepository(projectRoot);
+		final Md5Repository md5Repository = new Md5Repository(projectRoot);
+		final FilesRepository filesRepository = new FilesRepository(projectRoot, md5Repository);
 		final JdtlsSession session = new JdtlsSession(launcher, filesRepository);
 		System.out.println(" [OK]");
 
@@ -102,9 +104,8 @@ public final class ClideDaemon {
 		}
 
 		if (eclipseFilesWereMissing)
-			System.out.println(
-					" [OK] (imported via a temporary .project/.classpath from src/**/java and .clide/*.jar, "
-							+ "removed afterward - none existed before)");
+			System.out.println(" [OK] (imported via a temporary .project/.classpath from src/**/java and .clide/*.jar, "
+					+ "removed afterward - none existed before)");
 		else
 			System.out.println(" [OK] (imported via a temporary .project/.classpath, "
 					+ "the project's own restored afterward - see .clide/tmp/ for what was actually used)");
@@ -143,10 +144,10 @@ public final class ClideDaemon {
 	/**
 	 * Serves one client's commands until it disconnects, in the print mode that
 	 * client announced - see readPrintMode() for how the very first line decides
-	 * it. The mode is a local, not a field: it belongs to this one connection, so
-	 * a "clide --human" session and an AI one can be served in turn by the same
-	 * daemon without either seeing the other's prompts. It is also published to
-	 * the context, for the commands whose own output depends on it - see
+	 * it. The mode is a local, not a field: it belongs to this one connection, so a
+	 * "clide --human" session and an AI one can be served in turn by the same
+	 * daemon without either seeing the other's prompts. It is also published to the
+	 * context, for the commands whose own output depends on it - see
 	 * ClideContext.setPrintMode() and HelpCommand.
 	 */
 	private void runSession(final BufferedReader reader, final PrintStream out, final ClideContext context)
@@ -217,8 +218,8 @@ public final class ClideDaemon {
 
 	/**
 	 * HUMAN when a connection's first line is exactly PrintMode.HUMAN_FLAG - the
-	 * handshake ClideClient sends for "clide --human" and nothing else sends -
-	 * AI for every other first line, which is then a command like any other (see
+	 * handshake ClideClient sends for "clide --human" and nothing else sends - AI
+	 * for every other first line, which is then a command like any other (see
 	 * runSession()). Recognizing the flag rather than requiring a mode line from
 	 * every client is what keeps a bare socket session, netcat included, working
 	 * unchanged: no first command is ever mistaken for a handshake, since no
@@ -351,9 +352,9 @@ public final class ClideDaemon {
 
 	/**
 	 * Runs validate() over every parameter, in order, before the command they
-	 * belong to ever executes - the "surface" check ParamType.POSITION/REGEX
-	 * exist for (see CLAUDE.md, ParamType). Returns the first error message
-	 * found, or null once every parameter has passed.
+	 * belong to ever executes - the "surface" check ParamType.POSITION/REGEX exist
+	 * for (see CLAUDE.md, ParamType). Returns the first error message found, or
+	 * null once every parameter has passed.
 	 */
 	private String validateParams(final Command command, final String[] params, final Path projectRoot) {
 		final ParamType[] types = command.getParamTypes();
@@ -368,10 +369,10 @@ public final class ClideDaemon {
 	/**
 	 * Surface-level check for one parameter's raw text, run purely on that text -
 	 * TRANSACTION_ID must match TransactionStack.ID_PATTERN, REGEX must compile
-	 * (java.util.regex.Pattern), POSITION must parse as a real file/line/word
-	 * (see Position.parse()). Every other ParamType has nothing to check here.
-	 * Returns null when value is acceptable, or an error message fit to send
-	 * back to the client as-is otherwise.
+	 * (java.util.regex.Pattern), POSITION must parse as a real file/line/word (see
+	 * Position.parse()). Every other ParamType has nothing to check here. Returns
+	 * null when value is acceptable, or an error message fit to send back to the
+	 * client as-is otherwise.
 	 */
 	private String validate(final ParamType type, final String value, final Path projectRoot) {
 		switch (type) {
@@ -438,13 +439,13 @@ public final class ClideDaemon {
 	}
 
 	/**
-	 * Whether the project already has its Eclipse configuration files (.project
-	 * and .classpath) at its root. When they are missing, jdtls generates both
-	 * during the initial workspace import/build ("invisible project" support:
-	 * source folders detected from the tree, every .clide/*.jar added as a
-	 * library) - run() uses a before/after call to this method to report that
-	 * generation in the startup trace, so a client seeing the project build
-	 * correctly without any committed Eclipse files understands why.
+	 * Whether the project already has its Eclipse configuration files (.project and
+	 * .classpath) at its root. When they are missing, jdtls generates both during
+	 * the initial workspace import/build ("invisible project" support: source
+	 * folders detected from the tree, every .clide/*.jar added as a library) -
+	 * run() uses a before/after call to this method to report that generation in
+	 * the startup trace, so a client seeing the project build correctly without any
+	 * committed Eclipse files understands why.
 	 */
 	private boolean hasEclipseFiles() {
 		return Files.isRegularFile(projectRoot.resolve(".project"))

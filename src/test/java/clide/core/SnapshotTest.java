@@ -48,7 +48,7 @@ class SnapshotTest {
 	@DisplayName("deux instantanés identiques ne produisent aucun événement")
 	void identicalSnapshotsProduceNothing(@TempDir final Path projectRoot) throws IOException {
 		writeSource(projectRoot, "Alpha.java", "class Alpha {}");
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 
 		final Snapshot before = Snapshot.build(repository);
 		final Snapshot after = Snapshot.build(repository);
@@ -59,7 +59,7 @@ class SnapshotTest {
 	@Test
 	@DisplayName("un fichier apparu est Created(1)")
 	void aNewFileIsCreated(@TempDir final Path projectRoot) throws IOException {
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		final Path added = writeSource(projectRoot, "Alpha.java", "class Alpha {}");
@@ -72,7 +72,7 @@ class SnapshotTest {
 	@DisplayName("un fichier dont le contenu a bougé est Changed(2)")
 	void anEditedFileIsChanged(@TempDir final Path projectRoot) throws IOException {
 		final Path edited = writeSource(projectRoot, "Alpha.java", "class Alpha {}");
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		writeSource(projectRoot, "Alpha.java", "class Alpha { int i; }");
@@ -85,7 +85,7 @@ class SnapshotTest {
 	@DisplayName("un fichier disparu est Deleted(3)")
 	void aRemovedFileIsDeleted(@TempDir final Path projectRoot) throws IOException {
 		final Path removed = writeSource(projectRoot, "Alpha.java", "class Alpha {}");
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		Files.delete(removed);
@@ -100,7 +100,7 @@ class SnapshotTest {
 		final Path untouched = writeSource(projectRoot, "Untouched.java", "class Untouched {}");
 		final Path edited = writeSource(projectRoot, "Edited.java", "class Edited {}");
 		final Path removed = writeSource(projectRoot, "Removed.java", "class Removed {}");
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		writeSource(projectRoot, "Edited.java", "class Edited { int i; }");
@@ -119,7 +119,7 @@ class SnapshotTest {
 		final Path first = writeSource(projectRoot, "Alpha.java", "class Alpha {}");
 		final Path second = writeSource(projectRoot, "Beta.java", "class Beta {}");
 
-		final Snapshot after = Snapshot.build(new FilesRepository(projectRoot));
+		final Snapshot after = Snapshot.build(new FilesRepository(projectRoot, Md5Repository.none()));
 
 		assertEquals(Map.of(uriOf(first), CREATED, uriOf(second), CREATED),
 				eventsOf(after.compareWithPreviousSnapshot(Snapshot.empty()).fileEvents()));
@@ -128,7 +128,7 @@ class SnapshotTest {
 	@Test
 	@DisplayName("un fichier qui n'est pas un .java est ignoré des deux côtés du diff")
 	void nonJavaFilesAreIgnored(@TempDir final Path projectRoot) throws IOException {
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		Files.writeString(projectRoot.resolve("notes.txt"), "rien à compiler", StandardCharsets.UTF_8);

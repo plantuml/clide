@@ -51,7 +51,7 @@ class SnapshotDeltaTest {
 	@DisplayName("deux instantanés identiques produisent un delta vide")
 	void identicalSnapshotsProduceAnEmptyDelta(@TempDir final Path projectRoot) throws IOException {
 		writeSource(projectRoot, "Alpha.java", "class Alpha {}", 1_000_000);
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 
 		final Snapshot before = Snapshot.build(repository);
 		final Snapshot after = Snapshot.build(repository);
@@ -63,7 +63,7 @@ class SnapshotDeltaTest {
 	@Test
 	@DisplayName("un fichier apparu est CREATED")
 	void aNewFileIsCreated(@TempDir final Path projectRoot) throws IOException {
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		final Path added = writeSource(projectRoot, "Alpha.java", "class Alpha {}", 1_000_000);
@@ -77,7 +77,7 @@ class SnapshotDeltaTest {
 	@DisplayName("un fichier dont le contenu a changé est CHANGED")
 	void anEditedFileIsChanged(@TempDir final Path projectRoot) throws IOException {
 		final Path edited = writeSource(projectRoot, "Alpha.java", "class Alpha {}", 1_000_000);
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		writeSource(projectRoot, "Alpha.java", "class Alpha { void nouveau() {} }", 2_000_000);
@@ -91,7 +91,7 @@ class SnapshotDeltaTest {
 	@DisplayName("un fichier disparu est DELETED")
 	void aRemovedFileIsDeleted(@TempDir final Path projectRoot) throws IOException {
 		final Path removed = writeSource(projectRoot, "Alpha.java", "class Alpha {}", 1_000_000);
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		Files.delete(removed);
@@ -105,7 +105,7 @@ class SnapshotDeltaTest {
 	@DisplayName("un fichier réécrit à l'identique ne bouge pas, alors que son mtime a bougé")
 	void aRewrittenButIdenticalFileDoesNotMove(@TempDir final Path projectRoot) throws IOException {
 		writeSource(projectRoot, "Alpha.java", "class Alpha {}", 1_000_000);
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		writeSource(projectRoot, "Alpha.java", "class Alpha {}", 2_000_000);
@@ -122,7 +122,7 @@ class SnapshotDeltaTest {
 	@DisplayName("un fichier modifié sans que son mtime bouge est quand même CHANGED")
 	void anEditedFileWithAnUnchangedMtimeIsStillChanged(@TempDir final Path projectRoot) throws IOException {
 		final Path edited = writeSource(projectRoot, "Alpha.java", "class Alpha {}", 1_000_000);
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		writeSource(projectRoot, "Alpha.java", "class Alpha { void nouveau() {} }", 1_000_000);
@@ -144,7 +144,7 @@ class SnapshotDeltaTest {
 		writeSource(projectRoot, "Untouched.java", "class Untouched {}", 1_000_000);
 		final Path edited = writeSource(projectRoot, "Edited.java", "class Edited {}", 1_000_000);
 		final Path removed = writeSource(projectRoot, "Removed.java", "class Removed {}", 1_000_000);
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		writeSource(projectRoot, "Edited.java", "class Edited { int i; }", 2_000_000);
@@ -165,7 +165,7 @@ class SnapshotDeltaTest {
 		final Path first = writeSource(projectRoot, "Alpha.java", "class Alpha {}", 1_000_000);
 		final Path second = writeSource(projectRoot, "Beta.java", "class Beta {}", 1_000_000);
 
-		final Snapshot after = Snapshot.build(new FilesRepository(projectRoot));
+		final Snapshot after = Snapshot.build(new FilesRepository(projectRoot, Md5Repository.none()));
 
 		assertEquals(Delta.of(new FileChange(first.toString(), FileChangeType.CREATED),
 				new FileChange(second.toString(), FileChangeType.CREATED)),
@@ -176,7 +176,7 @@ class SnapshotDeltaTest {
 	@DisplayName("empty() contre un instantané peuplé : tout est DELETED")
 	void everythingIsDeletedWhenTheRecentSnapshotIsEmpty(@TempDir final Path projectRoot) throws IOException {
 		final Path only = writeSource(projectRoot, "Alpha.java", "class Alpha {}", 1_000_000);
-		final Snapshot populated = Snapshot.build(new FilesRepository(projectRoot));
+		final Snapshot populated = Snapshot.build(new FilesRepository(projectRoot, Md5Repository.none()));
 
 		assertEquals(Delta.of(new FileChange(only.toString(), FileChangeType.DELETED)),
 				Snapshot.empty().compareWithPreviousSnapshot(populated));
@@ -185,7 +185,7 @@ class SnapshotDeltaTest {
 	@Test
 	@DisplayName("le receveur est l'instantané récent, l'argument le précédent - les intervertir inverse tout")
 	void deltaIsReadFromTheRecentSnapshot(@TempDir final Path projectRoot) throws IOException {
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 		final Path added = writeSource(projectRoot, "Alpha.java", "class Alpha {}", 1_000_000);
 		final Snapshot after = Snapshot.build(repository);
@@ -200,7 +200,7 @@ class SnapshotDeltaTest {
 	@DisplayName("un fichier déplacé est un DELETED et un CREATED, pas un renommage")
 	void aMovedFileIsDeletedAndCreated(@TempDir final Path projectRoot) throws IOException {
 		final Path source = writeSource(projectRoot, "Alpha.java", "class Alpha {}", 1_000_000);
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		final Path destination = Files.createDirectory(projectRoot.resolve("sous-dossier")).resolve("Alpha.java");
@@ -216,7 +216,7 @@ class SnapshotDeltaTest {
 	@Test
 	@DisplayName("un fichier qui n'est pas un .java est ignoré des deux côtés du delta")
 	void nonJavaFilesAreIgnored(@TempDir final Path projectRoot) throws IOException {
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		Files.writeString(projectRoot.resolve("notes.txt"), "rien à compiler", StandardCharsets.UTF_8);
@@ -229,7 +229,7 @@ class SnapshotDeltaTest {
 	@DisplayName("le delta se traduit en événements LSP, un par fichier")
 	void theDeltaTranslatesToLspEvents(@TempDir final Path projectRoot) throws IOException {
 		final Path removed = writeSource(projectRoot, "Removed.java", "class Removed {}", 1_000_000);
-		final FilesRepository repository = new FilesRepository(projectRoot);
+		final FilesRepository repository = new FilesRepository(projectRoot, Md5Repository.none());
 		final Snapshot before = Snapshot.build(repository);
 
 		Files.delete(removed);
@@ -248,7 +248,7 @@ class SnapshotDeltaTest {
 	@Test
 	@DisplayName("comparer avec null est refusé")
 	void comparingWithNullIsRefused(@TempDir final Path projectRoot) throws IOException {
-		final Snapshot snapshot = Snapshot.build(new FilesRepository(projectRoot));
+		final Snapshot snapshot = Snapshot.build(new FilesRepository(projectRoot, Md5Repository.none()));
 
 		assertThrows(NullPointerException.class, () -> snapshot.compareWithPreviousSnapshot(null));
 	}

@@ -18,9 +18,11 @@ public class FilesRepository {
 			"node_modules", ".gradle", ".clide");
 
 	private final Path projectRoot;
+	private final Md5Repository md5Repository;
 
-	public FilesRepository(Path projectRoot) {
+	public FilesRepository(Path projectRoot, Md5Repository md5Repository) {
 		this.projectRoot = projectRoot;
+		this.md5Repository = md5Repository;
 	}
 
 	public Path getProjectRoot() {
@@ -43,7 +45,7 @@ public class FilesRepository {
 			walk.filter(path -> path.toString().endsWith(".java")).filter(path -> isSkipped(path) == false)
 					.forEach(path -> {
 						try {
-							files.add(SourceFile.fromPath(path));
+							files.add(SourceFile.fromPath(md5Repository, path));
 						} catch (final IOException e) {
 							// vanished between the walk and the stat - treat as absent
 						}
