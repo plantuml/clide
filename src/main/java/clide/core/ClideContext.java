@@ -11,7 +11,7 @@ import clide.jdtls.JdtlsSession;
 /**
  * State shared across every command execution for the lifetime of the clide
  * daemon: the project's root (what a ParamType.POSITION notation's relative
- * file path resolves against - see Position.parse() - never the daemon process' own
+ * file path resolves against - see PositionParser.parse() - never the daemon process' own
  * current directory), the single jdtls session for this project, the list of
  * registered commands (for help), and the two distinct ways a client
  * interaction can end:
@@ -89,7 +89,7 @@ public class ClideContext {
 
 	/**
 	 * Root of the project this daemon owns - every relative file path in a
-	 * ParamType.POSITION notation (see Position.parse()) resolves against this,
+	 * ParamType.POSITION notation (see PositionParser.parse()) resolves against this,
 	 * never against the daemon process' own current directory.
 	 */
 	public Path getProjectRoot() {

@@ -21,7 +21,7 @@ import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.Position;
+import clide.core.PositionParser;
 import clide.model.Listing;
 import clide.model.SearchMatch;
 
@@ -106,7 +106,7 @@ public class ResearchRegexCommand extends Command {
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final Path projectRoot = context.getProjectRoot();
-		final Path initialPath = Position.resolvePath(params[0], projectRoot);
+		final Path initialPath = PositionParser.resolvePath(params[0], projectRoot);
 		if (Files.isDirectory(initialPath) == false)
 			return CommandResult.error(ErrorCode.NOT_A_DIRECTORY,
 					"Not a directory: '" + params[0] + "' (resolved against the project root " + projectRoot

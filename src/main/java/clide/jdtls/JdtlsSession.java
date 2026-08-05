@@ -13,12 +13,12 @@ import java.util.concurrent.TimeUnit;
 import clide.core.Delta;
 import clide.core.FilesRepository;
 import clide.core.Monomorphic;
-import clide.core.Position;
 import clide.core.Snapshot;
 import clide.model.CodeLocation;
 import clide.model.Diagnostic;
 import clide.model.DiagnosticsReport;
 import clide.model.Listing;
+import clide.model.Position;
 import clide.model.SymbolHit;
 
 /**
@@ -181,7 +181,7 @@ public class JdtlsSession {
 	 * "context" object (currently only textDocument/references does).
 	 *
 	 * position is already known to name a real file/line/word - it can only have
-	 * come from Position.parse(), which validated all of that up front (see
+	 * come from PositionParser.parse(), which validated all of that up front (see
 	 * ParamType.POSITION, ClideDaemon.validate()) - so no re-validation happens
 	 * here.
 	 *
@@ -210,7 +210,8 @@ public class JdtlsSession {
 	public List<CodeLocation> goToPosition(final String lspMethod, final Position position, final Monomorphic context)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request(lspMethod,
-				JdtlsResponses.positionParams(position.file(), position.line(), position.column(), context), 30);
+				JdtlsResponses.positionParams(Paths.get(position.path()), position.line(), position.column(), context),
+				30);
 		final Monomorphic error = JdtlsResponses.errorOf(response);
 		if (error != null)
 			throw new IOException(lspMethod + " failed: " + error);
@@ -229,7 +230,7 @@ public class JdtlsSession {
 	 */
 	public String hover(final Position position) throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request("textDocument/hover",
-				JdtlsResponses.positionParams(position.file(), position.line(), position.column()), 30);
+				JdtlsResponses.positionParams(Paths.get(position.path()), position.line(), position.column()), 30);
 		final Monomorphic error = JdtlsResponses.errorOf(response);
 		if (error != null)
 			throw new IOException("textDocument/hover failed: " + error);
@@ -252,13 +253,13 @@ public class JdtlsSession {
 	 */
 	public List<SymbolHit> listMembers(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final String uri = position.file().toUri().toString();
+		final String uri = Paths.get(position.path()).toUri().toString();
 		final Monomorphic typeNode = findTypeNode(JdtlsResponses.documentSymbols(client, uri), position.name(),
 				position.line() - 1);
 		if (typeNode.isMap() == false)
 			throw new IOException(
 					"No class/interface/enum named '" + position.name() + "' declared at line " + position.line()
-							+ " of " + position.file() + " (list_members only inspects types, not methods/fields)");
+							+ " of " + position.path() + " (list_members only inspects types, not methods/fields)");
 
 		return collectMembers(uri, JdtlsResponses.childrenOf(typeNode));
 	}
@@ -279,8 +280,11 @@ public class JdtlsSession {
 		final List<Monomorphic> merged = new MethodOverrideRecovery(client).find(position);
 
 		final List<CodeLocation> located = new ArrayList<>();
-		for (final Monomorphic location : merged)
-			located.add(locationOf(location));
+		for (final Monomorphic location : merged) {
+			final CodeLocation codeLocation = locationOf(location);
+			if (codeLocation != null)
+				located.add(codeLocation);
+		}
 
 		return located;
 	}
@@ -361,7 +365,7 @@ public class JdtlsSession {
 	 * "children") for a type-kind node (see JdtlsResponses.isTypeKind()) named name
 	 * and declared at zeroBasedLine (its own selectionRange, i.e. just the name
 	 * token - matches position.line()-1, already whole-word-validated by
-	 * Position.parse()). Returns the first match found (depth-first), or null.
+	 * PositionParser.parse()). Returns the first match found (depth-first), or null.
 	 */
 	private Monomorphic findTypeNode(final List<Monomorphic> nodes, final String name, final int zeroBasedLine) {
 		for (final Monomorphic node : nodes) {
@@ -383,7 +387,7 @@ public class JdtlsSession {
 			return false;
 		// jdtls names a generic type after its source spelling, type parameters
 		// included ("AbstractUGraphic<O>"), while <position> only ever carries the
-		// bare name - Position.parse() matched it as a whole word on the line. An
+		// bare name - PositionParser.parse() matched it as a whole word on the line. An
 		// equals() on the raw name therefore never matched a generic type, and
 		// list_members failed on every one of them.
 		if (name.equals(withoutTypeParameters(node.getOrNull("name"))) == false)
@@ -482,8 +486,11 @@ public class JdtlsSession {
 	 */
 	private List<CodeLocation> collectLocations(final Monomorphic result) {
 		final List<CodeLocation> locations = new ArrayList<>();
-		for (final Monomorphic location : JdtlsResponses.rawLocations(result))
-			locations.add(locationOf(location));
+		for (final Monomorphic location : JdtlsResponses.rawLocations(result)) {
+			final CodeLocation located = locationOf(location);
+			if (located != null)
+				locations.add(located);
+		}
 
 		return locations;
 	}
@@ -492,9 +499,20 @@ public class JdtlsSession {
 	 * Also understands LocationLink (targetUri/targetSelectionRange) in case a
 	 * future capabilities change makes jdtls prefer that shape over plain Location
 	 * (uri/range) - harmless either way since only one shape is ever populated.
+	 *
+	 * Returns null for a location outside the project (a JDK/library source, a
+	 * file in another module): clide's whole convention is to work on the open
+	 * project's own files (see CLAUDE.md), and Position now enforces a
+	 * project-relative path (see Position's own doc) - such a location has no
+	 * project-relative path to give it. Filtered out silently, on purpose: a
+	 * caller like find_implementation legitimately gets back fewer results, the
+	 * same way an empty search elsewhere is not itself an error.
 	 */
 	private CodeLocation locationOf(final Monomorphic location) {
 		final String uri = JdtlsResponses.uriOf(location);
+		if (isInProject(uri) == false)
+			return null;
+
 		final Monomorphic start = JdtlsResponses.startOf(JdtlsResponses.rangeOf(location));
 		final int line = JdtlsResponses.oneBased(JdtlsResponses.lineOf(start));
 		final int column = JdtlsResponses.oneBased(JdtlsResponses.characterOf(start));
@@ -503,7 +521,14 @@ public class JdtlsSession {
 		// included), the stripped one for display - see JdtlsResponses.
 		final String rawLine = JdtlsResponses.readRawLineSafely(uri, line);
 		final String name = JdtlsResponses.identifierAt(rawLine, column);
-		return new CodeLocation(shortName(uri), line, column, name, rawLine == null ? "" : rawLine.strip());
+		return new CodeLocation(new Position(shortName(uri), line, column, name),
+				rawLine == null ? "" : rawLine.strip());
+	}
+
+	/** Whether uri names a file inside the project root (or the root itself). */
+	private boolean isInProject(final String uri) {
+		final String prefix = filesRepository.projectUri();
+		return uri.equals(prefix) || uri.startsWith(prefix);
 	}
 
 	/**

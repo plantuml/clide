@@ -1,6 +1,7 @@
 package clide.command.testrun;
 
 import java.io.IOException;
+import java.nio.file.Paths;
 
 import clide.PrintMode;
 import clide.annotation.Help;
@@ -13,7 +14,8 @@ import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.Position;
+import clide.core.PositionParser;
+import clide.model.Position;
 import clide.test.ProjectTests;
 import clide.test.TestSelector;
 
@@ -89,17 +91,17 @@ public class RunTestCommand extends Command {
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final Position position;
 		try {
-			position = Position.parse(params[0], context.getProjectRoot());
+			position = PositionParser.parse(params[0], context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
 		}
 
 		final String[] selector;
 		try {
-			selector = TestSelector.forFile(position.file(), position.name());
+			selector = TestSelector.forFile(Paths.get(position.path()), position.name());
 		} catch (final IOException e) {
 			return CommandResult.error(ErrorCode.FILE_UNREADABLE,
-					"could not read " + position.file() + ": " + e.getMessage());
+					"could not read " + position.path() + ": " + e.getMessage());
 		}
 
 		return ProjectTests.runSelection(context, selector, selector[1]);

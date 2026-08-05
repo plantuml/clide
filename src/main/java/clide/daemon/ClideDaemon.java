@@ -24,8 +24,8 @@ import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.FilesRepository;
 import clide.core.Md5Repository;
-import clide.core.Position;
 import clide.core.PositionException;
+import clide.core.PositionParser;
 import clide.core.TransactionStack;
 import clide.jdtls.EclipseProjectFiles;
 import clide.jdtls.JdtlsHome;
@@ -389,7 +389,7 @@ public final class ClideDaemon {
 	 * Surface-level check for one parameter's raw text, run purely on that text -
 	 * TRANSACTION_ID must match TransactionStack.ID_PATTERN, REGEX must compile
 	 * (java.util.regex.Pattern), POSITION must parse as a real file/line/word (see
-	 * Position.parse()). Every other ParamType has nothing to check here. Returns
+	 * PositionParser.parse()). Every other ParamType has nothing to check here. Returns
 	 * null when value is acceptable, or an error message fit to send back to the
 	 * client as-is otherwise.
 	 */
@@ -411,7 +411,7 @@ public final class ClideDaemon {
 			return null;
 		case POSITION:
 			try {
-				Position.parse(value, projectRoot);
+				PositionParser.parse(value, projectRoot);
 			} catch (final IllegalArgumentException e) {
 				// PositionException carries which of the ways it failed, and the hint
 				// that goes with it when there is one (NAME_NOT_AT_COLUMN names the

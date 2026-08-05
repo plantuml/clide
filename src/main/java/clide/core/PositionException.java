@@ -4,7 +4,7 @@ import clide.command.answer.ErrorCode;
 
 /**
  * Why a &lt;file path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt; token could
- * not be resolved - an IllegalArgumentException, as Position.parse() has always
+ * not be resolved - an IllegalArgumentException, as PositionParser.parse() has always
  * thrown, now carrying the ErrorCode that says which of the ways it failed, and
  * optionally the hint that goes with it.
  *

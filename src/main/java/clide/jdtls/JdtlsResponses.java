@@ -151,7 +151,7 @@ final class JdtlsResponses {
 	 * Reading the name back off the source rather than taking jdtls' own is
 	 * deliberate: jdtls names a generic type after its source spelling with type
 	 * parameters included ("AbstractUGraphic&lt;O&gt;"), and a plain Location
-	 * carries no name at all. The source is the one thing Position.parse() will
+	 * carries no name at all. The source is the one thing PositionParser.parse() will
 	 * check against anyway, so extracting it here makes what clide prints
 	 * accepted by clide by construction.
 	 *
@@ -198,7 +198,7 @@ final class JdtlsResponses {
 
 	/**
 	 * textDocument/position request params, for a position already resolved by
-	 * Position.parse(). Both coordinates are 1-based here, as everywhere outside
+	 * PositionParser.parse(). Both coordinates are 1-based here, as everywhere outside
 	 * this package; the -1 back to LSP's 0-based offsets happens in the other
 	 * overload and nowhere else.
 	 */

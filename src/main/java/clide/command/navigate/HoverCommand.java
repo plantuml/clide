@@ -11,8 +11,9 @@ import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.Position;
+import clide.core.PositionParser;
 import clide.jdtls.JdtlsSession;
+import clide.model.Position;
 
 /**
  * textDocument/hover: the signature/Javadoc jdtls knows for the symbol at one
@@ -65,7 +66,7 @@ public class HoverCommand extends Command {
 
 		final Position position;
 		try {
-			position = Position.parse(params[0], context.getProjectRoot());
+			position = PositionParser.parse(params[0], context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
 		}
@@ -74,7 +75,7 @@ public class HoverCommand extends Command {
 			// Text, not a parsed structure: what comes back is jdtls' own markdown,
 			// "Source:" footer included, and clide passes it through untouched - see
 			// CommandPayload.Text.
-			final CommandPayload payload = new CommandPayload.Text(position.retrieveJavadoc(session));
+			final CommandPayload payload = new CommandPayload.Text(session.hover(position));
 			return CommandResult.ok(payload);
 		} catch (final Exception e) {
 			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, "hover failed: " + e.getMessage());

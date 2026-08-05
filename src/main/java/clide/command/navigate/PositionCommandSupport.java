@@ -9,10 +9,11 @@ import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Monomorphic;
-import clide.core.Position;
+import clide.core.PositionParser;
 import clide.jdtls.JdtlsSession;
 import clide.model.CodeLocation;
 import clide.model.Listing;
+import clide.model.Position;
 
 /**
  * Shared parse-resolve pipeline behind every position-based command -
@@ -47,7 +48,7 @@ final class PositionCommandSupport {
 			final String positionText, final Monomorphic requestContext) {
 		final Position position;
 		try {
-			position = Position.parse(positionText, context.getProjectRoot());
+			position = PositionParser.parse(positionText, context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
 		}
@@ -70,7 +71,7 @@ final class PositionCommandSupport {
 			final String positionText) {
 		final Position position;
 		try {
-			position = Position.parse(positionText, context.getProjectRoot());
+			position = PositionParser.parse(positionText, context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
 		}

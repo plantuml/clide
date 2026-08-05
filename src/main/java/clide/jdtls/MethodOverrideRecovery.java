@@ -1,6 +1,7 @@
 package clide.jdtls;
 
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -9,7 +10,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import clide.core.Monomorphic;
-import clide.core.Position;
+import clide.model.Position;
 
 /**
  * textDocument/implementation on a *method*, plus a second pass that recovers
@@ -89,7 +90,8 @@ final class MethodOverrideRecovery {
 	List<Monomorphic> find(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request("textDocument/implementation",
-				JdtlsResponses.positionParams(position.file(), position.line(), position.column(), null), 30);
+				JdtlsResponses.positionParams(Paths.get(position.path()), position.line(), position.column(), null),
+				30);
 		final Monomorphic error = JdtlsResponses.errorOf(response);
 		if (error != null)
 			throw new IOException("textDocument/implementation failed: " + error);
@@ -115,7 +117,7 @@ final class MethodOverrideRecovery {
 	 */
 	private List<Monomorphic> overridesJdtlsMisses(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final String uri = position.file().toUri().toString();
+		final String uri = Paths.get(position.path()).toUri().toString();
 		final String declaration = JdtlsResponses.readLineSafely(uri, position.line());
 		final int arity = arityAfterName(declaration, position.name());
 		if (arity < 0)
@@ -139,7 +141,8 @@ final class MethodOverrideRecovery {
 			return List.of();
 
 		final Monomorphic response = client.request("textDocument/implementation",
-				JdtlsResponses.positionParams(position.file(), JdtlsResponses.oneBased(JdtlsResponses.lineOf(start)),
+				JdtlsResponses.positionParams(Paths.get(position.path()),
+						JdtlsResponses.oneBased(JdtlsResponses.lineOf(start)),
 						JdtlsResponses.oneBased(JdtlsResponses.characterOf(start)), null),
 				30);
 		if (JdtlsResponses.errorOf(response) != null)

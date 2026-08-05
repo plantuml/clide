@@ -14,9 +14,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import clide.command.answer.ErrorCode;
+import clide.model.Position;
 
 /**
- * Tests de Position.parse() sur la notation canonique
+ * Tests de PositionParser.parse() sur la notation canonique
  * chemin:ligne:colonne:nom : le code d'erreur porté par chaque refus, et le
  * contrôle de cohérence qui exige que le nom commence bien à la colonne
  * annoncée.
@@ -36,7 +37,7 @@ class PositionCodesTest {
 	}
 
 	private static ErrorCode codeOf(final Path root, final String token) {
-		final PositionException thrown = assertThrows(PositionException.class, () -> Position.parse(token, root));
+		final PositionException thrown = assertThrows(PositionException.class, () -> PositionParser.parse(token, root));
 		return thrown.getCode();
 	}
 
@@ -63,12 +64,20 @@ class PositionCodesTest {
 	}
 
 	@Test
+	@DisplayName("une URI file: qui pointe hors du projet est FILE_NOT_FOUND, pas acceptée comme un chemin y échappant en ../")
+	void fileUriOutsideProjectIsRejected(@TempDir final Path root, @TempDir final Path elsewhere) throws IOException {
+		final Path outside = write(elsewhere, "Outside.java", "class Outside {", "}");
+
+		assertEquals(ErrorCode.FILE_NOT_FOUND, codeOf(root, outside.toUri() + ":1:1:Outside"));
+	}
+
+	@Test
 	@DisplayName("une ligne hors du fichier est LINE_OUT_OF_RANGE et le message dit combien il y en a")
 	void lineOutOfRange(@TempDir final Path root) throws IOException {
 		write(root, "Foo.java", "class Foo {", "}");
 
 		final PositionException thrown = assertThrows(PositionException.class,
-				() -> Position.parse("Foo.java:99:7:Foo", root));
+				() -> PositionParser.parse("Foo.java:99:7:Foo", root));
 
 		assertEquals(ErrorCode.LINE_OUT_OF_RANGE, thrown.getCode());
 		assertTrue(thrown.getMessage().contains("file has 2 line(s)"));
@@ -89,7 +98,7 @@ class PositionCodesTest {
 		// colonnes 2 à 6, donc "calculer" commence en colonne 7.
 		write(root, "Foo.java", "class Foo {", "\tvoid calculer() {", "\t}", "}");
 
-		final Position position = Position.parse("Foo.java:2:7:calculer", root);
+		final Position position = PositionParser.parse("Foo.java:2:7:calculer", root);
 
 		assertEquals(2, position.line());
 		assertEquals(7, position.column());
@@ -106,7 +115,7 @@ class PositionCodesTest {
 		write(root, "Foo.java", "class Foo {", "\t\ta.calculer(b.calculer());", "}");
 
 		final PositionException thrown = assertThrows(PositionException.class,
-				() -> Position.parse("Foo.java:2:9:calculer", root));
+				() -> PositionParser.parse("Foo.java:2:9:calculer", root));
 
 		assertEquals(ErrorCode.NAME_NOT_AT_COLUMN, thrown.getCode());
 		assertTrue(thrown.getHint().contains("5"));
@@ -118,8 +127,8 @@ class PositionCodesTest {
 	void eachOccurrenceHasItsOwnColumn(@TempDir final Path root) throws IOException {
 		write(root, "Foo.java", "class Foo {", "\t\ta.calculer(b.calculer());", "}");
 
-		assertEquals(5, Position.parse("Foo.java:2:5:calculer", root).column());
-		assertEquals(16, Position.parse("Foo.java:2:16:calculer", root).column());
+		assertEquals(5, PositionParser.parse("Foo.java:2:5:calculer", root).column());
+		assertEquals(16, PositionParser.parse("Foo.java:2:16:calculer", root).column());
 	}
 
 	@Test
@@ -131,17 +140,17 @@ class PositionCodesTest {
 	}
 
 	@Test
-	@DisplayName("toString() rend la notation canonique complète, colonne comprise")
+	@DisplayName("toString() rend la notation canonique complète, colonne comprise - le chemin relatif au projet")
 	void toStringIsTheCanonicalNotation(@TempDir final Path root) throws IOException {
-		final Path file = write(root, "Foo.java", "class Foo {", "}");
+		write(root, "Foo.java", "class Foo {", "}");
 
-		assertEquals(file + ":1:7:Foo", Position.parse("Foo.java:1:7:Foo", root).toString());
+		assertEquals("Foo.java:1:7:Foo", PositionParser.parse("Foo.java:1:7:Foo", root).toString());
 	}
 
 	@Test
 	@DisplayName("PositionException reste une IllegalArgumentException pour les appelants d'avant les codes")
 	void stillAnIllegalArgumentException(@TempDir final Path root) {
-		assertThrows(IllegalArgumentException.class, () -> Position.parse("Absent.java:1:1:bar", root));
+		assertThrows(IllegalArgumentException.class, () -> PositionParser.parse("Absent.java:1:1:bar", root));
 	}
 
 }

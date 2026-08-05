@@ -24,7 +24,7 @@ public final class CommandResults {
 	}
 
 	/**
-	 * The refusal to answer with, for a &lt;position&gt; Position.parse() would
+	 * The refusal to answer with, for a &lt;position&gt; PositionParser.parse() would
 	 * not take - the code says which of the ways it failed, and the hint (usually
 	 * empty) carries whatever Position computed that the caller could not.
 	 */

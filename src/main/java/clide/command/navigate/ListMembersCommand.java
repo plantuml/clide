@@ -14,9 +14,10 @@ import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.core.Position;
+import clide.core.PositionParser;
 import clide.jdtls.JdtlsSession;
 import clide.model.Listing;
+import clide.model.Position;
 import clide.model.SymbolHit;
 
 /**
@@ -64,7 +65,7 @@ public class ListMembersCommand extends Command {
 
 		final Position position;
 		try {
-			position = Position.parse(params[0], context.getProjectRoot());
+			position = PositionParser.parse(params[0], context.getProjectRoot());
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
 		}
