@@ -204,9 +204,9 @@ résolution silencieuse.
 
 ```
 find_reference: 3 location(s)
-src/main/java/demo/Calc.java:12:10: return add(add(a, 1), add(a, 2));
-src/main/java/demo/Calc.java:12:14: return add(add(a, 1), add(a, 2));
-src/main/java/demo/Calc.java:12:25: return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:10:add return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:14:add return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:25:add return add(add(a, 1), add(a, 2));
 ```
 
 ---
@@ -261,16 +261,27 @@ Un endroit précis du projet, tel que le nomment tous les `find_*`,
 | `path` | `String` | chemin relatif à la racine du projet, séparateurs `/` |
 | `line` | `int` | ligne 1-based ; `-1` si la réponse ne portait aucune plage exploitable |
 | `column` | `int` | colonne 1-based du début du symbole ; `-1` dans le même cas |
+| `name` | `String` | le nom du symbole à cet endroit ; `""` si la ligne n'a pas pu être relue, ou si la colonne ne commence pas un mot |
 | `lineText` | `String` | le texte de cette ligne ; `""` si elle n'a pas pu être relue |
 
 | Méthode | Rendu |
 |---|---|
-| `display()` | `src/main/java/demo/Calc.java:4:14: public int add(int a, int b) {` — ou `path:line:column` seul si `lineText` est vide |
-| `locate()` | `src/main/java/demo/Calc.java:4:14` — le préfixe d'un `<position>`, auquel il reste à ajouter `:<name>` |
+| `display()` | `src/main/java/demo/Calc.java:7:13:add public int add(int a, int b) {` — la position seule si `lineText` est vide |
+| `position()` | `src/main/java/demo/Calc.java:7:13:add` — un `<position>` complet, renvoyable tel quel ; `path:line:column` si `name` est vide |
 
-La colonne vient du début de la `range` renvoyée par jdtls, convertie du 0-based
-LSP au 1-based client en un seul point (`JdtlsResponses.oneBased()`). C'est elle
-qui rend ce que clide imprime directement réutilisable comme `<position>`.
+Les quatre premiers champs **sont** un `<position>` : ce que clide imprime est
+ce que clide accepte, sans rien à ajouter ni à recompter. Ligne et colonne
+viennent du début de la `range` renvoyée par jdtls, converties du 0-based LSP au
+1-based client en un seul point (`JdtlsResponses.oneBased()`). Le nom est relu
+depuis la **ligne source** à cette colonne (`JdtlsResponses.identifierAt()`),
+pas pris chez jdtls : une `Location` LSP n'en porte aucun, et jdtls nomme un
+type générique avec ses paramètres (`Box<T extends Comparable<T>>`) là où la
+notation ne prend que le mot nu. Extraire le nom de la source rend donc la
+sortie acceptable en entrée par construction.
+
+Le séparateur entre la position et le texte de la ligne est une **espace**, pas
+un `:` : un `:` tomberait là où la notation en utilise déjà, alors qu'un
+découpage sur la première espace rend la position sans aucun parsing.
 
 ### `SymbolHit`
 
@@ -287,16 +298,16 @@ l'ensemble est choisi, pas par ce qu'est un élément.
 
 | Méthode | Rendu |
 |---|---|
-| `display()` | `[method] src/main/java/demo/Calc.java:4:14: public int add(int a, int b) {` — ou `[method] add: <no location>` si `location` est `null` |
+| `display()` | `[method] src/main/java/demo/Calc.java:7:13:add public int add(int a, int b) {` — ou `[method] add: <no location>` si `location` est `null` |
 
 ### `SearchMatch`
 
 Une ligne trouvée par `search_regex`. Affichée `path:line: texte`,
-délibérément **sans** la colonne que porte un `CodeLocation` : une correspondance
-de grep est une ligne, pas un symbole — il n'y a pas de début de symbole à
-rapporter, et rien ici ne se recopie tel quel dans un `<position>`. Type distinct
-de `CodeLocation` pour la même raison : les confondre inviterait à traiter une
-correspondance textuelle comme une localisation sémantique.
+délibérément **sans** la colonne ni le nom que porte un `CodeLocation` : une
+correspondance de grep est une ligne, pas un symbole — il n'y a pas de début de
+symbole à rapporter, et rien ici ne se recopie tel quel dans un `<position>`.
+Type distinct de `CodeLocation` pour la même raison : les confondre inviterait à
+traiter une correspondance textuelle comme une localisation sémantique.
 
 | Champ | Type | Rôle |
 |---|---|---|
@@ -407,9 +418,9 @@ Produit par `find_declaration`, `find_reference`, `find_implementation`.
 
 ```
 find_reference: 3 location(s)
-src/main/java/demo/Calc.java:12:10: return add(add(a, 1), add(a, 2));
-src/main/java/demo/Calc.java:12:14: return add(add(a, 1), add(a, 2));
-src/main/java/demo/Calc.java:12:25: return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:10:add return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:14:add return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:25:add return add(add(a, 1), add(a, 2));
 ```
 
 Liste vide (`totalCount == 0`) — un succès, pas une erreur :
@@ -431,9 +442,9 @@ Produit par `find_symbol` et `list_members`.
 
 ```
 list_members: 3 member(s) shown out of 4, truncated - raise the limit with set_max_results
-[field] src/main/java/demo/Calc.java:5:14: private int total;
-[method] src/main/java/demo/Calc.java:7:13: public int add(int a, int b) {
-[method] src/main/java/demo/Calc.java:11:13: public int chain(int a) {
+[field] src/main/java/demo/Calc.java:5:14:total private int total;
+[method] src/main/java/demo/Calc.java:7:13:add public int add(int a, int b) {
+[method] src/main/java/demo/Calc.java:11:13:chain public int chain(int a) {
 ```
 
 Vide, selon la commande — chacune nomme la limite connue qui peut expliquer

@@ -90,8 +90,9 @@ final class PositionCommandSupport {
 	}
 
 	/**
-	 * "&lt;command&gt;: 3 location(s)" then one "path:line:column: line content" per
-	 * result, or "&lt;command&gt;: no location found" when there were none.
+	 * "&lt;command&gt;: 3 location(s)" then one "path:line:column:name line
+	 * content" per result - a whole &lt;position&gt;, a space, the line - or
+	 * "&lt;command&gt;: no location found" when there were none.
 	 *
 	 * Finding nothing is a success, not an error: "this symbol is used nowhere" is
 	 * a real answer, and often the one the question was asked for. Only a question

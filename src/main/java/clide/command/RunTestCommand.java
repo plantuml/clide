@@ -26,7 +26,7 @@ import clide.test.TestSelector;
  *
  * <pre>
  * find_symbol shouldRenderArrow
- *   -&gt; [method] src/test/java/.../ArrowTest.java:88:14: void shouldRenderArrow()
+ *   -&gt; [method] src/test/java/.../ArrowTest.java:88:14:shouldRenderArrow void shouldRenderArrow()
  * run_test src/test/java/.../ArrowTest.java:88:14:shouldRenderArrow
  * </pre>
  */

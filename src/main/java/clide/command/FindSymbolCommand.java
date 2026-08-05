@@ -27,7 +27,7 @@ import clide.result.SymbolHit;
 public class FindSymbolCommand extends Command {
 
 	@Keyword("find_symbol")
-	@Help("Finds symbols by name anywhere in the project - matching is jdtls' own (typically fuzzy/camelCase, not exact). Use this to locate the <file path>/<line>/<column> that find_declaration/find_reference/find_implementation need.")
+	@Help("Finds symbols by name anywhere in the project - matching is jdtls' own (typically fuzzy/camelCase, not exact). Use this to locate the <position> that find_declaration/find_reference/find_implementation need - results are printed in that notation, ready to paste.")
 	@Param(type = ParamType.SINGLE_LINE, description = "Name")
 	@Manual("""
 			NAME
@@ -41,12 +41,11 @@ public class FindSymbolCommand extends Command {
 				without needing to already know which file or line it lives
 				on. Matching is typically fuzzy/camelCase rather than an
 				exact match, so a broad <name> can return more than one
-				result. Meant to locate the
-				<file path>:<line>:<column> that find_declaration,
-				find_reference and find_implementation all need as input:
-				run find_symbol first, then append ":<name>" to the
-				location it prints and feed that into whichever of those
-				actually answers your question.
+				result. Meant to locate the <position> that
+				find_declaration, find_reference and find_implementation
+				all need as input: run find_symbol first, then feed what it
+				prints - already a whole <position>, nothing to append -
+				into whichever of those actually answers your question.
 
 			SEE ALSO
 				find_declaration(1), find_reference(1),

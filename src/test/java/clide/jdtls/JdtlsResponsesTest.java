@@ -156,4 +156,44 @@ class JdtlsResponsesTest {
 		assertEquals(-1, JdtlsResponses.oneBased(-1));
 	}
 
+	@Test
+	@DisplayName("identifierAt() rend le mot qui commence exactement à cette colonne")
+	void identifierAtReadsTheWordStartingThere() {
+		// "\t\tréturn add(add(a, 1));" sans accent : tab(1) tab(2) return(3-8)
+		// espace(9) add(10-12) ((13) add(14-16).
+		final String line = "\t\treturn add(add(a, 1));";
+
+		assertEquals("return", JdtlsResponses.identifierAt(line, 3));
+		assertEquals("add", JdtlsResponses.identifierAt(line, 10));
+		assertEquals("add", JdtlsResponses.identifierAt(line, 14));
+	}
+
+	@Test
+	@DisplayName("identifierAt() ne devine jamais : ni au milieu d'un mot, ni sur autre chose qu'un mot")
+	void identifierAtNeverGuesses() {
+		final String line = "\t\treturn add(a);";
+
+		assertEquals("", JdtlsResponses.identifierAt(line, 4), "au milieu de 'return'");
+		assertEquals("", JdtlsResponses.identifierAt(line, 1), "sur une tabulation");
+		assertEquals("", JdtlsResponses.identifierAt(line, 13), "sur une parenthèse");
+		assertEquals("", JdtlsResponses.identifierAt(line, 999), "au delà de la ligne");
+		assertEquals("", JdtlsResponses.identifierAt(line, 0), "colonne 0 - la numérotation commence à 1");
+		assertEquals("", JdtlsResponses.identifierAt(null, 3), "ligne illisible");
+	}
+
+	@Test
+	@DisplayName("readLineSafely() rend la ligne nettoyée, readRawLineSafely() la ligne brute - les colonnes se comptent sur la brute")
+	void rawLineKeepsIndentationSoColumnsStayValid(@TempDir final Path dir) throws IOException {
+		final Path file = dir.resolve("A.java");
+		Files.writeString(file, "class A {\n\t\tint total;\n}\n", StandardCharsets.UTF_8);
+		final String uri = file.toUri().toString();
+
+		assertEquals("int total;", JdtlsResponses.readLineSafely(uri, 2));
+		assertEquals("\t\tint total;", JdtlsResponses.readRawLineSafely(uri, 2));
+
+		// La colonne 7 est celle de "total" sur la ligne brute ; sur la ligne
+		// nettoyée elle tomberait ailleurs - c'est tout l'intérêt des deux formes.
+		assertEquals("total", JdtlsResponses.identifierAt(JdtlsResponses.readRawLineSafely(uri, 2), 7));
+	}
+
 }

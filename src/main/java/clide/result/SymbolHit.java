@@ -19,7 +19,7 @@ public record SymbolHit(String kind, String name, CodeLocation location) {
 	}
 
 	/**
-	 * "[kind] path:line:column: line content" - the shape clide has always printed, kept
+	 * "[kind] path:line:column:name line content" - the shape clide has always printed, kept
 	 * so a result still pastes straight into a &lt;position&gt; parameter.
 	 * location may be null when jdtls returned a symbol without one, in which case
 	 * the name stands in for it rather than the entry disappearing.

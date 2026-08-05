@@ -253,10 +253,28 @@ print.
 **When the file/line/column isn't known yet**, `find_symbol <name>` searches
 for a symbol by name across the whole project (fuzzy/camelCase matching
 delegated to jdtls — `find_symbol UGraphic` can also surface `UGraphicSvg`,
-`UGraphicNull`, etc.) and prints each hit as `path:line:column: <line text>`
-— append `:<name>` and it is a `<position>` ready for the next command.
-`find_symbol` only finds types and methods, never a field by its name — a
-known jdtls limitation, with no parameter to lift it.
+`UGraphicNull`, etc.). `find_symbol` only finds types and methods, never a
+field by its name — a known jdtls limitation, with no parameter to lift it.
+
+**Every command prints locations in that same notation**, so a result feeds
+the next command with no editing at all:
+
+```
+find_symbol Square
+→ [class] src/main/java/demo/Square.java:3:14:Square public class Square implements Shape {
+
+list_members src/main/java/demo/Square.java:3:14:Square
+→ [method] src/main/java/demo/Square.java:12:16:area public double area() {
+```
+
+The shape is `<position> <line text>`: a whole `<position>` as one
+whitespace-free token, one space, then the line as it reads. Splitting on the
+first space is all the parsing a client needs. The `<name>` in a printed
+location is read back off the source line at that column, so a generic type
+shows as `Box`, not `Box<T extends Comparable<T>>` — the bare word the
+notation takes. In the rare case clide could not read the line back, the token
+stops at the column (`path:line:column`) and reads as the incomplete answer it
+is.
 
 ## Staying up to date after an edit: `rebuild`
 
@@ -317,7 +335,7 @@ when they do; `set_max_results <count>` changes it for the session.
 
 | Command | Role |
 |---|---|
-| `run_test <position>` | Runs the test that `<position>` designates: the whole class if `<position>` names the test class, that single method otherwise. Takes the `<position>` notation, not a fully-qualified class name — a `find_symbol` result becomes one by appending `:<name>`. |
+| `run_test <position>` | Runs the test that `<position>` designates: the whole class if `<position>` names the test class, that single method otherwise. Takes the `<position>` notation, not a fully-qualified class name — a `find_symbol` result pastes in unchanged. |
 | `run_tests <all\|failures>` | Runs all tests in the project. `failures` lists only the failing ones (the only readable output on a suite of real size); totals are always shown either way. |
 
 `run_test`/`run_tests` work even if the target project has no JUnit jar of

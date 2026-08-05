@@ -22,7 +22,7 @@ import clide.core.Monomorphic;
  * Deliberately just data plumbing - no method here judges whether an answer
  * is "good", only how to pull a field out of the Monomorphic shape jdtls sent
  * back, or how to build the shape it expects next. Presentation (turning a
- * location into a "path:line:column: content" string for a client) stays in
+ * location into a "path:line:column:name content" string for a client) stays in
  * JdtlsSession.formatLocation(), which needs project-relative path shortening
  * this class has no reason to know about.
  */
@@ -110,8 +110,24 @@ final class JdtlsResponses {
 		return locations;
 	}
 
-	/** Best-effort: null on any failure (unreadable file, malformed URI, ...). */
+	/**
+	 * That line, stripped of its leading/trailing whitespace - the form every
+	 * caller displaying a line wants. Best-effort: null on any failure (unreadable
+	 * file, malformed URI, ...).
+	 */
 	static String readLineSafely(final String uri, final long oneBasedLine) {
+		final String raw = readRawLineSafely(uri, oneBasedLine);
+		return raw == null ? null : raw.strip();
+	}
+
+	/**
+	 * That line exactly as it stands on disk, indentation included - the only form
+	 * a column can be counted against, since stripping the leading whitespace
+	 * shifts every column on the line. Separate from readLineSafely() for that
+	 * reason alone: displaying wants the stripped line, locating wants the raw
+	 * one, and using one for the other is an off-by-N per tab.
+	 */
+	static String readRawLineSafely(final String uri, final long oneBasedLine) {
 		if (uri == null || oneBasedLine < 1)
 			return null;
 
@@ -121,10 +137,53 @@ final class JdtlsResponses {
 			if (oneBasedLine > lines.size())
 				return null;
 
-			return lines.get((int) oneBasedLine - 1).strip();
+			return lines.get((int) oneBasedLine - 1);
 		} catch (final Exception e) {
 			return null;
 		}
+	}
+
+	/**
+	 * The whole word starting exactly at oneBasedColumn of rawLine, or "" when
+	 * there is none - what turns a location jdtls answered with (a uri and a
+	 * range, no name anywhere) into a complete &lt;position&gt;.
+	 *
+	 * Reading the name back off the source rather than taking jdtls' own is
+	 * deliberate: jdtls names a generic type after its source spelling with type
+	 * parameters included ("AbstractUGraphic&lt;O&gt;"), and a plain Location
+	 * carries no name at all. The source is the one thing Position.parse() will
+	 * check against anyway, so extracting it here makes what clide prints
+	 * accepted by clide by construction.
+	 *
+	 * Word characters are \w, matching Position's own notation and whole-word
+	 * check to the letter - "$" is a legal Java identifier character and is
+	 * excluded by both, rather than being accepted here and refused there.
+	 * Returns "" when the column does not start a word: past the end of the line,
+	 * on punctuation, or in the middle of a longer word (jdtls pointing at a range
+	 * that is not an identifier). Never guesses a nearby word - a name that is not
+	 * exactly there is not this location's name.
+	 */
+	static String identifierAt(final String rawLine, final int oneBasedColumn) {
+		if (rawLine == null || oneBasedColumn < 1 || oneBasedColumn > rawLine.length())
+			return "";
+
+		final int start = oneBasedColumn - 1;
+		if (isWordCharacter(rawLine.charAt(start)) == false)
+			return "";
+
+		if (start > 0 && isWordCharacter(rawLine.charAt(start - 1)))
+			return "";
+
+		int end = start;
+		while (end < rawLine.length() && isWordCharacter(rawLine.charAt(end)))
+			end++;
+
+		return rawLine.substring(start, end);
+	}
+
+	/** Exactly java.util.regex's \w, spelled out: [a-zA-Z0-9_]. */
+	private static boolean isWordCharacter(final char c) {
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
 	}
 
 	/** The "children" of a documentSymbol node, empty when it has none. */

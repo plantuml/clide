@@ -30,8 +30,12 @@ Ce que la colonne obligatoire change, concrètement :
   le hint donne les colonnes réelles) au lieu de répondre sur ce qui se trouve
   désormais à cet endroit. `NAME_NOT_ON_LINE` reste distinct : le nom n'est nulle
   part sur la ligne, corriger la colonne n'y changerait rien.
-- **Symétrie entrée/sortie.** Ce que clide imprime (`path:ligne:colonne: texte`)
-  devient une position valide en lui ajoutant `:nom` — rien d'autre à calculer.
+- **Symétrie entrée/sortie.** Ce que clide imprime est *exactement* la notation
+  qu'il accepte : `chemin:ligne:colonne:nom` suivi d'une espace puis du texte de
+  la ligne. Un résultat se recopie dans la commande suivante sans rien ajouter
+  ni recompter. Le `nom` imprimé est relu depuis la ligne source à cette
+  colonne — donc `Box` et non `Box<T extends Comparable<T>>` comme le nomme
+  jdtls : ce qui sort est acceptable en entrée par construction.
 
 Détails de mise en œuvre :
 
