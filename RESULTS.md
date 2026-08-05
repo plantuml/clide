@@ -486,11 +486,22 @@ src/main/java/demo/Broken.java:
 jdtls: 1 error(s), 0 warning(s) in 1 file(s)
 ```
 
+Suivi par jdtls et propre (`tracked == true`, `isClean() == true`) - la tally
+le dit en toutes lettres plutôt que d'imprimer des zéros :
+
+```
+jdtls: 12 file(s) with tracked diagnostics, no errors or warnings
+```
+
 Rien de suivi par jdtls (`tracked == false`) :
 
 ```
 jdtls: no diagnostics (project not recognized, or nothing to report)
 ```
+
+Ces deux cas ne se confondent pas : `tracked == false` veut dire que rien n'a
+été analysé, `isClean() == true` que ça a été analysé et trouvé propre - voir
+`DiagnosticsReport` plus haut.
 
 Si la liste a été plafonnée, la troncature s'écrit sur **sa propre ligne** :
 les deux nombres comptent des choses différentes, et les fondre inviterait à
@@ -509,7 +520,9 @@ jdtls: 100 diagnostic(s) shown out of 320, truncated - raise the limit with set_
 | `elapsedMillis` | `long` | durée du rafraîchissement + build |
 | `report` | `DiagnosticsReport` | le même que `print_diagnostics` |
 
-Produit par `rebuild`.
+Produit par `rebuild`. La tally qui termine `report` suit les mêmes trois
+formes que `print_diagnostics` (propre, en erreur, jamais suivi) - voir
+`Diagnostics` ci-dessus.
 
 ```
 rebuild: 2 file(s) changed since the last build, rebuilt in 9124 ms
