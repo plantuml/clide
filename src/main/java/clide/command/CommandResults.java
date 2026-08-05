@@ -1,8 +1,8 @@
 package clide.command;
 
+import clide.command.result.CommandResult;
+import clide.command.result.ErrorCode;
 import clide.core.PositionException;
-import clide.result.CommandResult;
-import clide.result.ErrorCode;
 
 /**
  * The two checks nearly every command runs on its own parameters, in one place
@@ -18,7 +18,7 @@ import clide.result.ErrorCode;
  * left to make and nothing to warn about - the token either designates exactly
  * one spot or is refused.
  */
-final class CommandResults {
+public final class CommandResults {
 
 	private CommandResults() {
 	}
@@ -28,7 +28,7 @@ final class CommandResults {
 	 * not take - the code says which of the ways it failed, and the hint (usually
 	 * empty) carries whatever Position computed that the caller could not.
 	 */
-	static CommandResult positionFailure(final RuntimeException e) {
+	public static CommandResult positionFailure(final RuntimeException e) {
 		return CommandResult.error(PositionException.codeOf(e), e.getMessage(), PositionException.hintOf(e));
 	}
 
@@ -37,7 +37,7 @@ final class CommandResults {
 	 * parameter runs, worded the same way each time. Returns null when value is
 	 * one of allowed.
 	 */
-	static CommandResult rejectUnlessOneOf(final String label, final String value, final String... allowed) {
+	public static CommandResult rejectUnlessOneOf(final String label, final String value, final String... allowed) {
 		for (final String candidate : allowed)
 			if (value.equals(candidate))
 				return null;

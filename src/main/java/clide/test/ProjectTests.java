@@ -16,14 +16,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import clide.command.result.CommandPayload;
+import clide.command.result.CommandResult;
+import clide.command.result.ErrorCode;
 import clide.core.ClideContext;
-import clide.result.CommandPayload;
-import clide.result.CommandResult;
-import clide.result.ErrorCode;
-import clide.result.Listing;
-import clide.result.TestOutcome;
 import clide.jdtls.JdtlsLauncher;
 import clide.jdtls.JdtlsSession;
+import clide.result.Listing;
+import clide.result.TestOutcome;
 
 /**
  * Runs a project's own unit tests - the ones of the project clide has open,

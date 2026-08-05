@@ -11,9 +11,9 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import clide.command.result.ErrorCode;
 import clide.jdtls.JdtlsSession;
 import clide.jdtls.LspClient;
-import clide.result.ErrorCode;
 
 /**
  * A position in clide's client-facing notation:

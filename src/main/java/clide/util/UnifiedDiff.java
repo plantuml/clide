@@ -6,8 +6,9 @@ import java.util.List;
 /**
  * Renders a classic unified diff (the "---"/"+++"/"@@" format `diff -u`
  * produces) between two in-memory line lists, used by diff_transaction (see
- * clide.command.DiffTransactionCommand, CLAUDE.md) to show what a transaction
- * changed in one file without shelling out to an external diff tool - clide
+ * clide.command.transaction.DiffTransactionCommand, CLAUDE.md) to show what a
+ * transaction changed in one file without shelling out to an external diff
+ * tool - clide
  * stays dependency-free (see CLAUDE.md).
  *
  * The alignment is computed with the textbook dynamic-programming longest

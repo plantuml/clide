@@ -8,8 +8,8 @@ import clide.annotation.Keyword;
 import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
-import clide.result.CommandResult;
-import clide.result.ResultEnvelope;
+import clide.command.result.CommandResult;
+import clide.command.result.ResultEnvelope;
 
 /**
  * A single clide command: identified by a @Keyword, documented by @Help,

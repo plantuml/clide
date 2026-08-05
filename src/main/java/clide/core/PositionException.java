@@ -1,6 +1,6 @@
 package clide.core;
 
-import clide.result.ErrorCode;
+import clide.command.result.ErrorCode;
 
 /**
  * Why a &lt;file path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt; token could

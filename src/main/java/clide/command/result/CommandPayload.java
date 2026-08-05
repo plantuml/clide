@@ -1,0 +1,146 @@
+package clide.command.result;
+
+import clide.result.CodeLocation;
+import clide.result.DiagnosticsReport;
+import clide.result.Listing;
+import clide.result.SearchMatch;
+import clide.result.SymbolHit;
+import clide.result.TestOutcome;
+/**
+ * The part of a CommandResult that varies from one command to the next - what
+ * the command actually found, as data rather than as the text a client will
+ * eventually read.
+ *
+ * <b>Sealed rather than a generic JSON value.</b> Monomorphic already models
+ * "a value of a shape nobody promised", and that is the right tool at the jdtls
+ * boundary, where the shape genuinely arrives from outside. It is the wrong tool
+ * here: a command and the handler that renders it are both written in this
+ * repository, so their agreement can be checked by the compiler instead of at
+ * the first run that happens to exercise the branch. A handler that reads a
+ * field the producer never wrote fails to compile; with a map keyed by strings
+ * it would have failed in production, once, on the path nobody tested.
+ *
+ * A sealed hierarchy also makes a handler's switch exhaustive: add a payload,
+ * and every switch that does not account for it stops compiling - which is how a
+ * new command gets a rendering rather than silently getting none.
+ *
+ * The permitted records live nested here, so the whole shape of what any
+ * command can answer fits on one screen. One payload per result *shape*, not per
+ * command: find_declaration, find_reference and find_implementation all answer
+ * with a list of locations, and share Locations rather than each getting a
+ * near-identical record of its own.
+ *
+ * Every payload stays free of presentation: no padding, no "(s)", no line
+ * breaks. Turning one into text is the job of Command.render() (see
+ * CommandRendering), and doing it here would put two renderings in the codebase
+ * with nothing keeping them in step.
+ */
+public sealed interface CommandPayload {
+
+	/** The payload of a command with nothing to report - exit, quit, terminate. */
+	record Nothing() implements CommandPayload {
+	}
+
+	/**
+	 * Text clide passes through without interpreting it: a man page, or jdtls'
+	 * own hover markdown. Deliberately not parsed - hover's "Source:" footer and
+	 * its markdown are jdtls' business, and reformatting them here would only
+	 * find new ways to mangle them.
+	 */
+	record Text(String text) implements CommandPayload {
+
+		public Text {
+			if (text == null)
+				throw new IllegalArgumentException("text must not be null - use \"\"");
+		}
+	}
+
+	/**
+	 * Where a symbol is declared, used, or implemented - find_declaration,
+	 * find_reference, find_implementation. subject echoes the position that was
+	 * asked about, so a result reads on its own.
+	 */
+	record Locations(String subject, Listing<CodeLocation> locations) implements CommandPayload {
+	}
+
+	/** Symbols found by name (find_symbol) or listed on a type (list_members). */
+	record Symbols(String subject, Listing<SymbolHit> symbols) implements CommandPayload {
+	}
+
+	/** The lines search_regex matched, plus how many distinct files they came from. */
+	record SearchMatches(Listing<SearchMatch> matches, int fileCount) implements CommandPayload {
+	}
+
+	/** What the last build said - print_diagnostics. */
+	record Diagnostics(DiagnosticsReport report) implements CommandPayload {
+	}
+
+	/**
+	 * A build clide just ran - rebuild. Carries the same report as
+	 * print_diagnostics plus what only rebuild knows: how many files had changed,
+	 * and how long the build took.
+	 */
+	record Rebuild(int changedFiles, long elapsedMillis, DiagnosticsReport report) implements CommandPayload {
+	}
+
+	/**
+	 * A test run - run_test, run_tests. The counts are of the whole run; tests is
+	 * the (capped, and possibly failures-only) listing of individual outcomes, so
+	 * "12 test(s), 9 passed" stays true even when only the 3 failures are listed.
+	 */
+	record TestRun(String subject, int passed, int failed, int skipped, long elapsedMillis,
+			Listing<TestOutcome> tests, boolean failuresOnly) implements CommandPayload {
+
+		public int total() {
+			return passed + failed + skipped;
+		}
+	}
+
+	/** A transaction changed state - open, commit, rollback, restore_file. */
+	record Transaction(String id, Action action, String path) implements CommandPayload {
+
+		public enum Action {
+			OPENED, COMMITTED, ROLLED_BACK, FILE_RESTORED
+		}
+
+		public Transaction {
+			if (id == null || id.isEmpty())
+				throw new IllegalArgumentException("id must not be empty");
+
+			if (action == null)
+				throw new IllegalArgumentException("action must not be null");
+
+			if (path == null)
+				throw new IllegalArgumentException("path must not be null - use \"\" when it does not apply");
+		}
+	}
+
+	/** The files a transaction has modified so far - diff_transaction with no path. */
+	record ModifiedFiles(String transactionId, Listing<String> files) implements CommandPayload {
+	}
+
+	/**
+	 * A unified diff of one file under one transaction - diff_transaction with a
+	 * path. An empty diff means the file currently matches its pre-transaction
+	 * backup, which is a fact worth reporting rather than an absence.
+	 */
+	record Diff(String transactionId, String path, String unifiedDiff) implements CommandPayload {
+	}
+
+	/** Every registered command - help. */
+	record CommandList(Listing<CommandSummary> commands) implements CommandPayload {
+	}
+
+	/**
+	 * A session setting was read or changed - set_max_results. Carrying the
+	 * previous value as well as the new one is what makes the command its own
+	 * read-back: the fixed arity of the line protocol leaves no room for an
+	 * argument-less "show me the current value" form.
+	 */
+	record Setting(String name, String previousValue, String newValue) implements CommandPayload {
+	}
+
+	/** The one instance any command with nothing to report can hand back. */
+	CommandPayload NOTHING = new Nothing();
+
+}

@@ -13,7 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import clide.result.ErrorCode;
+import clide.command.result.ErrorCode;
 
 /**
  * Tests de Position.parse() sur la notation canonique
