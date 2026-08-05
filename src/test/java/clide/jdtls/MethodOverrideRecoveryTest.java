@@ -116,14 +116,6 @@ class MethodOverrideRecoveryTest {
 	}
 
 	@Test
-	@DisplayName("characterOf() rend 0 par défaut quand 'character' est absent")
-	void characterOfDefaultsToZero() {
-		final Monomorphic position = Monomorphic.mapBuilder().putNumber("character", 17).build();
-		assertEquals(17, MethodOverrideRecovery.characterOf(position));
-		assertEquals(0, MethodOverrideRecovery.characterOf(Monomorphic.createNull()));
-	}
-
-	@Test
 	@DisplayName("locationKey() identifie une location par 'uri:ligne', pour la déduplication")
 	void locationKeyIdentifiesByUriAndLine() {
 		final Monomorphic location = Monomorphic.mapBuilder() //

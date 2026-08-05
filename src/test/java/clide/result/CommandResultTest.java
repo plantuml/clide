@@ -57,12 +57,12 @@ class CommandResultTest {
 	@DisplayName("un résultat OK peut porter des avertissements - c'est pourquoi le statut reste binaire")
 	void warningsDoNotMakeAResultAnError() {
 		final CommandResult result = CommandResult.empty()
-				.withWarning(Warning.of(WarningCode.AMBIGUOUS_NAME_ON_LINE, "deux fois sur la ligne"));
+				.withWarning(Warning.of(WarningCode.TRANSACTIONS_STILL_OPEN, "$refactor_foo"));
 
 		assertEquals(CommandStatus.OK, result.status());
 		assertFalse(result.isError());
 		assertEquals(1, result.warnings().size());
-		assertEquals(WarningCode.AMBIGUOUS_NAME_ON_LINE, result.warnings().get(0).code());
+		assertEquals(WarningCode.TRANSACTIONS_STILL_OPEN, result.warnings().get(0).code());
 	}
 
 	@Test
@@ -100,7 +100,7 @@ class CommandResultTest {
 	@DisplayName("un avertissement sans message est refusé")
 	void warningMustSaySomething() {
 		assertThrows(IllegalArgumentException.class,
-				() -> Warning.of(WarningCode.AMBIGUOUS_NAME_ON_LINE, ""));
+				() -> Warning.of(WarningCode.TRANSACTIONS_STILL_OPEN, ""));
 	}
 
 }

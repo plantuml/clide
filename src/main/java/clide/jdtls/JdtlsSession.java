@@ -190,8 +190,8 @@ public class JdtlsSession {
 	 * 0bis) rather than on editor-style open/close tracking. To be revisited if
 	 * that turns out not to be enough in practice.
 	 *
-	 * Returns one formatted "path:line: line content" entry per location in the
-	 * response, in server order; an empty list if the response was empty/null.
+	 * Returns one formatted "path:line:column: line content" entry per location in
+	 * the response, in server order; an empty list if the response was empty/null.
 	 */
 	public List<CodeLocation> goToPosition(final String lspMethod, final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
@@ -247,7 +247,7 @@ public class JdtlsSession {
 	 * SymbolInformation[] with no "children" at all, and this could never find any
 	 * member.
 	 *
-	 * Returns one "[kind] path:line: line content" entry per member, in
+	 * Returns one "[kind] path:line:column: line content" entry per member, in
 	 * documentSymbol's own order.
 	 */
 	public List<SymbolHit> listMembers(final Position position)
@@ -269,7 +269,7 @@ public class JdtlsSession {
 	 * see that class' doc for why jdtls' own SearchPattern misses generic
 	 * overrides, and what the recovery pass does about it.
 	 *
-	 * Returns one formatted "path:line: line content" entry per location, in jdtls'
+	 * Returns one formatted "path:line:column: line content" entry per location, in jdtls'
 	 * own order first, recovered ones appended after - formatting (project-relative
 	 * path shortening, reading the line's own text) is this class' job;
 	 * MethodOverrideRecovery only ever deals in raw Monomorphic locations.
@@ -291,7 +291,7 @@ public class JdtlsSession {
 	 * exact - whatever jdtls itself implements) is entirely up to the server; clide
 	 * sends query as-is and applies no filtering of its own on the results.
 	 *
-	 * Returns one "[kind] path:line: line content" entry per symbol in the
+	 * Returns one "[kind] path:line:column: line content" entry per symbol in the
 	 * response, in server order - see formatSymbol(); an empty list if the response
 	 * was empty/null.
 	 */
@@ -495,11 +495,12 @@ public class JdtlsSession {
 	 */
 	private CodeLocation locationOf(final Monomorphic location) {
 		final String uri = JdtlsResponses.uriOf(location);
-		final int zeroBasedLine = JdtlsResponses.lineOf(JdtlsResponses.startOf(JdtlsResponses.rangeOf(location)));
-		final int line = zeroBasedLine == -1 ? -1 : zeroBasedLine + 1;
+		final Monomorphic start = JdtlsResponses.startOf(JdtlsResponses.rangeOf(location));
+		final int line = JdtlsResponses.oneBased(JdtlsResponses.lineOf(start));
+		final int column = JdtlsResponses.oneBased(JdtlsResponses.characterOf(start));
 
 		final String lineText = JdtlsResponses.readLineSafely(uri, line);
-		return new CodeLocation(shortName(uri), line, lineText == null ? "" : lineText);
+		return new CodeLocation(shortName(uri), line, column, lineText == null ? "" : lineText);
 	}
 
 	/**

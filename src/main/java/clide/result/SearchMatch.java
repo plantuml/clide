@@ -1,10 +1,12 @@
 package clide.result;
 
 /**
- * One line matched by search_regex: where it is and what it says. Same
- * "path:line: text" display shape as a CodeLocation, and deliberately a
- * separate type all the same - a grep hit is not a semantic location, and
- * merging the two would invite treating one as the other.
+ * One line matched by search_regex: where it is and what it says. Displayed as
+ * "path:line: text", deliberately without the column a CodeLocation carries: a
+ * grep hit is a line, not a symbol, so there is no symbol start to report and
+ * nothing here pastes into a <position> as-is. Kept a separate type from
+ * CodeLocation for the same reason - merging the two would invite treating a
+ * textual match as a semantic location.
  */
 public record SearchMatch(String path, int line, String text) {
 

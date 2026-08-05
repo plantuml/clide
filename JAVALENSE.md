@@ -114,7 +114,7 @@ Chaque tour d'agent coûte cher ; ils regroupent : `analyze_type` = membres
 signature + appelants + appelés + overrides ; `analyze_file` = imports +
 types + diagnostics ; `diagnose_and_fix` = diagnostics d'un fichier + les
 corrections proposées de chaque problème. C'est le prolongement naturel de
-notre notation `chemin:ligne:nom` recopiable d'un résultat vers la
+notre notation `chemin:ligne:colonne:nom` recopiable d'un résultat vers la
 commande suivante. Candidat clide évident : un `describe_type` combinant
 `hover` + `list_members` + `find_implementation`.
 
@@ -307,9 +307,16 @@ dans un corps sans accolades, inline d'un corps contenant `super.`, etc.).
 
 ## Validation de notre syntaxe au passage
 
-Leur issue #31 valide involontairement notre choix `chemin:ligne:nom` :
-avec leurs coordonnées explicites zero-based (ligne + colonne), un agent
-qui obtenait zéro résultat s'est mis à réessayer des positions adjacentes
-en soupçonnant un off-by-one. La colonne explicite est fragile pour un
-LLM qui compte mal les caractères ; notre résolution par mot entier sur
-la ligne élimine la question à la racine.
+Leur issue #31 reste instructive : avec leurs coordonnées explicites
+**zero-based** (ligne + colonne), un agent qui obtenait zéro résultat s'est mis
+à réessayer des positions adjacentes en soupçonnant un off-by-one.
+
+**Mise à jour (notation `chemin:ligne:colonne:nom`).** clide porte désormais lui
+aussi une colonne explicite ; ce paragraphe concluait l'inverse et n'est plus à
+jour. Deux différences font que le piège d'issue #31 ne se transpose pas : la
+colonne est **1-based** des deux côtés du protocole, comme tout ce qu'un agent
+lit par ailleurs (fichier, grep, javac, stack trace) ; et le `nom` reste dans le
+jeton comme **contrôle de cohérence** — une colonne fausse est refusée en
+nommant les colonnes réelles, au lieu de rendre zéro résultat qui invite à
+tâtonner. Une colonne mal comptée devient donc un message, pas une série
+d'essais adjacents.

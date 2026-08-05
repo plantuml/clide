@@ -8,7 +8,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Turns clide's "path:line:name" notation into what TestRunnerMain selects on.
+ * Turns clide's "path:line:column:name" notation into what TestRunnerMain
+ * selects on.
  *
  * The whole point is that the answer of find_symbol can be pasted straight into
  * run_test with no editing - which is the property TESTS.md keeps identifying

@@ -10,7 +10,7 @@ package clide.annotation;
  * "$segment" chunks chained back to back (e.g. "$refactor_foo",
  * "$refactor_foo$part1"), each segment lower-case word characters only.</li>
  * <li>REGEX must compile as a java.util.regex.Pattern.</li>
- * <li>POSITION must parse as "&lt;file path&gt;:&lt;line&gt;:&lt;name&gt;"
+ * <li>POSITION must parse as "&lt;file path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt;"
  * (see clide.core.Position.parse()) - the file path relative to the open
  * project, never the daemon's own current directory - and name must actually
  * appear as a whole word on that line of that file.</li>

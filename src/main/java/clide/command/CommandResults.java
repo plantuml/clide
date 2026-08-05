@@ -1,19 +1,22 @@
 package clide.command;
 
-import java.util.List;
-
-import clide.core.Position;
 import clide.core.PositionException;
 import clide.result.CommandResult;
 import clide.result.ErrorCode;
-import clide.result.Warning;
-import clide.result.WarningCode;
 
 /**
- * The two things nearly every command has to do with a &lt;position&gt;, in one
- * place rather than copied into each of them: turn a parse failure into a
- * CommandResult carrying the right ErrorCode, and notice when the name was
- * ambiguous on its line.
+ * The two checks nearly every command runs on its own parameters, in one place
+ * rather than copied into each of them: turning a &lt;position&gt; parse
+ * failure into a CommandResult carrying the right ErrorCode (and hint), and
+ * refusing a fixed-vocabulary parameter that got something outside its
+ * vocabulary.
+ *
+ * It used to hold a third one, ambiguityWarnings(): the &lt;position&gt;
+ * notation carried no column, so clide resolved the first whole-word occurrence
+ * on the line and warned when there were several. The notation now names the
+ * column (see Position, SYMBOLS.md), so there is no first-occurrence choice
+ * left to make and nothing to warn about - the token either designates exactly
+ * one spot or is refused.
  */
 final class CommandResults {
 
@@ -21,39 +24,12 @@ final class CommandResults {
 	}
 
 	/**
-	 * Parses positionText, or returns null and leaves the failure in failure[0] -
-	 * an awkward shape that exists so a caller can write the happy path straight
-	 * down without a try/catch around it, and without this helper having to know
-	 * which command is asking.
+	 * The refusal to answer with, for a &lt;position&gt; Position.parse() would
+	 * not take - the code says which of the ways it failed, and the hint (usually
+	 * empty) carries whatever Position computed that the caller could not.
 	 */
 	static CommandResult positionFailure(final RuntimeException e) {
-		return CommandResult.error(PositionException.codeOf(e), e.getMessage());
-	}
-
-	/**
-	 * The warning to attach when position's name occurs more than once on its
-	 * line, empty otherwise - see WarningCode.AMBIGUOUS_NAME_ON_LINE for why this
-	 * is a warning and not a refusal.
-	 *
-	 * The message names every column, 1-based here rather than 0-based: a column
-	 * a person reads off their editor is 1-based, and this text exists to be read.
-	 * clide's own resolution stays 0-based internally and is not affected.
-	 */
-	static List<Warning> ambiguityWarnings(final Position position) {
-		if (position.isAmbiguousOnLine() == false)
-			return List.of();
-
-		final StringBuilder columns = new StringBuilder();
-		for (final int column : position.columnsOnLine()) {
-			if (columns.length() > 0)
-				columns.append(", ");
-
-			columns.append(column + 1);
-		}
-
-		return List.of(Warning.of(WarningCode.AMBIGUOUS_NAME_ON_LINE,
-				"'" + position.name() + "' appears " + position.columnsOnLine().size() + " times on line "
-						+ position.line() + " (columns " + columns + ") - answered about the first one"));
+		return CommandResult.error(PositionException.codeOf(e), e.getMessage(), PositionException.hintOf(e));
 	}
 
 	/**

@@ -314,8 +314,9 @@ public final class ProjectTests {
 	}
 
 	/**
-	 * One failure. location is "path:line" in the same shape every find_* command
-	 * prints, so the answer can be pasted straight into hover or find_reference.
+	 * One failure. location is "path:line" - the prefix of what every find_*
+	 * command prints, one notch short of it: a stack frame carries no column, so
+	 * the caller has to add it (and the name) to get a full <position>.
 	 * origin is only filled in when the exception came from somewhere other than
 	 * the test's own line - for a plain failed assertion the two are the same
 	 * place, and repeating it would be noise.

@@ -89,7 +89,7 @@ Nothing is ever split on spaces — a whole line is one token, always.
 This makes one mistake very easy to hit on the very first command:
 
 ```
-find_reference method src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession
+find_reference method src/main/java/clide/command/ManualCommand.java:27:21:needsJdtlsSession
 ```
 
 fails with `?ERROR UNKNOWN_KEYWORD: Unknown command 'find_reference method
@@ -100,7 +100,7 @@ command, written correctly:
 ```
 find_reference
 method
-src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession
+src/main/java/clide/command/ManualCommand.java:27:21:needsJdtlsSession
 exit
 ```
 
@@ -130,7 +130,7 @@ markers to recognize otherwise:
 ```
 ?ERROR LINE_OUT_OF_RANGE: Line 999 out of range (file has 312 line(s)): Foo.java
 hint: find_symbol Foo locates it
-!WARNING AMBIGUOUS_NAME_ON_LINE: 'add' appears 3 times on line 12 (columns 10, 14, 25) - answered about the first one
+!WARNING TRANSACTIONS_STILL_OPEN: $refactor_foo
 ```
 
 - **`?ERROR <CODE>: <message>`** — the command refused. `<CODE>` names *why*,
@@ -138,7 +138,8 @@ hint: find_symbol Foo locates it
   `UNKNOWN_KEYWORD`, `MISSING_PARAMETERS`, `INVALID_ENUM_VALUE`,
   `INVALID_REGEX`, `INVALID_INTEGER`, `VALUE_OUT_OF_RANGE`, `NOT_A_DIRECTORY`,
   `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`,
-  `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NOT_A_TYPE`, `JDTLS_REQUEST_FAILED`,
+  `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NAME_NOT_AT_COLUMN`, `NOT_A_TYPE`,
+  `JDTLS_REQUEST_FAILED`,
   `BUILD_FAILED`, `SESSION_START_FAILED`, `TEST_FAILURES`, `NO_TEST_FOUND`,
   `TEST_CLASS_NOT_COMPILED`, `TEST_TIMEOUT`, `TEST_RUNNER_BROKEN`,
   `MULTI_MODULE_PROJECT`, `NO_OUTPUT_FOLDER`, `CLASSPATH_UNAVAILABLE`,
@@ -153,10 +154,10 @@ hint: find_symbol Foo locates it
   has nothing useful to add — never that the error is unimportant, and never
   that it knows the cause and kept it to itself.
 - **`!WARNING <CODE>: <message>`** — the answer stands and is printed as usual;
-  something about it is worth knowing. Two exist today:
-  `AMBIGUOUS_NAME_ON_LINE` (the `<name>` of a `<symbol>` occurs more than once
-  on its line, and clide answered about the first occurrence — see the notation
-  section above) and `TRANSACTIONS_STILL_OPEN`.
+  something about it is worth knowing. One exists today:
+  `TRANSACTIONS_STILL_OPEN`. (`AMBIGUOUS_NAME_ON_LINE` is gone: the `<position>`
+  notation now carries the column, so clide never picks between two occurrences
+  of a name on one line — see the notation section above.)
 - **anything else** — the answer itself.
 
 `RESULTS.md` documents every answer shape field by field, with an example
@@ -209,15 +210,19 @@ its root because of clide.
 It's unnecessary — and even counterproductive, since it would mask the
 normal automatic behavior instead of helping it.
 
-## The `<symbol>` notation: `<file path>:<line>:<name>`
+## The `<position>` notation: `<file path>:<line>:<column>:<name>`
 
 Most commands that point to a precise spot in the code
 (`find_declaration`, `find_reference`, `find_implementation`, `hover`,
-`list_members`) take a single `<symbol>` parameter, written
-`<file path>:<line>:<name>` — for example
-`src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession`.
+`list_members`, `run_test`) take a single `<position>` parameter, written
+`<file path>:<line>:<column>:<name>` — for example
+`src/main/java/clide/command/ManualCommand.java:27:21:needsJdtlsSession`.
 
-Three rules are enough to use it correctly:
+This is the only notation clide accepts today. The shorter forms sketched
+in `SYMBOLS.md` (`Classe::membre`, a bare file name, a bare class name) are
+not implemented; sending one gets `?ERROR MALFORMED_POSITION`.
+
+Four rules are enough to use it correctly:
 
 - `<file path>` is always relative to the root of the opened project,
   never to the current working directory. It also accepts a `file:` URI —
@@ -225,16 +230,33 @@ Three rules are enough to use it correctly:
   prints its results in, so a result copied verbatim from one command into
   the next works without editing.
 - `<line>` is 1-based, as shown when reading the file.
-- `<name>` is looked up as a whole word on that line (`\bname\b`) — no
-  column to count by hand, clide works it out itself.
+- `<column>` is 1-based too — column 1 is the first character of the line,
+  tabs counting as one character each. It is the column `<name>` *starts*
+  at, not the one it ends at.
+- `<name>` is a consistency check, not decoration: clide verifies it starts
+  exactly at `<column>` of `<line>`, as a whole word (`\bname\b`). Nothing
+  is guessed and nothing falls back — a token that does not check out is
+  refused, never answered approximately.
 
-**When the file/line isn't known yet**, `find_symbol <name>` searches for
-a symbol by name across the whole project (fuzzy/camelCase matching
+That last rule is what makes a stale position visible instead of dangerous.
+Edit a file after copying a position out of it, and the columns shift; the
+old token then gets `?ERROR NAME_NOT_AT_COLUMN`, whose hint names the
+columns the name actually starts at now. `?ERROR NAME_NOT_ON_LINE` means
+something else entirely: the name is nowhere on that line, so the line (or
+the file) is wrong and a corrected column would not help.
+
+The column is also why clide never has to choose for you. `a.foo(b.foo())`
+names two unrelated methods on one line; each has its own column, so each is
+reachable, and there is no "answered about the first one" warning left to
+print.
+
+**When the file/line/column isn't known yet**, `find_symbol <name>` searches
+for a symbol by name across the whole project (fuzzy/camelCase matching
 delegated to jdtls — `find_symbol UGraphic` can also surface `UGraphicSvg`,
-`UGraphicNull`, etc.) and returns its results already in the `<symbol>`
-notation above, ready to paste into the next command. `find_symbol` only
-finds types and methods, never a field by its name — a known jdtls
-limitation, with no parameter to lift it.
+`UGraphicNull`, etc.) and prints each hit as `path:line:column: <line text>`
+— append `:<name>` and it is a `<position>` ready for the next command.
+`find_symbol` only finds types and methods, never a field by its name — a
+known jdtls limitation, with no parameter to lift it.
 
 ## Staying up to date after an edit: `rebuild`
 
@@ -276,16 +298,17 @@ the question — a grep remains blind to inheritance and polymorphism.
 | Command | Role |
 |---|---|
 | `find_symbol <name>` | Looks up a type or method by name across the whole project, without knowing the file/line in advance. |
-| `find_declaration <what> <symbol>` | Where the symbol is actually declared. `<what>` = `method` (the declaration of the symbol itself) or `type` (the class/interface of its declared type). |
-| `find_reference <what> <symbol>` | All real usages of the symbol, declaration excluded. `<what>` is accepted for naming symmetry but has no effect on the result (only one query exists behind it). |
-| `find_implementation <what> <symbol>` | Which classes/methods actually implement or override the symbol — the polymorphism question. `<what>` is accepted for symmetry, with no effect on the result. |
-| `hover <symbol>` | Signature/Javadoc known for this symbol at this exact spot. |
-| `list_members <symbol>` | **Direct** members (methods, fields, constructors) of a type — never inherited members. |
+| `find_declaration <what> <position>` | Where the symbol is actually declared. `<what>` = `method` (the declaration of the symbol itself) or `type` (the class/interface of its declared type). |
+| `find_reference <what> <position>` | All real usages of the symbol, declaration excluded. `<what>` is accepted for naming symmetry but has no effect on the result (only one query exists behind it). |
+| `find_implementation <what> <position>` | Which classes/methods actually implement or override the symbol — the polymorphism question. `<what>` is accepted for symmetry, with no effect on the result. |
+| `hover <position>` | Signature/Javadoc known for this symbol at this exact spot. |
+| `list_members <position>` | **Direct** members (methods, fields, constructors) of a type — never inherited members. |
 
-All accept the `<symbol>` notation above, except `find_symbol` which takes
+All accept the `<position>` notation above, except `find_symbol` which takes
 a bare name. All fail cleanly — and namefully: `?ERROR FILE_NOT_FOUND`,
-`?ERROR LINE_OUT_OF_RANGE`, `?ERROR NAME_NOT_ON_LINE` — before any request
-even reaches jdtls. See "Reading a result" below.
+`?ERROR LINE_OUT_OF_RANGE`, `?ERROR NAME_NOT_ON_LINE`,
+`?ERROR NAME_NOT_AT_COLUMN` — before any request even reaches jdtls. See
+"Reading a result" below.
 
 All of them cap their listing at `max_results` (100 by default) and say so
 when they do; `set_max_results <count>` changes it for the session.
@@ -294,7 +317,7 @@ when they do; `set_max_results <count>` changes it for the session.
 
 | Command | Role |
 |---|---|
-| `run_test <symbol>` | Runs the test that `<symbol>` designates: the whole class if `<symbol>` names the test class, that single method otherwise. Takes the `<symbol>` notation, not a fully-qualified class name — a `find_symbol` result can be pasted in unchanged. |
+| `run_test <position>` | Runs the test that `<position>` designates: the whole class if `<position>` names the test class, that single method otherwise. Takes the `<position>` notation, not a fully-qualified class name — a `find_symbol` result becomes one by appending `:<name>`. |
 | `run_tests <all\|failures>` | Runs all tests in the project. `failures` lists only the failing ones (the only readable output on a suite of real size); totals are always shown either way. |
 
 `run_test`/`run_tests` work even if the target project has no JUnit jar of

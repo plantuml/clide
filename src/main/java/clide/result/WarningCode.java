@@ -12,17 +12,6 @@ package clide.result;
 public enum WarningCode {
 
 	/**
-	 * The name of a &lt;position&gt; appears more than once as a whole word on
-	 * its line, and clide resolved the first occurrence - the message names every
-	 * column it found. Not an error: resolving the first match is what makes a
-	 * result of one command paste straight into the next, and refusing here would
-	 * break that chaining for a case that is usually harmless (a.foo(b.foo())).
-	 * But it *is* the one case where clide may silently have answered about a
-	 * different symbol than the one meant, so it says so.
-	 */
-	AMBIGUOUS_NAME_ON_LINE,
-
-	/**
 	 * exit/quit with transactions still open. They survive, untouched, for the
 	 * next connection to commit or roll back - purely informational, nothing is
 	 * blocked by it.

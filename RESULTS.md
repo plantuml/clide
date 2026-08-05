@@ -114,9 +114,9 @@ une question à laquelle clide n'a pas pu répondre du tout donne un `ERROR`.
 n'a que deux marqueurs à reconnaître :
 
 ```
-?ERROR LINE_OUT_OF_RANGE: Line 999 out of range (file has 312 line(s)): Foo.java
-hint: find_symbol Foo locates it
-!WARNING AMBIGUOUS_NAME_ON_LINE: 'add' appears 3 times on line 12 (columns 10, 14, 25) - answered about the first one
+?ERROR NAME_NOT_AT_COLUMN: 'add' does not start at column 10 of line 12 of Foo.java
+hint: 'add' starts at columns 14, 25 on that line
+!WARNING TRANSACTIONS_STILL_OPEN: $refactor_foo
 ```
 
 | Élément | Forme | Quand |
@@ -148,16 +148,23 @@ un mensonge, pas un service.
 | aucune erreur | `NONE` |
 | protocole | `UNKNOWN_KEYWORD`, `MISSING_PARAMETERS` |
 | paramètres | `INVALID_ENUM_VALUE`, `EMPTY_PARAMETER`, `INVALID_REGEX`, `INVALID_INTEGER`, `VALUE_OUT_OF_RANGE`, `INVALID_TRANSACTION_ID`, `NOT_A_DIRECTORY` |
-| `<position>` | `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`, `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NOT_A_TYPE` |
+| `<position>` | `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`, `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NAME_NOT_AT_COLUMN`, `NOT_A_TYPE` |
 | jdtls | `SESSION_START_FAILED`, `JDTLS_REQUEST_FAILED`, `BUILD_FAILED` |
 | transactions | `NO_OPEN_TRANSACTION`, `TRANSACTION_REFUSED`, `TRANSACTION_IO_FAILED`, `TERMINATE_REFUSED` |
 | tests | `TEST_FAILURES`, `NO_TEST_FOUND`, `TEST_CLASS_NOT_COMPILED`, `TEST_RUNNER_BROKEN`, `TEST_TIMEOUT`, `NO_OUTPUT_FOLDER`, `CLASSPATH_UNAVAILABLE`, `MULTI_MODULE_PROJECT` |
 | divers | `IO_FAILED` |
 
-Les cinq codes de `<position>` sortent tous de `Position.parse()`, qui les
-porte via `PositionException` — laquelle reste une `IllegalArgumentException`,
-si bien que tout `catch` écrit avant l'existence des codes fonctionne
-inchangé.
+Les cinq premiers codes de `<position>` sortent tous de `Position.parse()`, qui
+les porte via `PositionException` — laquelle reste une
+`IllegalArgumentException`, si bien que tout `catch` écrit avant l'existence des
+codes fonctionne inchangé.
+
+`NAME_NOT_ON_LINE` et `NAME_NOT_AT_COLUMN` se ressemblent et ne se corrigent pas
+pareil, d'où deux codes plutôt qu'un : le premier dit que le nom n'est **nulle
+part** sur la ligne (mauvaise ligne, ou fichier périmé — changer de colonne n'y
+ferait rien) ; le second qu'il est bien sur la ligne, mais ailleurs, et son
+`hint` donne les colonnes où il commence réellement. C'est le seul code de
+`<position>` à porter un hint.
 
 **Un code est délibérément absent : `STALE_MODEL`.** clide ne détecte pas
 aujourd'hui qu'un modèle jdtls est plus vieux que les fichiers (seul `rebuild`
@@ -182,17 +189,24 @@ dégradé.
 
 | Code | Levé par | Ce qu'il dit |
 |---|---|---|
-| `AMBIGUOUS_NAME_ON_LINE` | toute commande prenant un `<position>` | Le `<name>` apparaît plusieurs fois comme mot entier sur sa ligne ; clide a répondu sur la **première** occurrence. Pas un refus : résoudre la première est ce qui permet de recopier le résultat d'une commande dans la suivante. Mais c'est le seul cas où clide a pu répondre sur un autre symbole que celui visé — `a.foo(b.foo())` en nomme deux sans rapport — donc il le dit. |
 | `TRANSACTIONS_STILL_OPEN` | `exit`, `quit` | Des transactions survivent, intactes, pour la prochaine connexion. Purement informatif, rien n'est bloqué. |
+
+`AMBIGUOUS_NAME_ON_LINE` a été **supprimé** avec le passage à la notation
+`chemin:ligne:colonne:nom` : il signalait qu'un nom apparaissait plusieurs fois
+sur sa ligne et que clide avait répondu sur la première occurrence. La colonne
+étant désormais obligatoire, il n'y a plus de première occurrence à choisir —
+chaque occurrence a sa propre colonne, et une colonne fausse est refusée
+(`NAME_NOT_AT_COLUMN`) plutôt que rattrapée. Conforme au principe cardinal de
+`SYMBOLS.md` : toute ambiguïté produit une erreur explicite, jamais une
+résolution silencieuse.
 
 **Exemple**
 
 ```
 find_reference: 3 location(s)
-src/main/java/demo/Calc.java:12: return add(add(a, 1), add(a, 2));
-src/main/java/demo/Calc.java:12: return add(add(a, 1), add(a, 2));
-src/main/java/demo/Calc.java:12: return add(add(a, 1), add(a, 2));
-!WARNING AMBIGUOUS_NAME_ON_LINE: 'add' appears 3 times on line 12 (columns 10, 14, 25) - answered about the first one
+src/main/java/demo/Calc.java:12:10: return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:14: return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:25: return add(add(a, 1), add(a, 2));
 ```
 
 ---
@@ -246,12 +260,17 @@ Un endroit précis du projet, tel que le nomment tous les `find_*`,
 |---|---|---|
 | `path` | `String` | chemin relatif à la racine du projet, séparateurs `/` |
 | `line` | `int` | ligne 1-based ; `-1` si la réponse ne portait aucune plage exploitable |
+| `column` | `int` | colonne 1-based du début du symbole ; `-1` dans le même cas |
 | `lineText` | `String` | le texte de cette ligne ; `""` si elle n'a pas pu être relue |
 
 | Méthode | Rendu |
 |---|---|
-| `display()` | `src/main/java/demo/Calc.java:4: public int add(int a, int b) {` — ou `path:line` seul si `lineText` est vide |
-| `locate()` | `src/main/java/demo/Calc.java:4` — le préfixe d'un `<position>`, auquel il reste à ajouter `:<name>` |
+| `display()` | `src/main/java/demo/Calc.java:4:14: public int add(int a, int b) {` — ou `path:line:column` seul si `lineText` est vide |
+| `locate()` | `src/main/java/demo/Calc.java:4:14` — le préfixe d'un `<position>`, auquel il reste à ajouter `:<name>` |
+
+La colonne vient du début de la `range` renvoyée par jdtls, convertie du 0-based
+LSP au 1-based client en un seul point (`JdtlsResponses.oneBased()`). C'est elle
+qui rend ce que clide imprime directement réutilisable comme `<position>`.
 
 ### `SymbolHit`
 
@@ -268,14 +287,16 @@ l'ensemble est choisi, pas par ce qu'est un élément.
 
 | Méthode | Rendu |
 |---|---|
-| `display()` | `[method] src/main/java/demo/Calc.java:4: public int add(int a, int b) {` — ou `[method] add: <no location>` si `location` est `null` |
+| `display()` | `[method] src/main/java/demo/Calc.java:4:14: public int add(int a, int b) {` — ou `[method] add: <no location>` si `location` est `null` |
 
 ### `SearchMatch`
 
-Une ligne trouvée par `search_regex`. Même forme d'affichage qu'un
-`CodeLocation`, et volontairement un type distinct : une correspondance de
-grep n'est pas une localisation sémantique, et les confondre inviterait à
-traiter l'une comme l'autre.
+Une ligne trouvée par `search_regex`. Affichée `path:line: texte`,
+délibérément **sans** la colonne que porte un `CodeLocation` : une correspondance
+de grep est une ligne, pas un symbole — il n'y a pas de début de symbole à
+rapporter, et rien ici ne se recopie tel quel dans un `<position>`. Type distinct
+de `CodeLocation` pour la même raison : les confondre inviterait à traiter une
+correspondance textuelle comme une localisation sémantique.
 
 | Champ | Type | Rôle |
 |---|---|---|
@@ -386,9 +407,9 @@ Produit par `find_declaration`, `find_reference`, `find_implementation`.
 
 ```
 find_reference: 3 location(s)
-src/main/java/demo/Calc.java:12: return add(add(a, 1), add(a, 2));
-src/main/java/demo/Calc.java:12: return add(add(a, 1), add(a, 2));
-src/main/java/demo/Calc.java:12: return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:10: return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:14: return add(add(a, 1), add(a, 2));
+src/main/java/demo/Calc.java:12:25: return add(add(a, 1), add(a, 2));
 ```
 
 Liste vide (`totalCount == 0`) — un succès, pas une erreur :
@@ -410,9 +431,9 @@ Produit par `find_symbol` et `list_members`.
 
 ```
 list_members: 3 member(s) shown out of 4, truncated - raise the limit with set_max_results
-[field] src/main/java/demo/Calc.java:5: private int total;
-[method] src/main/java/demo/Calc.java:7: public int add(int a, int b) {
-[method] src/main/java/demo/Calc.java:11: public int chain(int a) {
+[field] src/main/java/demo/Calc.java:5:14: private int total;
+[method] src/main/java/demo/Calc.java:7:13: public int add(int a, int b) {
+[method] src/main/java/demo/Calc.java:11:13: public int chain(int a) {
 ```
 
 Vide, selon la commande — chacune nomme la limite connue qui peut expliquer

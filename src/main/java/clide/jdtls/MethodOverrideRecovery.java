@@ -138,8 +138,10 @@ final class MethodOverrideRecovery {
 		if (start.isMap() == false)
 			return List.of();
 
-		final Monomorphic response = client.request("textDocument/implementation", JdtlsResponses.positionParams(
-				position.file(), JdtlsResponses.lineOf(start) + 1, characterOf(start), null), 30);
+		final Monomorphic response = client.request("textDocument/implementation",
+				JdtlsResponses.positionParams(position.file(), JdtlsResponses.oneBased(JdtlsResponses.lineOf(start)),
+						JdtlsResponses.oneBased(JdtlsResponses.characterOf(start)), null),
+				30);
 		if (JdtlsResponses.errorOf(response) != null)
 			return List.of();
 
@@ -302,16 +304,6 @@ final class MethodOverrideRecovery {
 			return false;
 
 		return JdtlsResponses.lineOf(start) <= zeroBasedLine && zeroBasedLine <= JdtlsResponses.lineOf(end);
-	}
-
-	/**
-	 * Only ever needed against the declaring type's own selectionRange start
-	 * (see overridesJdtlsMisses) - nowhere else in JdtlsSession reads a
-	 * position's character, so this stays local rather than joining
-	 * JdtlsResponses' shared helpers.
-	 */
-	static int characterOf(final Monomorphic position) {
-		return (int) position.getOrNull("character").longOrDefault(0);
 	}
 
 	/** "uri:line" - identity of a location for de-duplication purposes. */

@@ -2,39 +2,57 @@
 
 Spécification de la notation utilisée par clide pour désigner un symbole (fichier, classe, champ, méthode) dans le code Java. Objectif : rester la plus courte possible tout en restant non ambiguë, en s'appuyant sur des conventions déjà connues (Java, outils Unix) plutôt qu'en inventant de nouveaux sigles.
 
-Notation canonique PATH_LINE_COLUMN
-
-On commence à compter à 1.
+## Notation canonique PATH_LINE_COLUMN — la seule implémentée aujourd'hui
 
 `chemin/complet.java:ligne:colonne:nom` — le plus précis.
 
-Il y a un contrôle de cohérence: "nom" doit bien être présent dans la colonne spécifiée.
+On commence à compter à 1, pour la ligne comme pour la colonne.
 
+Il y a un contrôle de cohérence : "nom" doit bien être présent dans la colonne spécifiée.
 
+**État d'implémentation.** C'est aujourd'hui la seule notation acceptée par
+clide, et la seule qu'il produit. Les niveaux 2 à 4 de l'échelle ci-dessous
+restent une spécification, pas du code : les envoyer donne
+`?ERROR MALFORMED_POSITION`. Restriction volontaire et temporaire — une seule
+forme à écrire, une seule à parser, une seule à documenter, le temps que le
+reste se stabilise.
 
+Ce que la colonne obligatoire change, concrètement :
+
+- **Plus aucune résolution implicite.** Sans colonne, clide prenait la première
+  occurrence du nom sur la ligne et signalait le cas par un
+  `!WARNING AMBIGUOUS_NAME_ON_LINE`. Ce warning n'existe plus : chaque
+  occurrence a sa propre colonne, donc `a.calculer(b.calculer())` désigne l'une
+  *ou* l'autre, jamais « la première ».
+- **Le nom devient un contrôle, pas une décoration.** Un fichier édité entre le
+  moment où une position a été imprimée et celui où elle est renvoyée a vu ses
+  colonnes bouger. Le jeton périmé est alors refusé (`NAME_NOT_AT_COLUMN`, dont
+  le hint donne les colonnes réelles) au lieu de répondre sur ce qui se trouve
+  désormais à cet endroit. `NAME_NOT_ON_LINE` reste distinct : le nom n'est nulle
+  part sur la ligne, corriger la colonne n'y changerait rien.
+- **Symétrie entrée/sortie.** Ce que clide imprime (`path:ligne:colonne: texte`)
+  devient une position valide en lui ajoutant `:nom` — rien d'autre à calculer.
+
+Détails de mise en œuvre :
+
+- Numérotation **1-based** pour ligne et colonne côté protocole, même si jdtls/LSP travaille en 0-based en interne. Conversion centralisée en un seul point à la frontière avec jdtls (`JdtlsResponses.oneBased()` / `positionParams()`). Choix motivé par la cohérence avec les autres outils manipulés dans une même session (lecture de fichier, grep, javac, stack traces), tous en 1-based.
+- Le contrôle de cohérence se fait sur le **mot entier** (`\bnom\b`) — jamais par recherche de sous-chaîne naïve, qui matcherait à tort `foo` dans `foobar`.
+- Parsing sans ambiguïté malgré les `:` déjà présents dans les chemins Windows (`C:\...`) : les trois derniers segments sont toujours ligne, colonne et nom ; tout ce qui précède est le chemin, quels que soient les `:` qu'il contient.
 
 ## Principe cardinal
 
 **Toute ambiguïté doit produire une erreur explicite**, listant les candidats trouvés — jamais de résolution silencieuse vers le premier match trouvé. Ce principe s'applique à chaque niveau ci-dessous, sans exception.
 
-## Échelle de résolution
+## Échelle de résolution (niveaux 2 à 4 : spécifiés, non implémentés)
 
 Du plus court/robuste au plus précis, à utiliser en cascade — retomber au niveau suivant dès qu'un niveau échoue par ambiguïté :
 
 1. `Classe::membre` ou `Outer.Inner::membre` — le plus court, insensible aux déplacements de ligne (édition, refactor)
 2. `Classe` ou `Outer.Inner` seule — référence la classe elle-même
-3. `NomFichier.java:ligne:nom` — raccourci par nom de fichier, si celui-ci est unique dans le projet
-4. `chemin/complet.java:ligne[:colonne]:nom` — le plus précis, toujours valide, sert de filet de sécurité
+3. `NomFichier.java:ligne:colonne:nom` — raccourci par nom de fichier, si celui-ci est unique dans le projet
+4. `chemin/complet.java:ligne:colonne:nom` — le plus précis, toujours valide, sert de filet de sécurité (**le seul actif aujourd'hui**)
 
 ## Détail par niveau
-
-### 1. Chemin complet
-
-`chemin:ligne:nom` par défaut. `chemin:ligne:colonne:nom` uniquement si le nom apparaît plusieurs fois sur cette ligne.
-
-- La détection du besoin de colonne se fait en comptant les résultats LSP situés sur la même ligne — jamais par recherche de sous-chaîne naïve (qui matcherait à tort `foo` dans `foobar`).
-- Numérotation **1-based** pour ligne et colonne côté protocole, même si jdtls/LSP travaille en 0-based en interne. Conversion centralisée en un seul point à la frontière avec jdtls. Choix motivé par la cohérence avec les autres outils manipulés dans une même session (lecture de fichier, grep, javac, stack traces), tous en 1-based.
-- Parsing sans ambiguïté malgré les `:` déjà présents dans les chemins Windows (`C:\...`) : un identifiant Java ne peut jamais être purement numérique — en partant de la droite, on compte les segments numériques consécutifs juste avant le nom (1 → ligne seule, 2 → ligne:colonne) ; tout ce qui précède est le chemin.
 
 ### 2. Nom de fichier seul
 

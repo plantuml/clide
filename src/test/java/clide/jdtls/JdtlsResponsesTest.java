@@ -121,19 +121,39 @@ class JdtlsResponsesTest {
 	}
 
 	@Test
-	@DisplayName("positionParams() encode la ligne en 0-based et n'ajoute 'context' que si non-null")
-	void positionParamsEncodesZeroBasedLineAndOptionalContext(@TempDir final Path dir) throws IOException {
+	@DisplayName("positionParams() encode ligne ET colonne en 0-based, et n'ajoute 'context' que si non-null")
+	void positionParamsEncodesZeroBasedLineAndColumnAndOptionalContext(@TempDir final Path dir) throws IOException {
 		final Path file = Files.createFile(dir.resolve("A.java"));
 
 		final Monomorphic withoutContext = JdtlsResponses.positionParams(file, 5, 12);
 		assertEquals(4, withoutContext.getOrNull("position").getOrNull("line").longOrDefault(-1),
 				"ligne 1-based 5 -> 0-based 4");
-		assertEquals(12, withoutContext.getOrNull("position").getOrNull("character").longOrDefault(-1));
+		assertEquals(11, withoutContext.getOrNull("position").getOrNull("character").longOrDefault(-1),
+				"colonne 1-based 12 -> 0-based 11");
 		assertTrue(withoutContext.getOrNull("context").isNull());
 
 		final Monomorphic context = Monomorphic.mapBuilder().putBoolean("includeDeclaration", false).build();
 		final Monomorphic withContext = JdtlsResponses.positionParams(file, 5, 12, context);
 		assertEquals(context, withContext.getOrNull("context"));
+	}
+
+	@Test
+	@DisplayName("lineOf()/characterOf() rendent -1 quand le champ manque, jamais 0")
+	void rawCoordinatesReportAbsenceRatherThanZero() {
+		final Monomorphic start = Monomorphic.mapBuilder().putNumber("line", 3).putNumber("character", 17).build();
+		assertEquals(3, JdtlsResponses.lineOf(start));
+		assertEquals(17, JdtlsResponses.characterOf(start));
+
+		assertEquals(-1, JdtlsResponses.lineOf(Monomorphic.createNull()));
+		assertEquals(-1, JdtlsResponses.characterOf(Monomorphic.createNull()));
+	}
+
+	@Test
+	@DisplayName("oneBased() ajoute 1, sauf à -1 qui reste -1 - une absence n'est pas la colonne 0")
+	void oneBasedKeepsAbsenceAsAbsence() {
+		assertEquals(1, JdtlsResponses.oneBased(0));
+		assertEquals(18, JdtlsResponses.oneBased(17));
+		assertEquals(-1, JdtlsResponses.oneBased(-1));
 	}
 
 }

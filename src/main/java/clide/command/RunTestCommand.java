@@ -26,8 +26,8 @@ import clide.test.TestSelector;
  *
  * <pre>
  * find_symbol shouldRenderArrow
- *   -&gt; [method] src/test/java/.../ArrowTest.java:88: void shouldRenderArrow()
- * run_test src/test/java/.../ArrowTest.java:88:shouldRenderArrow
+ *   -&gt; [method] src/test/java/.../ArrowTest.java:88:14: void shouldRenderArrow()
+ * run_test src/test/java/.../ArrowTest.java:88:14:shouldRenderArrow
  * </pre>
  */
 public class RunTestCommand extends Command {
@@ -57,11 +57,12 @@ public class RunTestCommand extends Command {
 				its own JUnit keeps it: clide's jar goes last on the
 				classpath and only fills in what is missing.
 
-				Each failure is reported as "path:line: name", the same
-				notation every find_* command prints, so it can be fed
-				straight back into hover or find_reference. When the
-				exception came from somewhere other than the test's own
-				line, that place is named too.
+				Each failure is reported as "path:line" plus the test's
+				name - a stack frame carries no column, so this is one
+				notch short of a full <position>: add the column of the
+				name on that line to feed it back into hover or
+				find_reference. When the exception came from somewhere
+				other than the test's own line, that place is named too.
 
 			ERRORS
 				run_test does NOT recompile first - it reports the state of
@@ -100,8 +101,7 @@ public class RunTestCommand extends Command {
 					"could not read " + position.file() + ": " + e.getMessage());
 		}
 
-		return ProjectTests.runSelection(context, selector, selector[1])
-				.withWarnings(CommandResults.ambiguityWarnings(position));
+		return ProjectTests.runSelection(context, selector, selector[1]);
 	}
 
 	@Override

@@ -18,7 +18,7 @@ import clide.result.Listing;
  * find_declaration, find_reference and find_implementation (see
  * FindDeclarationCommand/FindReferenceCommand/FindImplementationCommand) - each
  * of which parses a &lt;position&gt;
- * ("&lt;file path&gt;:&lt;line&gt;:&lt;name&gt;", see Position) sent by the
+ * ("&lt;file path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt;", see Position) sent by the
  * client, sends one LSP request against it, and builds the same payload from the
  * result; only the LSP method (and, for find_reference, an extra request-level
  * "context") differs between them.
@@ -86,11 +86,11 @@ final class PositionCommandSupport {
 			final List<CodeLocation> locations) {
 		final CommandPayload payload = new CommandPayload.Locations(position.name(),
 				Listing.of(locations, context.getMaxResults()));
-		return CommandResult.ok(payload).withWarnings(CommandResults.ambiguityWarnings(position));
+		return CommandResult.ok(payload);
 	}
 
 	/**
-	 * "&lt;command&gt;: 3 location(s)" then one "path:line: line content" per
+	 * "&lt;command&gt;: 3 location(s)" then one "path:line:column: line content" per
 	 * result, or "&lt;command&gt;: no location found" when there were none.
 	 *
 	 * Finding nothing is a success, not an error: "this symbol is used nowhere" is

@@ -28,7 +28,7 @@ import clide.result.CommandResult;
 public class FindReferenceCommand extends Command {
 
 	@Keyword("find_reference")
-	@Help("Finds every real usage of a symbol across the whole project - <what> is method or type, <position> as <file path>:<line>:<name>.")
+	@Help("Finds every real usage of a symbol across the whole project - <what> is method or type, <position> as <file path>:<line>:<column>:<name>.")
 	@Param(type = ParamType.SINGLE_LINE, description = "What: method or type")
 	@Param(type = ParamType.POSITION, description = "Position")
 	@Manual("""
@@ -42,16 +42,21 @@ public class FindReferenceCommand extends Command {
 				Finds every real usage of a symbol across the whole
 				project, excluding its own declaration - is this actually
 				used anywhere, and where. <position> is given as
-				<file path>:<line>:<name>, name located as a whole word on
-				line of file path. <what> states whether <position> names a
+				<file path>:<line>:<column>:<name>, name starting exactly
+				at column of that line. <what> states whether <position> names a
 				method or a type, for consistency with find_declaration/
 				find_implementation; it does not change the result.
 
 			ERRORS
 				<what> must be exactly "method" or "type" - anything else
-				is rejected. <position> must parse as <file path>:<line>:<name>
-				- the file must exist under the project root, line must be
-				within it, and name must appear on it as a whole word.
+				is rejected. <position> must parse as
+				<file path>:<line>:<column>:<name> - the file must exist
+				under the project root, line must be within it, and name
+				must start exactly at column of that line as a whole word.
+				Line and column both count from 1. A name present on the
+				line but at another column is refused too, naming the
+				columns it does start at: an edit that shifted the line is
+				caught rather than silently answered.
 
 			SEE ALSO
 				find_declaration(1), find_implementation(1), find_symbol(1)

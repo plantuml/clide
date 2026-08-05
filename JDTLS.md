@@ -155,8 +155,10 @@ l'absence de `.clide/` (cas de clide lui-même) ne casse rien.
   définie une méthode, une classe, une variable (pas un grep qui tombe sur un
   usage). **Fait, testé de bout en bout** : commandes
   `goto_definition`/`goto_type_definition` (voir `CLAUDE.md`). Position donnée
-  en ligne (1-based) + texte du symbole cherché comme mot entier sur cette
-  ligne, plutôt qu'une colonne brute — clide déduit la colonne lui-même. Testé
+  en ligne + colonne (1-based toutes les deux) + texte du symbole, vérifié comme
+  mot entier commençant exactement à cette colonne. À l'époque de ce paragraphe
+  la colonne était absente et clide la déduisait ; elle est désormais
+  obligatoire, le nom servant de contrôle de cohérence (voir `SYMBOLS.md`). Testé
   sur clide lui-même (clone GitHub frais + jdtls extrait + `ant run`) :
   `goto_definition` sur `command`/`context` dans `Main.java` renvoie bien leur
   déclaration locale, `goto_type_definition` sur les mêmes symboles saute

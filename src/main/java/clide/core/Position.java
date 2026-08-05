@@ -17,44 +17,58 @@ import clide.result.ErrorCode;
 
 /**
  * A position in clide's client-facing notation:
- * "&lt;file path&gt;:&lt;line&gt;:&lt;name&gt;" - the file path relative to
- * the open project (never the daemon's own current directory), line 1-based -
- * e.g. "src/main/java/clide/command/ManualCommand.java:27:needsJdtlsSession".
- * Reifies the (file, line, name) triple every goto_*, hover and list_members
- * command used to take as three separate parameters (see CLAUDE.md): the
- * client now sends/echoes one token instead of three, and the "does this
- * name actually appear here" surface check ParamType.POSITION exists for -
- * see ClideDaemon.validate() - shares the exact same whole-word-on-line logic
- * parse() already ran, instead of jdtls-facing code re-deriving it on its
- * own.
+ * "&lt;file path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt;" - the file path
+ * relative to the open project (never the daemon's own current directory), line
+ * and column both 1-based - e.g.
+ * "src/main/java/clide/command/ManualCommand.java:27:21:needsJdtlsSession".
+ * Reifies the (file, line, column, name) quadruple every find_*, hover and
+ * list_members command used to take as separate parameters (see CLAUDE.md): the
+ * client now sends/echoes one token instead of three, and the "does this name
+ * actually appear here" surface check ParamType.POSITION exists for - see
+ * ClideDaemon.validate() - shares the exact same logic parse() already ran,
+ * instead of jdtls-facing code re-deriving it on its own.
  *
- * A position, not a symbol: it names one exact spot a symbol's name appears
- * at, not the symbol itself - a symbol usually appears at several positions
- * (its declaration, every reference to it), and nothing here aggregates
- * those together. That broader notion doesn't exist in clide yet; if it did,
- * it would hold one or more Position rather than being one itself.
+ * The column is mandatory and carries no default. It used to be absent from the
+ * notation and worked out by clide, which resolved the first whole-word
+ * occurrence on the line and warned when there were several - a silent choice
+ * between two unrelated symbols in "a.foo(b.foo())". Naming the column removes
+ * that choice entirely: exactly one symbol answers a &lt;position&gt;, or the
+ * token is refused. SYMBOLS.md' cardinal principle - any ambiguity must produce
+ * an explicit error, never a silent resolution - therefore needs no warning
+ * here anymore.
  *
- * Immutable, and only ever built by parse(): any Position in hand is
- * therefore already known to name a real file, a line within range, and name
- * as a whole word on that line - callers (JdtlsSession in particular) never
- * re-validate any of that themselves.
+ * The name is kept alongside the column rather than made redundant by it: it is
+ * the consistency check that catches a stale token. A file edited between the
+ * moment a position was printed and the moment it is sent back shifts its
+ * columns, and a bare file:line:column would then point at whatever now sits
+ * there, silently. parse() requires name to start exactly at column, as a whole
+ * word, so such a token is refused instead of answered.
+ *
+ * A position, not a symbol: it names one exact spot a symbol's name appears at,
+ * not the symbol itself - a symbol usually appears at several positions (its
+ * declaration, every reference to it), and nothing here aggregates those
+ * together. That broader notion doesn't exist in clide yet; if it did, it would
+ * hold one or more Position rather than being one itself.
+ *
+ * Immutable, and only ever built by parse(): any Position in hand is therefore
+ * already known to name a real file, a line within range, and name as a whole
+ * word starting at that exact column - callers (JdtlsSession in particular)
+ * never re-validate any of that themselves.
  */
 public final class Position {
 
-	private static final Pattern NOTATION = Pattern.compile("^(.+):(\\d+):(\\w+)$");
+	private static final Pattern NOTATION = Pattern.compile("^(.+):(\\d+):(\\d+):(\\w+)$");
 
 	private final Path file;
 	private final int line;
-	private final String name;
 	private final int column;
-	private final List<Integer> columnsOnLine;
+	private final String name;
 
-	private Position(final Path file, final int line, final String name, final List<Integer> columnsOnLine) {
+	private Position(final Path file, final int line, final int column, final String name) {
 		this.file = file;
 		this.line = line;
+		this.column = column;
 		this.name = name;
-		this.column = columnsOnLine.get(0);
-		this.columnsOnLine = List.copyOf(columnsOnLine);
 	}
 
 	/** Absolute path of the file this position is in. */
@@ -67,52 +81,42 @@ public final class Position {
 		return line;
 	}
 
+	/**
+	 * 1-based column name() starts at on line() - as sent by the client, and
+	 * verified by parse() rather than guessed.
+	 *
+	 * 1-based on the protocol side even though jdtls/LSP counts columns from 0:
+	 * every other tool used in the same session (reading a file, grep, javac, a
+	 * stack trace) counts from 1, and mixing the two conventions in one notation
+	 * is how off-by-ones get shipped. The single conversion to LSP's 0-based
+	 * offsets lives at the jdtls frontier, in
+	 * JdtlsResponses.positionParams()/lineOf()/characterOf().
+	 */
+	public int column() {
+		return column;
+	}
+
 	/** The name at this position, as typed. */
 	public String name() {
 		return name;
 	}
 
-	/** 0-based column of name() on line() - resolved once, by parse(). */
-	public int column() {
-		return column;
-	}
-
 	/**
-	 * Every 0-based column name() occurs at as a whole word on line(), in order -
-	 * column() is the first of them, and the one every jdtls request is sent
-	 * against.
-	 *
-	 * More than one is not an error, and resolving the first is what lets a result
-	 * printed by one command be pasted straight into the next. But it is the one
-	 * case where clide may quietly have answered about a different symbol than the
-	 * one meant - "a.foo(b.foo())" names two unrelated methods on one line - so
-	 * commands report it as a WarningCode.AMBIGUOUS_NAME_ON_LINE rather than
-	 * letting it pass unmentioned. See CommandResults.ambiguityWarnings().
-	 */
-	public List<Integer> columnsOnLine() {
-		return columnsOnLine;
-	}
-
-	/** Whether name() occurs more than once as a whole word on line(). */
-	public boolean isAmbiguousOnLine() {
-		return columnsOnLine.size() > 1;
-	}
-
-	/**
-	 * Parses "&lt;file path&gt;:&lt;line&gt;:&lt;name&gt;", the file path
-	 * resolved against projectRoot - never the current working directory, so the
-	 * same notation means the same thing regardless of where the clide daemon
-	 * happens to have been started from. Also runs the "surface" check
-	 * ParamType.POSITION exists for: the file must actually exist, line must be in
-	 * range, and name must appear as a whole word on that line - all of it
-	 * plain-text, no jdtls involved (a stronger, jdtls-backed check only happens
-	 * once a command actually runs and asks jdtls itself).
+	 * Parses "&lt;file path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt;", the
+	 * file path resolved against projectRoot - never the current working
+	 * directory, so the same notation means the same thing regardless of where the
+	 * clide daemon happens to have been started from. Also runs the "surface"
+	 * check ParamType.POSITION exists for: the file must actually exist, line must
+	 * be in range, and name must start exactly at column as a whole word - all of
+	 * it plain-text, no jdtls involved (a stronger, jdtls-backed check only
+	 * happens once a command actually runs and asks jdtls itself).
 	 *
 	 * @throws PositionException with a message fit to send back to the client
 	 *                           as-is, and the ErrorCode saying which of the
 	 *                           failures it was: MALFORMED_POSITION,
 	 *                           FILE_NOT_FOUND, FILE_UNREADABLE,
-	 *                           LINE_OUT_OF_RANGE or NAME_NOT_ON_LINE. Still an
+	 *                           LINE_OUT_OF_RANGE, NAME_NOT_ON_LINE or
+	 *                           NAME_NOT_AT_COLUMN. Still an
 	 *                           IllegalArgumentException, so every catch site
 	 *                           written before the codes existed keeps working.
 	 */
@@ -120,7 +124,7 @@ public final class Position {
 		final Matcher notation = NOTATION.matcher(token.trim());
 		if (notation.matches() == false)
 			throw new PositionException(ErrorCode.MALFORMED_POSITION,
-					"Invalid position '" + token + "' - expected <file path>:<line>:<name>");
+					"Invalid position '" + token + "' - expected <file path>:<line>:<column>:<name>");
 
 		final String pathArgument = notation.group(1);
 		final Path file = resolvePath(pathArgument, projectRoot);
@@ -128,7 +132,8 @@ public final class Position {
 			throw new PositionException(ErrorCode.FILE_NOT_FOUND, "Not a file: " + pathArgument);
 
 		final int line = Integer.parseInt(notation.group(2));
-		final String name = notation.group(3);
+		final int column = Integer.parseInt(notation.group(3));
+		final String name = notation.group(4);
 
 		final List<String> lines;
 		try {
@@ -141,12 +146,47 @@ public final class Position {
 			throw new PositionException(ErrorCode.LINE_OUT_OF_RANGE,
 					"Line " + line + " out of range (file has " + lines.size() + " line(s)): " + pathArgument);
 
-		final List<Integer> columns = wholeWordColumns(lines.get(line - 1), name);
+		checkNameAtColumn(lines.get(line - 1), line, column, name, pathArgument);
+
+		return new Position(file, line, column, name);
+	}
+
+	/**
+	 * The consistency check the notation exists for: name must start at column
+	 * (1-based) of lineText, as a whole word. Says nothing and returns when it
+	 * does; throws otherwise, with two different codes on purpose:
+	 *
+	 * - NAME_NOT_ON_LINE when the name is nowhere on that line as a whole word.
+	 * The line, or the file, is not the one the caller thinks - a stale position,
+	 * or a wrong one. Correcting the column would not help.
+	 *
+	 * - NAME_NOT_AT_COLUMN when it is on the line, just not there. Only the column
+	 * is wrong, and the hint names every column it does occur at, so the caller
+	 * can fix the token without reading the file again. That list is state clide
+	 * computed and the caller cannot reconstitute, which is exactly what CODING.md
+	 * allows a hint to carry.
+	 */
+	private static void checkNameAtColumn(final String lineText, final int line, final int column, final String name,
+			final String pathArgument) {
+		final List<Integer> columns = wholeWordColumns(lineText, name);
+		if (columns.contains(column))
+			return;
+
 		if (columns.isEmpty())
 			throw new PositionException(ErrorCode.NAME_NOT_ON_LINE,
 					"'" + name + "' not found on line " + line + " of " + pathArgument);
 
-		return new Position(file, line, name, columns);
+		final StringBuilder found = new StringBuilder();
+		for (final int candidate : columns) {
+			if (found.length() > 0)
+				found.append(", ");
+
+			found.append(candidate);
+		}
+
+		throw new PositionException(ErrorCode.NAME_NOT_AT_COLUMN, "'" + name + "' does not start at column " + column
+				+ " of line " + line + " of " + pathArgument,
+				"'" + name + "' starts at column" + (columns.size() > 1 ? "s " : " ") + found + " on that line");
 	}
 
 	/**
@@ -192,21 +232,18 @@ public final class Position {
 	}
 
 	/**
-	 * Every 0-based column at which name occurs as a whole word on line, in
-	 * order; empty when it does not occur at all.
+	 * Every 1-based column at which name occurs as a whole word on line, in order;
+	 * empty when it does not occur at all.
 	 *
-	 * Used to stop at the first match and return just that one. It still resolves
-	 * to the first - changing which occurrence wins would break the copy-a-result-
-	 * into-the-next-command chaining that the whole notation exists for - but the
-	 * others are now kept rather than discarded, so a command can warn that the
-	 * line was ambiguous instead of silently picking one of several unrelated
-	 * symbols. See columnsOnLine().
+	 * Whole word (\bname\b) rather than a plain substring search, so "calculer"
+	 * never matches inside "calculerTout" - the check would otherwise accept a
+	 * column pointing at a different identifier that merely starts the same way.
 	 */
 	private static List<Integer> wholeWordColumns(final String line, final String name) {
 		final List<Integer> columns = new ArrayList<>();
 		final Matcher matcher = Pattern.compile("\\b" + Pattern.quote(name) + "\\b").matcher(line);
 		while (matcher.find())
-			columns.add(matcher.start());
+			columns.add(matcher.start() + 1);
 
 		return columns;
 	}
@@ -223,7 +260,7 @@ public final class Position {
 
 	@Override
 	public String toString() {
-		return file + ":" + line + ":" + name;
+		return file + ":" + line + ":" + column + ":" + name;
 	}
 
 }

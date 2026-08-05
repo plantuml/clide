@@ -3,7 +3,8 @@ package clide.result;
 import java.util.List;
 
 /**
- * What happened to one test. location is "path:line" when clide could place the
+ * What happened to one test. location is "path:line" - no column: a stack frame
+ * carries none, so it is not a full <position>. Filled in when clide could place the
  * test through jdtls, empty otherwise - the same notation every find_* command
  * prints, so a failure pastes straight into hover or find_reference.
  *

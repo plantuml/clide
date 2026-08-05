@@ -59,10 +59,10 @@ public enum ErrorCode {
 	NOT_A_DIRECTORY,
 
 	// ------------------------------------------------------------------
-	// Position: resolving <file path>:<line>:<name> against the project
+	// Position: resolving <file path>:<line>:<column>:<name> against the project
 	// ------------------------------------------------------------------
 
-	/** The token did not even parse as &lt;file path&gt;:&lt;line&gt;:&lt;name&gt;. */
+	/** The token did not even parse as &lt;file path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt;. */
 	MALFORMED_POSITION,
 
 	/** The notation parsed, but its file path names nothing on disk. */
@@ -74,8 +74,21 @@ public enum ErrorCode {
 	/** The file exists, the line does not - the message names how many lines it has. */
 	LINE_OUT_OF_RANGE,
 
-	/** The line exists but does not carry that name as a whole word. */
+	/**
+	 * The line exists but does not carry that name as a whole word anywhere. The
+	 * line - or the file - is not the one the caller meant: a stale position, or a
+	 * wrong one. Correcting only the column would not help, which is what
+	 * separates this from NAME_NOT_AT_COLUMN.
+	 */
 	NAME_NOT_ON_LINE,
+
+	/**
+	 * The name is on the line, as a whole word, just not starting at the column
+	 * given - the file has most likely been edited since the position was printed.
+	 * Only the column is wrong; the hint names every column the name does start
+	 * at, so the token can be fixed without reading the file again.
+	 */
+	NAME_NOT_AT_COLUMN,
 
 	/** The position resolved, but names nothing this command can work with (e.g. list_members on a method). */
 	NOT_A_TYPE,

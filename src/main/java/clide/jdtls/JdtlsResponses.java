@@ -22,7 +22,7 @@ import clide.core.Monomorphic;
  * Deliberately just data plumbing - no method here judges whether an answer
  * is "good", only how to pull a field out of the Monomorphic shape jdtls sent
  * back, or how to build the shape it expects next. Presentation (turning a
- * location into a "path:line: content" string for a client) stays in
+ * location into a "path:line:column: content" string for a client) stays in
  * JdtlsSession.formatLocation(), which needs project-relative path shortening
  * this class has no reason to know about.
  */
@@ -68,8 +68,28 @@ final class JdtlsResponses {
 		return range.getOrNull("start");
 	}
 
+	/** Raw, i.e. 0-based as LSP counts - see oneBased() for the client-facing form. */
 	static int lineOf(final Monomorphic position) {
 		return (int) position.getOrNull("line").longOrDefault(-1);
+	}
+
+	/** Raw, i.e. 0-based as LSP counts - see oneBased(). */
+	static int characterOf(final Monomorphic position) {
+		return (int) position.getOrNull("character").longOrDefault(-1);
+	}
+
+	/**
+	 * The single conversion from LSP's 0-based line/character offsets to the
+	 * 1-based line/column every client-facing notation uses (see Position,
+	 * SYMBOLS.md): +1, except that -1 - "no usable value in the response" - stays
+	 * -1 rather than becoming a spurious column 0.
+	 *
+	 * One function for both axes and one direction only, so the whole 0-vs-1
+	 * question lives in this file: nothing outside clide.jdtls ever sees a 0-based
+	 * number, and nothing inside it invents its own +1.
+	 */
+	static int oneBased(final int lspOffset) {
+		return lspOffset == -1 ? -1 : lspOffset + 1;
 	}
 
 	/**
@@ -119,10 +139,12 @@ final class JdtlsResponses {
 
 	/**
 	 * textDocument/position request params, for a position already resolved by
-	 * Position.parse().
+	 * Position.parse(). Both coordinates are 1-based here, as everywhere outside
+	 * this package; the -1 back to LSP's 0-based offsets happens in the other
+	 * overload and nowhere else.
 	 */
-	static Monomorphic positionParams(final Path file, final int oneBasedLine, final int column) {
-		return positionParams(file, oneBasedLine, column, null);
+	static Monomorphic positionParams(final Path file, final int oneBasedLine, final int oneBasedColumn) {
+		return positionParams(file, oneBasedLine, oneBasedColumn, null);
 	}
 
 	/**
@@ -130,13 +152,13 @@ final class JdtlsResponses {
 	 * request params when non-null - see JdtlsSession's context-taking
 	 * goToPosition() overload.
 	 */
-	static Monomorphic positionParams(final Path file, final int oneBasedLine, final int column,
+	static Monomorphic positionParams(final Path file, final int oneBasedLine, final int oneBasedColumn,
 			final Monomorphic context) {
 		final Monomorphic.Builder params = Monomorphic.mapBuilder() //
 				.put("textDocument", Monomorphic.mapBuilder().putString("uri", file.toUri().toString()).build()) //
 				.put("position", Monomorphic.mapBuilder() //
 						.putNumber("line", oneBasedLine - 1) //
-						.putNumber("character", column) //
+						.putNumber("character", oneBasedColumn - 1) //
 						.build());
 		if (context != null)
 			params.put("context", context);

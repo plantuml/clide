@@ -92,10 +92,11 @@ script.
 
 Ça pointe vers une primitive plus simple que « rename_symbol partout » :
 quelque chose comme `replace_symbol <symbole> <nouveau nom>`, opérant sur une
-seule `Position` (fichier:ligne:nom) à la fois, en pure substitution textuelle
-locale — sans appel LSP pour l'écriture elle-même (la position vient déjà de
+seule `Position` (fichier:ligne:colonne:nom) à la fois, en pure substitution
+textuelle locale — sans appel LSP pour l'écriture elle-même (la position vient déjà de
 `find_reference`). Toute la mécanique existe déjà pour la construire :
-`Position.parse()` valide déjà que le nom est un mot entier à cette position,
+`Position.parse()` valide déjà que le nom commence exactement à cette colonne,
+comme mot entier,
 `Transaction.backupBeforeModification()` existe déjà pour la sauvegarde
 avant écriture. Il ne manque que la substitution + l'écriture sur disque.
 

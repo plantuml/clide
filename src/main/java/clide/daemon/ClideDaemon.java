@@ -410,9 +410,14 @@ public final class ClideDaemon {
 			try {
 				Position.parse(value, projectRoot);
 			} catch (final IllegalArgumentException e) {
-				// PositionException carries which of the four ways it failed; anything
-				// else would be a bug in Position, reported rather than swallowed.
-				return CommandResult.error(PositionException.codeOf(e), e.getMessage());
+				// PositionException carries which of the ways it failed, and the hint
+				// that goes with it when there is one (NAME_NOT_AT_COLUMN names the
+				// columns the name really starts at) - both have to travel from here,
+				// since this surface check runs before the command itself and is what
+				// the client actually sees. Anything else would be a bug in Position,
+				// reported rather than swallowed.
+				return CommandResult.error(PositionException.codeOf(e), e.getMessage(),
+						PositionException.hintOf(e));
 			}
 			return null;
 		case NON_NEGATIVE_INTEGER:

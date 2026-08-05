@@ -63,12 +63,12 @@ class ResultEnvelopeTest {
 	@DisplayName("les avertissements suivent la réponse, un par ligne, avec leur code")
 	void warningsFollowTheAnswer() {
 		final CommandResult result = CommandResult.empty()
-				.withWarning(Warning.of(WarningCode.AMBIGUOUS_NAME_ON_LINE, "'foo' appears 2 times on line 42"))
-				.withWarning(Warning.of(WarningCode.TRANSACTIONS_STILL_OPEN, "$refactor_foo"));
+				.withWarning(Warning.of(WarningCode.TRANSACTIONS_STILL_OPEN, "$refactor_foo"))
+				.withWarning(Warning.of(WarningCode.TRANSACTIONS_STILL_OPEN, "$refactor_bar"));
 
 		assertEquals("find_reference: 1 location(s)\n"
-				+ "!WARNING AMBIGUOUS_NAME_ON_LINE: 'foo' appears 2 times on line 42\n"
-				+ "!WARNING TRANSACTIONS_STILL_OPEN: $refactor_foo",
+				+ "!WARNING TRANSACTIONS_STILL_OPEN: $refactor_foo\n"
+				+ "!WARNING TRANSACTIONS_STILL_OPEN: $refactor_bar",
 				ResultEnvelope.render(result, "find_reference: 1 location(s)"));
 	}
 
