@@ -1,7 +1,6 @@
 package clide.command.testrun;
 
 import java.io.IOException;
-import java.nio.file.Paths;
 
 import clide.PrintMode;
 import clide.annotation.Help;
@@ -98,7 +97,7 @@ public class RunTestCommand extends Command {
 
 		final String[] selector;
 		try {
-			selector = TestSelector.forFile(Paths.get(position.path()), position.name());
+			selector = TestSelector.forFile(position.fileIn(context.getProjectRoot()), position.name());
 		} catch (final IOException e) {
 			return CommandResult.error(ErrorCode.FILE_UNREADABLE,
 					"could not read " + position.path() + ": " + e.getMessage());

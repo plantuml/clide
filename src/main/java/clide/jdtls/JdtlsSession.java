@@ -2,6 +2,7 @@ package clide.jdtls;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -210,13 +211,23 @@ public class JdtlsSession {
 	public List<CodeLocation> goToPosition(final String lspMethod, final Position position, final Monomorphic context)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request(lspMethod,
-				JdtlsResponses.positionParams(Paths.get(position.path()), position.line(), position.column(), context),
-				30);
+				JdtlsResponses.positionParams(fileOf(position), position.line(), position.column(), context), 30);
 		final Monomorphic error = JdtlsResponses.errorOf(response);
 		if (error != null)
 			throw new IOException(lspMethod + " failed: " + error);
 
 		return collectLocations(response.getOrNull("result"));
+	}
+
+	/**
+	 * The file a &lt;position&gt; names, resolved against this session's project
+	 * root - the one and only way this class turns a Position into a path.
+	 * position.path() is project-relative (see Position), so resolving it with
+	 * Paths.get() would silently aim at the daemon's own working directory
+	 * instead; Position.fileIn() is where that reasoning lives.
+	 */
+	private Path fileOf(final Position position) {
+		return position.fileIn(filesRepository.getProjectRoot());
 	}
 
 	/**
@@ -230,7 +241,7 @@ public class JdtlsSession {
 	 */
 	public String hover(final Position position) throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request("textDocument/hover",
-				JdtlsResponses.positionParams(Paths.get(position.path()), position.line(), position.column()), 30);
+				JdtlsResponses.positionParams(fileOf(position), position.line(), position.column()), 30);
 		final Monomorphic error = JdtlsResponses.errorOf(response);
 		if (error != null)
 			throw new IOException("textDocument/hover failed: " + error);
@@ -253,7 +264,7 @@ public class JdtlsSession {
 	 */
 	public List<SymbolHit> listMembers(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final String uri = Paths.get(position.path()).toUri().toString();
+		final String uri = fileOf(position).toUri().toString();
 		final Monomorphic typeNode = findTypeNode(JdtlsResponses.documentSymbols(client, uri), position.name(),
 				position.line() - 1);
 		if (typeNode.isMap() == false)
@@ -277,7 +288,8 @@ public class JdtlsSession {
 	 */
 	public List<CodeLocation> findMethodImplementations(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final List<Monomorphic> merged = new MethodOverrideRecovery(client).find(position);
+		final List<Monomorphic> merged = new MethodOverrideRecovery(client, filesRepository.getProjectRoot())
+				.find(position);
 
 		final List<CodeLocation> located = new ArrayList<>();
 		for (final Monomorphic location : merged) {

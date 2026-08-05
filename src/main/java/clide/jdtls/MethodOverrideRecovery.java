@@ -1,7 +1,7 @@
 package clide.jdtls;
 
 import java.io.IOException;
-import java.nio.file.Paths;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -78,8 +78,17 @@ final class MethodOverrideRecovery {
 
 	private final LspClient client;
 
-	MethodOverrideRecovery(final LspClient client) {
+	/**
+	 * Needed for one reason only: turning a Position into the file it names.
+	 * position.path() is relative to the project (see Position), so this class
+	 * cannot resolve it on its own without landing on the daemon's working
+	 * directory instead - see Position.fileIn().
+	 */
+	private final Path projectRoot;
+
+	MethodOverrideRecovery(final LspClient client, final Path projectRoot) {
 		this.client = client;
+		this.projectRoot = projectRoot;
 	}
 
 	/**
@@ -90,7 +99,7 @@ final class MethodOverrideRecovery {
 	List<Monomorphic> find(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
 		final Monomorphic response = client.request("textDocument/implementation",
-				JdtlsResponses.positionParams(Paths.get(position.path()), position.line(), position.column(), null),
+				JdtlsResponses.positionParams(position.fileIn(projectRoot), position.line(), position.column(), null),
 				30);
 		final Monomorphic error = JdtlsResponses.errorOf(response);
 		if (error != null)
@@ -117,7 +126,7 @@ final class MethodOverrideRecovery {
 	 */
 	private List<Monomorphic> overridesJdtlsMisses(final Position position)
 			throws IOException, InterruptedException, LspClient.TimeoutException {
-		final String uri = Paths.get(position.path()).toUri().toString();
+		final String uri = position.fileIn(projectRoot).toUri().toString();
 		final String declaration = JdtlsResponses.readLineSafely(uri, position.line());
 		final int arity = arityAfterName(declaration, position.name());
 		if (arity < 0)
@@ -141,7 +150,7 @@ final class MethodOverrideRecovery {
 			return List.of();
 
 		final Monomorphic response = client.request("textDocument/implementation",
-				JdtlsResponses.positionParams(Paths.get(position.path()),
+				JdtlsResponses.positionParams(position.fileIn(projectRoot),
 						JdtlsResponses.oneBased(JdtlsResponses.lineOf(start)),
 						JdtlsResponses.oneBased(JdtlsResponses.characterOf(start)), null),
 				30);

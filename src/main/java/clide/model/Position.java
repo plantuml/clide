@@ -1,5 +1,6 @@
 package clide.model;
 
+import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
@@ -38,6 +39,24 @@ public record Position(String path, int line, int column, String name) {
 		if (path != null && (path.regionMatches(true, 0, "file:", 0, 5) || Paths.get(path).isAbsolute()))
 			throw new IllegalArgumentException(
 					"path must be relative to the project root, not absolute and not a file: URI: " + path);
+	}
+
+	/**
+	 * The file this position actually names, resolved against the root of the
+	 * project it belongs to.
+	 *
+	 * This method exists so that path() is never handed to Paths.get() alone.
+	 * path() is project-relative by construction (see the class doc above), and
+	 * Paths.get(relative) resolves against the JVM's own working directory -
+	 * for the daemon, whichever directory the process that happened to start it
+	 * was sitting in, which has nothing to do with the opened project. That
+	 * produced the worst kind of wrong answer: a path to a file that does not
+	 * exist, an LSP request jdtls answers with an empty result, and a caller
+	 * told "no location found" about a method that has fifty usages - no error,
+	 * nothing to notice. Every consumer needing a real file goes through here.
+	 */
+	public Path fileIn(final Path projectRoot) {
+		return projectRoot.resolve(path);
 	}
 
 	@Override
