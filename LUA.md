@@ -217,8 +217,8 @@ types. Faire dépendre `clide.core.CommandResult` de `clide.jdtls.Monomorphic`
 aurait inversé cette règle. C'est désormais sans objet : `Monomorphic`
 vivait déjà dans les faits un rôle plus générique que « valeur de réponse
 LSP » — `FindReferenceCommand` et `PositionCommandSupport` (dans
-`clide.command`) l'utilisaient déjà comme constructeur générique de valeur
-structurée pour les paramètres de requête (`Monomorphic.mapBuilder()
+`clide.command.navigate`) l'utilisaient déjà comme constructeur générique de
+valeur structurée pour les paramètres de requête (`Monomorphic.mapBuilder()
 .putBoolean(...)`), pas seulement pour parser les réponses — et le
 déplacement de `Monomorphic`/`MonomorphicType`/`Json` vers `clide.json`
 l'acte formellement : `clide.core` peut désormais dépendre de

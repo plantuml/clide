@@ -1,7 +1,7 @@
 # RESULTS.md — Format des réponses de clide
 
-Référence des packages `clide.command.result` (l'enveloppe et le payload
-propres à une réponse de commande) et `clide.result` (les types de domaine
+Référence des packages `clide.command.answer` (l'enveloppe et le payload
+propres à une réponse de commande) et `clide.model` (les types de domaine
 génériques - localisations, symboles, diagnostics... - que ces payloads
 référencent) : ce que contient une réponse de commande, champ par champ, et le
 texte que chaque forme produit.
