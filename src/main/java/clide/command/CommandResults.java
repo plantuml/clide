@@ -1,7 +1,7 @@
 package clide.command;
 
-import clide.command.result.CommandResult;
-import clide.command.result.ErrorCode;
+import clide.command.answer.CommandResult;
+import clide.command.answer.ErrorCode;
 import clide.core.PositionException;
 
 /**

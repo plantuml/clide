@@ -1,4 +1,4 @@
-package clide.result;
+package clide.model;
 
 import java.util.List;
 

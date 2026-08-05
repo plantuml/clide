@@ -4,15 +4,15 @@ import java.util.List;
 
 import clide.PrintMode;
 import clide.command.CommandResults;
-import clide.command.result.CommandPayload;
-import clide.command.result.CommandResult;
-import clide.command.result.ErrorCode;
+import clide.command.answer.CommandPayload;
+import clide.command.answer.CommandResult;
+import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Monomorphic;
 import clide.core.Position;
 import clide.jdtls.JdtlsSession;
-import clide.result.CodeLocation;
-import clide.result.Listing;
+import clide.model.CodeLocation;
+import clide.model.Listing;
 
 /**
  * Shared parse-resolve pipeline behind every position-based command -

@@ -1,4 +1,4 @@
-package clide.result;
+package clide.model;
 
 /**
  * One line matched by search_regex: where it is and what it says. Displayed as

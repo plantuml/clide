@@ -1,4 +1,4 @@
-package clide.command.result;
+package clide.command.answer;
 
 /**
  * Whether a command answered the question it was asked, or refused to.

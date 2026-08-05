@@ -1,4 +1,4 @@
-package clide.command.result;
+package clide.command.answer;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -1,4 +1,4 @@
-package clide.command.result;
+package clide.command.answer;
 
 /**
  * Something worth saying about a result that is otherwise fine. Carried as a

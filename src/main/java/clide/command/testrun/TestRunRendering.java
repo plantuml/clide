@@ -1,9 +1,9 @@
 package clide.command.testrun;
 
-import clide.command.result.CommandPayload;
-import clide.command.result.CommandResult;
-import clide.result.Listing;
-import clide.result.TestOutcome;
+import clide.command.answer.CommandPayload;
+import clide.command.answer.CommandResult;
+import clide.model.Listing;
+import clide.model.TestOutcome;
 
 /**
  * How a test run reads. Shared by run_test and run_tests, which differ in what

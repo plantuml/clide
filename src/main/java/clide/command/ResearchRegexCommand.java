@@ -16,14 +16,14 @@ import clide.annotation.Keyword;
 import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
-import clide.command.result.CommandPayload;
-import clide.command.result.CommandResult;
-import clide.command.result.ErrorCode;
+import clide.command.answer.CommandPayload;
+import clide.command.answer.CommandResult;
+import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.Position;
-import clide.result.Listing;
-import clide.result.SearchMatch;
+import clide.model.Listing;
+import clide.model.SearchMatch;
 
 public class ResearchRegexCommand extends Command {
 

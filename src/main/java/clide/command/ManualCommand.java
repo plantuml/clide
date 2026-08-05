@@ -5,9 +5,9 @@ import clide.annotation.Keyword;
 import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
-import clide.command.result.CommandPayload;
-import clide.command.result.CommandResult;
-import clide.command.result.ErrorCode;
+import clide.command.answer.CommandPayload;
+import clide.command.answer.CommandResult;
+import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Command;
 

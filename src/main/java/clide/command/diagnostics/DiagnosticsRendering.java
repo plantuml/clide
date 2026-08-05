@@ -1,8 +1,8 @@
 package clide.command.diagnostics;
 
-import clide.result.Diagnostic;
-import clide.result.DiagnosticsReport;
-import clide.result.Listing;
+import clide.model.Diagnostic;
+import clide.model.DiagnosticsReport;
+import clide.model.Listing;
 
 /**
  * How a DiagnosticsReport reads. Shared by print_diagnostics and rebuild -

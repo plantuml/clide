@@ -1,4 +1,4 @@
-package clide.result;
+package clide.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;

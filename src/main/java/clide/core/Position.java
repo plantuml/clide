@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import clide.command.result.ErrorCode;
+import clide.command.answer.ErrorCode;
 import clide.jdtls.JdtlsSession;
 import clide.jdtls.LspClient;
 

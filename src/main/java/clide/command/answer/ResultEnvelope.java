@@ -1,4 +1,4 @@
-package clide.command.result;
+package clide.command.answer;
 
 /**
  * Wraps the body a command rendered (see Command.render()) in the part of the

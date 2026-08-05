@@ -7,7 +7,7 @@ import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.command.CommandResults;
-import clide.command.result.CommandResult;
+import clide.command.answer.CommandResult;
 import clide.core.ClideContext;
 import clide.core.Command;
 

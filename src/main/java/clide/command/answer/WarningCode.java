@@ -1,4 +1,4 @@
-package clide.command.result;
+package clide.command.answer;
 
 /**
  * Why a result that clide *did* answer is worth a second look anyway - the

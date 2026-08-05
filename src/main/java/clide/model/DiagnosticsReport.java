@@ -1,4 +1,4 @@
-package clide.result;
+package clide.model;
 
 /**
  * What the last build had to say about the project: the diagnostics themselves

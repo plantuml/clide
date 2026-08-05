@@ -1,4 +1,4 @@
-package clide.result;
+package clide.model;
 
 /**
  * One spot in the project, as every find_* command, list_members and

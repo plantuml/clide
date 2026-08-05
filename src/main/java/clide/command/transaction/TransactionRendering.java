@@ -1,7 +1,7 @@
 package clide.command.transaction;
 
-import clide.command.result.CommandPayload;
-import clide.command.result.CommandResult;
+import clide.command.answer.CommandPayload;
+import clide.command.answer.CommandResult;
 
 /**
  * The one sentence open/commit/rollback/restore_file each answer with. Shared so

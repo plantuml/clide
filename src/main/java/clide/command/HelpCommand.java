@@ -7,12 +7,12 @@ import clide.PrintMode;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
-import clide.command.result.CommandPayload;
-import clide.command.result.CommandResult;
-import clide.command.result.CommandSummary;
+import clide.command.answer.CommandPayload;
+import clide.command.answer.CommandResult;
+import clide.command.answer.CommandSummary;
 import clide.core.ClideContext;
 import clide.core.Command;
-import clide.result.Listing;
+import clide.model.Listing;
 import clide.util.TextTable;
 
 /**

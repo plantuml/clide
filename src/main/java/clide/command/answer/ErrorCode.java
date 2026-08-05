@@ -1,4 +1,4 @@
-package clide.command.result;
+package clide.command.answer;
 
 /**
  * Why a command refused to answer - the machine-readable half of an ERROR

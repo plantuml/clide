@@ -15,11 +15,11 @@ import clide.core.FilesRepository;
 import clide.core.Monomorphic;
 import clide.core.Position;
 import clide.core.Snapshot;
-import clide.result.CodeLocation;
-import clide.result.Diagnostic;
-import clide.result.DiagnosticsReport;
-import clide.result.Listing;
-import clide.result.SymbolHit;
+import clide.model.CodeLocation;
+import clide.model.Diagnostic;
+import clide.model.DiagnosticsReport;
+import clide.model.Listing;
+import clide.model.SymbolHit;
 
 /**
  * Drives a full jdtls session end-to-end: LSP handshake (with Gradle/Maven

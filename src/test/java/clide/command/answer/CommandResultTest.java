@@ -1,4 +1,4 @@
-package clide.command.result;
+package clide.command.answer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -7,10 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 
-import clide.result.Listing;
-import clide.result.TestOutcome;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import clide.model.Listing;
+import clide.model.TestOutcome;
 
 /**
  * Tests de CommandResult - l'enveloppe commune à toutes les commandes.

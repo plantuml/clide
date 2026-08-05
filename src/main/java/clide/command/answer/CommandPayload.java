@@ -1,11 +1,11 @@
-package clide.command.result;
+package clide.command.answer;
 
-import clide.result.CodeLocation;
-import clide.result.DiagnosticsReport;
-import clide.result.Listing;
-import clide.result.SearchMatch;
-import clide.result.SymbolHit;
-import clide.result.TestOutcome;
+import clide.model.CodeLocation;
+import clide.model.DiagnosticsReport;
+import clide.model.Listing;
+import clide.model.SearchMatch;
+import clide.model.SymbolHit;
+import clide.model.TestOutcome;
 /**
  * The part of a CommandResult that varies from one command to the next - what
  * the command actually found, as data rather than as the text a client will

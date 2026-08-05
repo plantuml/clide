@@ -1,4 +1,4 @@
-package clide.result;
+package clide.model;
 
 /**
  * One thing the compiler said about one line of one file, as collected by the

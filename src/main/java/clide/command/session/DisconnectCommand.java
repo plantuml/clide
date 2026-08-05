@@ -2,9 +2,9 @@ package clide.command.session;
 
 import java.util.List;
 
-import clide.command.result.CommandResult;
-import clide.command.result.Warning;
-import clide.command.result.WarningCode;
+import clide.command.answer.CommandResult;
+import clide.command.answer.Warning;
+import clide.command.answer.WarningCode;
 import clide.core.ClideContext;
 import clide.core.Command;
 

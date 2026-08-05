@@ -1,4 +1,4 @@
-package clide.result;
+package clide.model;
 
 /**
  * A symbol found by name (find_symbol) or listed as a member of a type

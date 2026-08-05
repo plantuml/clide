@@ -1,7 +1,6 @@
 package clide.command.navigate;
 
 import java.io.IOException;
-import java.util.List;
 
 import clide.PrintMode;
 import clide.annotation.Help;
@@ -10,15 +9,15 @@ import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.command.CommandResults;
-import clide.command.result.CommandPayload;
-import clide.command.result.CommandResult;
-import clide.command.result.ErrorCode;
+import clide.command.answer.CommandPayload;
+import clide.command.answer.CommandResult;
+import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.Position;
 import clide.jdtls.JdtlsSession;
-import clide.result.Listing;
-import clide.result.SymbolHit;
+import clide.model.Listing;
+import clide.model.SymbolHit;
 
 /**
  * textDocument/documentSymbol: lists the direct members (methods, fields,

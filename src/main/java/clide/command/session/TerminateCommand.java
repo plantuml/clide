@@ -5,8 +5,8 @@ import java.util.List;
 import clide.annotation.Help;
 import clide.annotation.Keyword;
 import clide.annotation.Manual;
-import clide.command.result.CommandResult;
-import clide.command.result.ErrorCode;
+import clide.command.answer.CommandResult;
+import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Command;
 
