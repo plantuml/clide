@@ -194,6 +194,20 @@ values above 10000 are refused naming the ceiling rather than clamped.
 nothing to install separately. The server archive is packaged as a
 resource inside the jar and extracts itself on first use.
 
+It extracts into a **per-user cache**, shared by every project and every
+daemon, and named after the archive's own fingerprint:
+`~/.cache/clide/jdtls-<crc>` (`$XDG_CACHE_HOME/clide/…` when set,
+`%LOCALAPPDATA%\clide\…` on Windows, `~/Library/Caches/clide/…` on macOS).
+Two consequences worth knowing: the 62 MB extraction is paid **once per
+machine**, not once per directory clide is started from — and it never lands
+in the opened project, nor in the current directory, so it cannot show up in
+a `git status`. The startup trace names the exact path it resolved to
+(`(2/4) Initializing IDE ... [OK] (jdtls: …)`). A `clide.jar` rebuilt around
+a different jdtls gets a different fingerprint and therefore a different
+directory, so an upgrade never silently reuses the previous server; the
+superseded directory is left in place, inert, and can be deleted by hand.
+`CLIDE_JDTLS_HOME` overrides the whole thing with a path used verbatim.
+
 **`.project`/`.classpath`: generated and cleaned up automatically, never
 to be prepared by hand.** When the daemon starts on a project, clide
 always writes its own `.project`/`.classpath` (source folders detected

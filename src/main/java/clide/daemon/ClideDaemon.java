@@ -10,7 +10,6 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -29,6 +28,7 @@ import clide.core.Position;
 import clide.core.PositionException;
 import clide.core.TransactionStack;
 import clide.jdtls.EclipseProjectFiles;
+import clide.jdtls.JdtlsHome;
 import clide.jdtls.JdtlsLauncher;
 import clide.jdtls.JdtlsSession;
 import clide.jdtls.LspClient.TimeoutException;
@@ -84,11 +84,15 @@ public final class ClideDaemon {
 		final boolean eclipseFilesWereMissing = hasEclipseFiles() == false;
 
 		System.out.print("(2/4) Initializing IDE ...");
-		final JdtlsLauncher launcher = new JdtlsLauncher(jdtlsHome());
+		final Path jdtlsHome = JdtlsHome.resolve();
+		final JdtlsLauncher launcher = new JdtlsLauncher(jdtlsHome);
 		final Md5Repository md5Repository = new Md5Repository(projectRoot);
 		final FilesRepository filesRepository = new FilesRepository(projectRoot, md5Repository);
 		final JdtlsSession session = new JdtlsSession(launcher, filesRepository);
-		System.out.println(" [OK]");
+		// Says where jdtls lives, because nothing else does and the answer is not
+		// guessable: it is a shared per-user cache directory named after the
+		// archive's fingerprint, not anything under this project - see JdtlsHome.
+		System.out.println(" [OK] (jdtls: " + jdtlsHome + ")");
 
 		System.out.print("(3/4) Starting session ...");
 		// start()+build() together in one try/finally: whatever happens - both
@@ -489,14 +493,6 @@ public final class ClideDaemon {
 		} catch (final IOException e) {
 			// already closed - nothing more to do
 		}
-	}
-
-	private Path jdtlsHome() {
-		final String override = System.getenv("CLIDE_JDTLS_HOME");
-		if (override != null)
-			return Paths.get(override);
-
-		return Paths.get("jdtls");
 	}
 
 	/**

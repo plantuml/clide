@@ -1,6 +1,5 @@
 package clide.jdtls;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.DirectoryStream;
@@ -17,22 +16,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class JdtlsLauncher {
-
-	/**
-	 * Name of the vendored jdtls archive committed next to jdtlsHome (its parent
-	 * directory), used to bootstrap jdtlsHome the first time it's needed - see
-	 * ensureExtracted(). Produced by scripts/download_and_zip_jdtls.py.
-	 */
-	private static final String JDTLS_ZIP_NAME = "jdt-language-server-latest.zip";
-
-	/**
-	 * Classpath location of the same archive when it's bundled inside the jar
-	 * instead of vendored on disk - see "ant dist-with-jdtls" in build.xml,
-	 * which packs it under a top-level resource/ directory. Falling back to
-	 * this in ensureExtracted() lets the fat jar bootstrap jdtlsHome entirely
-	 * on its own, with no zip needing to sit next to it on disk.
-	 */
-	private static final String JDTLS_ZIP_RESOURCE = "/resource/" + JDTLS_ZIP_NAME;
 
 	private final Path jdtlsHome;
 	private Process process;
@@ -125,40 +108,36 @@ public class JdtlsLauncher {
 	}
 
 	/**
-	 * Bootstraps jdtlsHome from the vendored zip the first time it's needed - a
-	 * fresh clone only has the zip committed, not the extracted jdtls tree (which
-	 * is .gitignore'd). No-op once jdtlsHome/plugins already exists, so this costs
-	 * a single directory check on every normal start() call.
+	 * Bootstraps jdtlsHome from the vendored archive the first time it's needed -
+	 * a fresh clone only has the archive, not the extracted jdtls tree. No-op once
+	 * jdtlsHome/plugins already exists, so this costs a single directory check on
+	 * every normal start() call.
 	 *
 	 * Extracts into a sibling temp directory first, then moves it into place with
 	 * an atomic rename. This makes concurrent bootstraps safe: if two daemons (for
-	 * two different projects) both start on the same fresh clone at once, both may
-	 * extract into their own temp directory, but only one rename can win - the
-	 * loser detects that jdtlsHome/plugins now exists (the winner got there first),
-	 * discards its own now-redundant temp directory, and moves on as if it had
-	 * found jdtlsHome ready from the start.
+	 * two different projects) both start at once, both may extract into their own
+	 * temp directory, but only one rename can win - the loser detects that
+	 * jdtlsHome/plugins now exists (the winner got there first), discards its own
+	 * now-redundant temp directory, and moves on as if it had found jdtlsHome
+	 * ready from the start. That race is no longer the rare event it was when
+	 * every working directory had its own extraction: with the shared cache of
+	 * JdtlsHome, two first-ever starts genuinely collide on the same path.
 	 *
-	 * The archive itself is looked for in two places, in order: JDTLS_ZIP_NAME
-	 * next to jdtlsHome on disk (the plain-checkout / "ant dist" layout), then
-	 * JDTLS_ZIP_RESOURCE on the classpath (the "ant dist-with-jdtls" fat-jar
-	 * layout, where it's bundled inside clide.jar itself). This makes a jar
-	 * built with dist-with-jdtls fully self-sufficient - it needs nothing
-	 * sitting next to it on disk.
+	 * Where the archive is found is JdtlsArchive's business, and deliberately
+	 * unrelated to where it is extracted to - see JdtlsHome.
 	 */
 	private void ensureExtracted() throws IOException {
 		if (Files.isDirectory(jdtlsHome.resolve("plugins")))
 			return;
 
 		final Path absoluteHome = jdtlsHome.toAbsolutePath();
-		final Path zip = absoluteHome.resolveSibling(JDTLS_ZIP_NAME);
+		final JdtlsArchive archive = JdtlsArchive.locate();
 
 		Files.createDirectories(absoluteHome.getParent());
 		final Path tempDir = Files.createTempDirectory(absoluteHome.getParent(), "jdtls-extract-");
 		try {
-			if (Files.isRegularFile(zip)) {
-				extractZip(zip, tempDir);
-			} else {
-				extractZipFromClasspath(tempDir);
+			try (InputStream in = archive.open()) {
+				extractZip(in, tempDir);
 			}
 			try {
 				Files.move(tempDir, absoluteHome, StandardCopyOption.ATOMIC_MOVE);
@@ -171,30 +150,6 @@ public class JdtlsLauncher {
 			}
 		} finally {
 			deleteRecursively(tempDir);
-		}
-	}
-
-	/**
-	 * Extracts every entry of the on-disk `zip` under `destination`, creating
-	 * directories as needed.
-	 */
-	private static void extractZip(final Path zip, final Path destination) throws IOException {
-		try (InputStream in = new BufferedInputStream(Files.newInputStream(zip))) {
-			extractZip(in, destination);
-		}
-	}
-
-	/**
-	 * Same as above, but reading JDTLS_ZIP_RESOURCE from the classpath instead
-	 * of a file on disk - see the fallback in ensureExtracted().
-	 */
-	private static void extractZipFromClasspath(final Path destination) throws IOException {
-		try (InputStream in = JdtlsLauncher.class.getResourceAsStream(JDTLS_ZIP_RESOURCE)) {
-			if (in == null)
-				throw new IOException("jdtls is not installed: found neither " + JDTLS_ZIP_NAME
-						+ " next to jdtlsHome nor the bundled " + JDTLS_ZIP_RESOURCE + " classpath resource");
-
-			extractZip(new BufferedInputStream(in), destination);
 		}
 	}
 
