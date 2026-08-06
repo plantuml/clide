@@ -1,47 +1,138 @@
 # LUA.md — Scripter clide en Lua
 
-Discussion initiée 2026-08-02, à ce stade pure réflexion/architecture — rien
-d'implémenté. Ce document sert de point de départ aux conversations futures
-sur le sujet : ce qu'on veut faire, ce qui existe déjà et sur quoi s'appuyer,
-les refactorings à envisager, les questions non tranchées, les pièges
-identifiés.
+Ce que le pont Lua doit devenir : ce qu'on veut en faire, ce sur quoi il
+s'appuie dans le code, ce qui reste à écrire, et les pièges à ne pas
+redécouvrir en route. Rien du pont lui-même n'est implémenté aujourd'hui —
+seul un runtime nu tourne (voir « Ce sur quoi le pont s'appuie »).
 
 ## Objectif
 
-Aujourd'hui, clide se pilote commande par commande : Claude tape une
-commande, lit la réponse, décide de la suivante — voir « État actuel » dans
-`CLAUDE.md`. Ce mode reste le mode par défaut et ne disparaît pas.
+clide se pilote commande par commande : Claude tape une commande, lit la
+réponse, décide de la suivante. Ce mode reste le mode par défaut et ne
+disparaît pas.
 
-L'idée est d'ajouter un second mode : des scripts **Lua**, capables
-d'enchaîner plusieurs commandes clide sans repasser par un tour de décision
-de Claude entre chacune — utile pour des refactors mécaniques et bien
-définis, où la logique (filtrer, boucler, décider commit/rollback) est plus
-naturelle à écrire d'un coup qu'à piloter pas à pas.
+On y ajoute un second mode : des scripts **Lua**, capables d'enchaîner
+plusieurs commandes clide sans repasser par un tour de décision de Claude entre
+chacune — utile pour des refactors mécaniques et bien définis, et pour les
+questions dont la réponse demande une boucle, là où la logique (filtrer,
+compter, décider commit/rollback) est plus naturelle à écrire d'un coup qu'à
+piloter pas à pas.
 
 **Les deux modes coexistent, aucun ne remplace l'autre.** Claude choisit,
-commande par commande ou script Lua, selon la tâche. Ça pousse à concevoir
-toute évolution du cœur de clide (voir plus bas, `CommandResult` en
-particulier) pour servir les deux façades à la fois, sans dupliquer la
-logique métier ni laisser l'une contourner les garde-fous de l'autre.
+commande par commande ou script Lua, selon la tâche. Ça oblige à concevoir toute
+évolution du cœur de clide pour servir les deux façades à la fois, sans
+dupliquer la logique métier ni laisser l'une contourner les garde-fous de
+l'autre.
 
-## Exemple de script visé
+## Premier exemple : lecture seule, sur les commandes d'aujourd'hui
 
-Exemple de départ de la discussion (corrigé : l'id de transaction doit
-commencer par `$`, voir plus bas) :
+Cet exemple n'appelle **que des commandes enregistrées dans
+`CommandRepository`** — ni transaction, ni écriture. C'est donc lui, et pas le
+suivant, qui sert de cible au premier pont : le jour où le pont existe, ce
+script doit tourner sans qu'aucune commande nouvelle ait été écrite.
+
+Il répond à une question qu'aucune commande unique ne répond, et qui demande une
+boucle : *parmi les méthodes de ce type, lesquelles ne sont appelées nulle
+part ?* Un `list_members`, puis un `find_reference` par membre, et un compte —
+trois tours de protocole texte par méthode en mode conversationnel, un seul
+appel de script ici.
+
+```lua
+-- Audit lecture seule : les méthodes de ce type sans aucun appelant.
+local TYPE = "src/main/java/clide/core/TransactionStack.java:35:20:TransactionStack"
+
+-- Le plafond de troncature est hérité de la connexion (100 par défaut) et
+-- s'applique aussi aux résultats vus depuis Lua. On le remonte, et
+-- set_max_results renvoie l'ancienne valeur, seule façon de la relire.
+local cap = set_max_results(1000)
+print(string.format("max_results : %s -> %s", cap.previousValue, cap.newValue))
+
+-- clide ne voit pas les fichiers édités en dehors de lui : un audit qui lit
+-- l'index sans l'avoir rafraîchi peut décrire un état périmé.
+local built = rebuild("errors")
+if built.report.errorCount > 0 then
+  print(string.format("%d erreur(s) de compilation - audit abandonné",
+      built.report.errorCount))
+  return
+end
+
+local members = list_members(TYPE)
+local unused, checked, unlocated = {}, 0, 0
+
+for _, member in ipairs(members.symbols.items) do
+  if member.kind == "method" then
+    if member.location == nil then
+      -- jdtls renvoie parfois un symbole sans position : on le compte
+      -- comme non examiné plutôt que comme non appelé.
+      unlocated = unlocated + 1
+    else
+      local refs = find_reference("method", member.location.position)
+      checked = checked + 1
+      if refs.locations.totalCount == 0 then
+        table.insert(unused, member)
+      end
+    end
+  end
+end
+
+print(string.format("%s : %d méthode(s) examinée(s), %d sans appelant",
+    members.subject, checked, #unused))
+for _, member in ipairs(unused) do
+  local at = member.location.position
+  print(string.format("  %s:%d:%d:%s", at.path, at.line, at.column, at.name))
+end
+if unlocated > 0 then
+  print(string.format("(%d méthode(s) non examinée(s) : aucune position)", unlocated))
+end
+```
+
+Ce que cet exemple engage, et qu'il faut donc trancher pour lui :
+
+- **La forme des retours.** `list_members` et `find_symbol` répondent tous deux
+  un `CommandPayload.Symbols(subject, Listing<SymbolHit>)`, d'où
+  `members.symbols.items` et `members.subject` ; `find_reference` répond un
+  `Locations(subject, Listing<CodeLocation>)`, d'où `refs.locations.totalCount`.
+  Le script lit `totalCount`, pas `#items` : c'est la seule lecture juste quand
+  la liste peut être tronquée.
+- **Une `Position` circule comme table.** `member.location.position` est passée
+  telle quelle à `find_reference`, sans jamais repasser par la chaîne
+  `chemin:ligne:colonne:nom`. C'est exactement le `PositionParser.of(...)`
+  réclamé plus bas — et ici le raccourci est sans risque, puisque rien n'écrit
+  entre le `list_members` et les `find_reference`.
+- **`location` peut être `nil`.** `SymbolHit.location` est nullable (jdtls
+  renvoie parfois un symbole sans emplacement) et `display()` le gère déjà côté
+  texte. Un script qui l'ignore compterait ces méthodes comme « sans appelant »,
+  c'est-à-dire produirait une réponse fausse plutôt qu'une erreur.
+- **Aucune gestion d'erreur.** Le script suppose qu'un `status == ERROR` lève une
+  erreur Lua, attrapable par `pcall`, plutôt que de renvoyer une valeur à
+  tester. C'est une des conventions non tranchées (voir « Conversion ») : si le
+  choix inverse est fait, chaque appel ici gagne un test.
+- **`rebuild` n'est pas gratuit** : 9 à 12 s sur un projet de la taille de
+  PlantUML, même sans changement. Le mettre en tête d'un script d'audit est
+  correct ; le mettre dans une boucle ne le serait pas.
+- **`kind`** est l'étiquette que produit `JdtlsSession.symbolKindLabel()`
+  (`"class"`, `"method"`, `"field"`…). Que la table Lua reçoive cette chaîne
+  telle quelle fait partie des conventions à figer.
+
+## Second exemple : écriture, à terme
+
+Celui-ci appelle `replace_symbol`, qui n'existe pas, et les commandes de
+transaction, qui ne sont pas enregistrées. Il sert de cas de référence pour le
+design d'ensemble, et de test d'acceptation de la seconde phase :
 
 ```lua
 -- Renommer un ancien nom de méthode, mais seulement dans les fichiers de test
-local refs = find_reference("src/main/java/net/sourceforge/plantuml/Foo.java:42:legacyCompute")
+local refs = find_reference("method",
+    "src/main/java/net/sourceforge/plantuml/Foo.java:42:17:legacyCompute")
 open_transaction("$rename_legacy_compute")
 local touched = 0
-for _, ref in ipairs(refs) do
-  if ref.file:match("Test%.java$") then
-    rename_symbol(ref.file, ref.line, "legacyCompute", "computeLegacy")
+for _, ref in ipairs(refs.locations.items) do
+  if ref.position.path:match("Test%.java$") then
+    replace_symbol(ref.position, "computeLegacy")
     touched = touched + 1
   end
 end
 if touched > 0 then
-  local modified = list_modified_files("$rename_legacy_compute")
   print(string.format("%d fichiers de test modifiés", touched))
   commit_transaction("$rename_legacy_compute")
 else
@@ -50,435 +141,400 @@ else
 end
 ```
 
-Ce script sert de cas de référence pour toute la réflexion ci-dessous : il
-suppose `find_reference` renvoyant une table Lua itérable (`ref.file`,
-`ref.line`), et une commande de modification (`rename_symbol` dans
-l'exemple) qui n'existe pas encore aujourd'hui — voir « Ce qui manque ».
+La commande d'édition reçoit une `Position` déjà résolue plutôt qu'un triplet
+fichier/ligne/nom re-matché par nom : deux homonymes sur une même ligne sont
+improbables mais possibles, et la colonne de la notation `<position>` est là
+pour ça.
 
-## Ce qui existe déjà et sur quoi s'appuyer
+## Ce sur quoi le pont s'appuie
 
-- **Les transactions** (`open_transaction`/`commit_transaction`/
-  `rollback_transaction`/`list_modified_files`/`diff_transaction`/
-  `restore_file`, voir la section dédiée de `CLAUDE.md`) existent déjà,
-  quasiment telles que l'exemple les
-  utilise : sous-transactions imbriquées en pile, politique « premier
-  backup gagne », `restore_file` pour annuler un seul fichier,
-  `refuseIfDirty()` au démarrage si le daemon a planté en cours de
-  transaction. Rien à construire ici, seulement à consommer depuis Lua.
-- **`find_reference`/`find_declaration`/`find_implementation`/`find_symbol`/
-  `hover`/`list_members`** existent et sont testées de bout en bout — voir
-  `CLAUDE.md`. Ce sont les briques de lecture, déjà prêtes à être exposées
-  comme fonctions Lua le jour venu.
-- **Le pattern Command** (`clide.core.Command`, `CommandRegistry`,
-  métadonnées `@Keyword`/`@Param`/`@Help` lues par réflexion) est déjà
-  utilisé pour générer `help`/`help_ai` sans code spécifique par commande.
-  C'est le mécanisme naturel à réutiliser pour générer les fonctions Lua
-  automatiquement (voir plus bas) plutôt que d'écrire un binding à la main
-  par commande.
+**Le résultat structuré existe, de bout en bout.** `CommandResult`
+(`clide.command.answer`) est un record à six champs — `status`, `code`
+(`ErrorCode`, `NONE` exactement quand `status == OK`), `message`, `hint`,
+`warnings`, `payload` — et le `payload` n'est jamais `null`
+(`CommandPayload.NOTHING` quand il n'y a rien à dire). Le texte n'est pas le
+résultat : il est produit par `Command.render()` à partir du payload, et
+l'enveloppe commune (`?ERROR <CODE>:`, `hint:`, `!WARNING`) est écrite une fois
+pour toutes dans `ResultEnvelope`. C'est la séparation dont le pont a besoin :
+Lua lit le payload, sans jamais reparser le texte.
 
-## Ce qui manque : la vraie commande de modification
+**La forme du payload est une interface scellée, `CommandPayload`.**
+`Monomorphic` modélise « une valeur dont personne n'a promis la forme », ce qui
+est juste à la frontière jdtls, où la forme vient réellement du dehors, et faux
+ici, où le producteur du payload et son lecteur sont dans le même dépôt et
+peuvent donc être mis d'accord par le compilateur. Treize records imbriqués :
+`Nothing`, `Text`, `Locations`, `Symbols`, `SearchMatches`, `Diagnostics`,
+`Rebuild`, `TestRun`, `Transaction`, `ModifiedFiles`, `Diff`, `CommandList`,
+`Setting` — **un payload par *forme* de résultat, pas par commande**
+(`find_declaration`/`find_reference`/`find_implementation` partagent
+`Locations`).
 
-**Aucune commande ne modifie un fichier aujourd'hui** — `CLAUDE.md` le note
-explicitement, les transactions sont prêtes et attendent la première
-commande de ce genre.
+**Le comptage et la troncature vivent dans `Listing`.** `Listing<T>(items,
+totalCount, maxResults)` (`clide.model`) porte le compte réel, le plafond et
+`truncated()` dérivé du premier — délibérément *sous* `CommandResult` plutôt que
+dans l'enveloppe, pour que `hover` et `open_transaction` n'aient pas à répondre
+à une question qui ne les concerne pas.
 
-Point important dégagé en discutant de l'exemple : ce que le script veut
-faire (« renommer seulement dans les fichiers de test, laisser le code de
-prod intact ») **n'est pas un rename sémantique au sens LSP/IDE**. Un vrai
-`textDocument/rename` LSP renvoie un `WorkspaceEdit` qui couvre *toutes* les
-occurrences d'un coup — pas de notion de sous-ensemble de fichiers. Le
-besoin réel est plus bas niveau : une substitution textuelle appliquée
-individuellement, référence par référence, à un sous-ensemble choisi par le
-script.
+**La structure n'est écrasée nulle part avant `CommandResult`.**
+`JdtlsSession.goToPosition()`/`findMethodImplementations()` renvoient des
+`List<CodeLocation>`, et `PositionCommandSupport` est scindé en `goTo()` (qui
+produit la donnée) et `render()` (qui produit le texte).
 
-Ça pointe vers une primitive plus simple que « rename_symbol partout » :
-quelque chose comme `replace_symbol <symbole> <nouveau nom>`, opérant sur une
-seule `Position` (fichier:ligne:colonne:nom) à la fois, en pure substitution
-textuelle locale — sans appel LSP pour l'écriture elle-même (la position vient déjà de
-`find_reference`). Toute la mécanique existe déjà pour la construire :
-`Position.parse()` valide déjà que le nom commence exactement à cette colonne,
-comme mot entier,
-`Transaction.backupBeforeModification()` existe déjà pour la sauvegarde
-avant écriture. Il ne manque que la substitution + l'écriture sur disque.
+**Les transactions sont écrites, migrées, mais désenregistrées.**
+`TransactionStack`/`Transaction` (`clide.core`) fournissent la pile LIFO de
+sous-transactions, la politique « premier backup gagne » et le
+`refuseIfDirty()` au démarrage du daemon. Les six commandes (`open_transaction`,
+`commit_transaction`, `rollback_transaction`, `list_modified_files`,
+`diff_transaction`, `restore_file`) existent, compilent, et ont leurs payloads
+(`Transaction`, `ModifiedFiles`, `Diff`). Mais leurs six `registered.add(...)`
+sont commentés dans `CommandRepository` : elles ne sont atteignables ni depuis
+le protocole texte ni, a fortiori, depuis Lua. C'est pourquoi le second exemple
+ne tourne pas — `open_transaction`, sa première ligne, n'a aucune commande
+derrière elle.
 
-Rappel de `JAVALENSE.md` (idée n°6, « refactorings = text edits, jamais
-d'écriture directe ») : leur pattern est de toujours proposer un diff avant
-d'écrire, jamais d'écrire en direct. C'est déjà essentiellement ce que le
-couple `diff_transaction`/`commit_transaction` offre côté clide — le jour où
-une commande d'édition existe, elle devrait backup + écrire dans la
-transaction ouverte, laissant `diff_transaction` être le point où on
-« propose » avant de committer.
+**Les commandes de lecture** (`find_reference`/`find_declaration`/
+`find_implementation`/`find_symbol`/`hover`/`list_members`/`search_regex`, plus
+`rebuild`/`print_diagnostics`/`run_test`/`run_tests`/`set_max_results`/`help`/
+`man`) sont enregistrées et testées de bout en bout. Ce sont les briques
+directement exposables en Lua.
 
-## Architecture d'intégration : luajava embarqué (décidé)
+**Le pattern Command et sa réflexion** (`clide.core.Command`,
+`CommandRepository`, annotations `@Keyword`/`@Param`/`@Help`/`@Manual` lues sur
+le constructeur sans-argument) génèrent `help`/`man` sans code par commande.
+`getParamTypes()` donne l'arité et le `ParamType` de chaque paramètre
+(`TRANSACTION_ID`, `REGEX`, `POSITION`, `NON_NEGATIVE_INTEGER`, `SINGLE_LINE`,
+`MULTI_LINE`) — c'est de là que vient la signature des fonctions Lua.
 
-**Décision (2026-08-02) : luajava embarqué dans le process clide**, chaque
-fonction Lua appelant directement `Command.executeCommand(ClideContext,
-...)` (ou un point d'entrée partagé, voir « Dispatch partagé » plus bas)
-sans repasser par `readParams()` ni le parsing ligne par ligne du protocole
-texte. Retenue plutôt qu'un client Lua externe parlant le protocole texte
-existant (socket/stdin, codec « un token par ligne », terminateur de
-`ParamType.MULTI_LINE`) : ce protocole a été conçu pour un client texte bête
-(Claude tapant au clavier), pas pour un langage de script, et un client
-externe aurait dû reparser du texte pretty-printé pour en refaire une table
-Lua — fragile et redondant avec le travail déjà fait côté Java pour produire
-ce texte. luajava embarqué donne un retour structuré nativement (objets Java
-→ tables Lua), cohérent avec le principe « une commande = une fonction
-Lua ».
+**La staleness de l'index est détectée.** `FilesRepository` scanne les sources
+en parallèle, `Md5Repository` signe leur contenu, `Snapshot` fige un instant et
+`compareWithPreviousSnapshot()` produit un `Delta` de `FileChange`, que
+`JdtlsSession.refreshChangedFiles()` traduit en
+`workspace/didChangeWatchedFiles`. Ce qui est comparé est le **contenu**, pas le
+mtime : un fichier réécrit à l'identique n'est pas un changement, un fichier
+édité deux fois dans la même seconde en est un.
 
-Implication à assumer : ça couple le cycle de vie du runtime Lua à celui du
-daemon, et ça suppose que `CommandResult` porte une charge utile structurée
-en plus du texte (voir section suivante) — ce qui n'est pas encore le cas
-aujourd'hui.
+**luajava est vendoré et un runtime nu tourne.** `lib/` contient
+`luajava-4.1.0.jar`, `lua51-4.1.0.jar`, `lua51-platform-4.1.0-natives-desktop.jar`,
+`jnigen-loader`/`jnigen-commons` (chargement de la bibliothèque native) et
+`jspecify` ; `build.xml` et `build.gradle.kts` les câblent,
+`scripts/fetch_luajava.py` explique d'où ils viennent. `Main.runLuaScript()`
+lit un fichier, fait `new Lua51()`, `lua.run(script)`, attrape `LuaException` et
+l'imprime ; `hello-lua.lua` à la racine est le script de test. Aucune commande
+clide n'y est bindée — et dans cette forme, aucune ne *peut* l'être : `Main`
+s'exécute dans le JVM **client**, alors que le `ClideContext` (et avec lui la
+`JdtlsSession`, la `TransactionStack`, le `projectRoot`, le `maxResults`)
+n'existe que dans le daemon. Ce runtime vaut donc comme preuve que luajava se
+charge, natifs compris, et rien de plus.
 
-Le protocole texte « un token par ligne » + `MULTI_LINE` à terminateur reste
-nécessaire pour le protocole texte existant (Claude au clavier), mais n'a
-plus lieu d'être réimplémenté côté Lua.
+## Architecture : le runtime Lua dans le daemon
 
-## `CommandResult` : le refactor à envisager
+**Le runtime Lua vit dans le process du daemon**, chaque fonction Lua appelant
+les commandes en Java par un point d'entrée partagé, sans repasser par le codec
+texte « un token par ligne ». Plutôt qu'un client Lua externe parlant le
+protocole texte : ce protocole est conçu pour un client texte bête (Claude
+tapant au clavier), pas pour un langage de script, et un client externe devrait
+reparser du texte pretty-printé pour en refaire une table Lua — fragile, et
+redondant avec ce que `CommandPayload` rend inutile. En embarqué,
+`CommandPayload` se convertit directement en table Lua.
 
-Aujourd'hui (`clide.core.CommandResult`) : un record à deux champs,
-`status` (`OK`/`ERROR`) et `message` — une chaîne déjà formatée pour
-l'affichage humain/texte. Suffisant pour le protocole texte actuel, mais
-toute l'information est déjà écrasée en prose au moment où `CommandResult`
-existe : rien à réextraire proprement côté Lua.
+Deux conséquences à assumer. D'abord, `ClideDaemon` sert ses clients
+**strictement un à la fois** (boucle `accept()` séquentielle) : un script long
+bloque toute autre connexion pendant sa durée. Acceptable pour un outil
+mono-utilisateur, mais à dire. Ensuite, `printMode` et `maxResults` sont des
+réglages **par connexion**, remis à zéro par `resetPerConnectionSettings()` : un
+script hérite de ceux de la connexion qui l'a soumis. En particulier, un
+`find_reference` appelé depuis Lua est tronqué à `maxResults` (100 par défaut)
+comme n'importe quel autre — silencieusement, du point de vue d'un script qui ne
+lirait que `items`.
 
-`JAVALENSE.md` (idée n°2, « enveloppe de réponse pensée pour l'agent »)
-propose une enveloppe `success`/`data`/`error{code, message, hint}`/
-`meta{totalCount, returnedCount, truncated, suggestedNextTools}`. Piste de
-traduction dans le vocabulaire clide :
+## Soumettre un script : le flag `--lua` et le handshake socket
 
-- `status`/`message` inchangés — zéro régression sur le protocole texte,
-  qui continue à n'utiliser que ces deux champs comme aujourd'hui.
-- un `data` optionnel portant la charge utile structurée pour qui sait la
-  lire (Lua aujourd'hui, une éventuelle façade JSON plus tard).
-- côté `ERROR` seulement, un détail structuré (`code`, `hint`) plutôt qu'un
-  message brut à parser — un script Lua pourrait alors décider sur `code`
-  plutôt que sur du texte, et un `hint` guiderait la prochaine action utile
-  (repris de JAVALENSE, ex. « Call health_check to monitor loading
-  status »).
-- un `meta` optionnel pour les commandes qui renvoient des listes
-  (`find_reference`, `find_symbol`, `list_members`), avec `totalCount`/
-  `truncated` — comble au passage un trou déjà signalé dans
-  `JAVALENSE.md` : « les commandes clide ne bornent ni ne comptent : un
-  `find_reference` sur un symbole très utilisé de PlantUML renvoie tout,
-  sans indication ».
+Côté client, un flag : `clide --lua <chemin du script> <chemin du projet>`.
+Côté socket, un second handshake à côté de `--human`. Le client annonce « ce qui
+suit est un script », envoie le contenu du fichier, puis ferme son côté écriture
+; le daemon lit jusqu'à EOF et exécute.
 
-**Forme de `data` — cohérence avec le style déjà établi dans clide.**
-Plutôt qu'un `Object`/`Map<String,Object>` (souple mais non typé, rien ne
-garantit à la compilation que le bon convertisseur Lua existe pour la bonne
-commande), le réflexe déjà présent dans clide est de réifier chaque concept
-en petite classe dédiée (`Position`, `Transaction`/`TransactionStack`,
-`Column`/`Cell`/`Row` pour `TextTable`). Piste cohérente : une interface
-scellée `CommandData` avec une poignée d'implémentations concrètes (liste de
-locations, résultat de diff, résumé de run de tests, « rien » pour
-`exit`/`commit_transaction`…), et un convertisseur Lua unique qui fait un
-`switch` exhaustif dessus — générique du point de vue du pont Lua, tout en
-gardant la garantie à la compilation que chaque commande déclare une forme
-que ce convertisseur sait traiter. Non tranché : le détail des
-implémentations concrètes de `CommandData` n'a pas encore été listé
-commande par commande.
+**Ce que le client fait.** `Main` parse `--lua` et son argument comme il parse
+`--human`, puis construit un `ClideClient` qui connaît le script — il ne fait
+plus tourner de Lua lui-même. `ClideClient.announcePrintMode()` devient
+l'annonce du mode de la connexion en général : elle envoie `--lua` comme
+première ligne quand un script est soumis, `--human` quand c'est demandé, et
+rien du tout en mode AI (le silence en mode AI est délibéré : le flux d'octets
+d'une session AI reste une suite de commandes nue, sans préambule à filtrer, et
+une première ligne qui n'est aucun des deux flags est traitée comme la commande
+qu'elle est). Puis `relay()` pompe le contenu du fichier dans la socket au lieu
+de `System.in`, et appelle `socket.shutdownOutput()` comme il le fait déjà —
+c'est ce `shutdownOutput()` qui produit l'EOF que le daemon attend, la moitié
+lecture de la socket restant ouverte pour recevoir la sortie du script.
 
-## `Monomorphic` comme forme de `data`
+**Ce que le daemon fait.** `ClideDaemon.readPrintMode()` devient la lecture du
+mode de connexion : `--human` → mode HUMAN, `--lua` → mode script, toute autre
+première ligne → mode AI, cette ligne étant alors déjà la première commande.
+En mode script, `runSession()` ne boucle pas sur les commandes : il lit le reste
+du flux jusqu'à EOF, l'exécute dans un `Lua51` dont les fonctions sont liées au
+`ClideContext` de cette connexion, écrit la sortie sur la socket, et ferme. La
+`JdtlsSession` et le daemon restent debout, comme après n'importe quelle
+déconnexion.
 
-(2026-08-02, mis à jour 2026-08-02) Piste concrète pour la question laissée
-ouverte ci-dessus : plutôt qu'une nouvelle interface scellée `CommandData` à
-dessiner de zéro, réutiliser `Monomorphic`, qui existe déjà (née pour
-modéliser les valeurs JSON-RPC côté `LspClient`). `Monomorphic` couvre
-exactement les sept formes qu'un `CommandResult.data()` a besoin de porter
-(`NULL`/`BOOLEAN`/`STRING`/`INTEGER`/`DECIMAL`/`LIST`/`MAP`), immuable, et sa
-dualité `LIST`/`MAP` correspond terme à terme à la dualité tableau/table-à-
-clés d'une table Lua — une `LIST` devient une table indexée à partir de 1,
-une `MAP` devient une table à clés chaînes, les scalaires passent tels
-quels. Un seul convertisseur récursif `Monomorphic` → valeur Lua (et son
-inverse) suffirait pour toutes les commandes, au lieu d'un binding par forme
-de résultat.
+**Points à ne pas rater dans cette voie :**
 
-**Mise à jour : `Monomorphic` a déménagé.** `Monomorphic`/`MonomorphicType`
-(et `Json`, le codec JSON-RPC qui les lit/écrit) vivent maintenant dans un
-package neutre `clide.json`, sorti de `clide.jdtls` — voir « Problème de
-couches » ci-dessous, désormais résolu par ce déplacement plutôt
-qu'en suspens.
+- **`print()` écrit sur le mauvais flux par défaut.** Le `print` de Lua écrit
+  sur la sortie standard native du process — donc celle du *daemon*, redirigée
+  vers `.clide/tmp/.clide-daemon.log`, pas sur la socket du client. Le pont doit
+  remplacer `print` par une fonction écrivant sur le `PrintStream` de la
+  connexion, sans quoi un script s'exécute correctement en n'affichant rien.
+- **Une erreur Lua doit sortir dans l'enveloppe habituelle.** Une `LuaException`
+  (script syntaxiquement invalide, erreur levée par une fonction bindée et non
+  rattrapée) se rend au client sous la forme `?ERROR <CODE>: <message>` que
+  `ResultEnvelope` produit déjà, avec un `ErrorCode` dédié — un client parse
+  l'échec d'un script comme il parse tout le reste. Le message doit porter la
+  ligne Lua fautive, que `LuaException` donne.
+- **`--human` et `--lua` ensemble n'ont pas de sens** : les invites
+  `> READY`/`> <paramètre> ?` s'adressent à quelqu'un qui tape. À refuser côté
+  client, avec un message clair, plutôt qu'à faire cohabiter.
+- **`exit`/`quit`/`terminate` n'ont pas à devenir des fonctions Lua.** Ce sont
+  des commandes de contrôle de session : `exit` depuis un script arrêterait la
+  `JdtlsSession` au milieu du script, `terminate` tuerait le daemon qui exécute
+  ce script. Le script se termine en se terminant.
+- **Le mode script n'est pas un `PrintMode`.** `PrintMode` dit comment un
+  résultat s'écrit pour un lecteur (AI ou humain) ; une connexion Lua ne rend
+  aucun résultat en texte, elle convertit des payloads. Le mode script est donc
+  une branche de `runSession()`, et le `ClideContext` reste en `PrintMode.AI`
+  pour le peu qui le consulte.
 
-**Le compromis que ça réintroduit.** La section précédente écartait
-`Object`/`Map<String,Object>` justement parce que « rien ne garantit à la
-compilation que le bon convertisseur existe pour la bonne commande ».
-`Monomorphic` règle la sécurité de forme (jamais de cast sauvage, jamais de
-`ClassCastException` à la lecture), mais pas la sécurité par commande : rien
-n'empêche `find_reference` de nommer une clé `"file"` un jour et `"path"` un
-autre — le compilateur ne verra rien, contrairement à ce qu'aurait donné une
-interface scellée avec un type dédié par commande. Recours possible plus
-tard sans revenir sur le format de transport : poser de petits accesseurs
-typés par commande au-dessus de `Monomorphic` (des enregistrements qui font
-`getFromMap("file")` en interne) — `Monomorphic` restant le fil, pas l'API.
+## Dispatch partagé : ne pas contourner les garde-fous
 
-**Problème de couches — résolu par le déplacement.** `clide.core.Command`
-expose déjà `needsJdtlsSession()` — une convention délibérée : `core`
-connaît jdtls *conceptuellement* (un booléen), mais n'importe jamais ses
-types. Faire dépendre `clide.core.CommandResult` de `clide.jdtls.Monomorphic`
-aurait inversé cette règle. C'est désormais sans objet : `Monomorphic`
-vivait déjà dans les faits un rôle plus générique que « valeur de réponse
-LSP » — `FindReferenceCommand` et `PositionCommandSupport` (dans
-`clide.command.navigate`) l'utilisaient déjà comme constructeur générique de
-valeur structurée pour les paramètres de requête (`Monomorphic.mapBuilder()
-.putBoolean(...)`), pas seulement pour parser les réponses — et le
-déplacement de `Monomorphic`/`MonomorphicType`/`Json` vers `clide.json`
-l'acte formellement : `clide.core` peut désormais dépendre de
-`clide.json.Monomorphic` sans jamais importer `clide.jdtls`, la convention
-« `core` ignore les types de jdtls » reste intacte. Note : le codec `Json`
-(parsing/écriture des octets JSON-RPC sur le fil) a été déplacé avec
-`Monomorphic` plutôt que laissé dans `jdtls` comme d'abord envisagé ici —
-sans conséquence pour ce choix de couches, puisque `clide.core` n'aurait de
-toute façon besoin que de `Monomorphic`, jamais du codec.
+Les contrôles vivent dans `ClideDaemon.runSession()`, **au-dessus** de
+`Command.executeCommand()`, pas dedans :
 
-Point de vigilance à vérifier après tout déplacement de ce genre : les sites
-d'utilisation existants doivent suivre le changement de package — deux
-`import clide.jdtls.Monomorphic;` avaient été oubliés dans
-`FindReferenceCommand`/`PositionCommandSupport` lors de ce déplacement
-(corrigés en marge de cette mise à jour de `LUA.md`).
+- résolution du mot-clé (`ClideContext.getCommand()`, sinon `UNKNOWN_KEYWORD`) ;
+- lecture des paramètres et `MISSING_PARAMETERS` si l'entrée s'arrête en cours ;
+- `validateParams()` → `validate()` par `ParamType` : `TRANSACTION_ID` contre
+  `TransactionStack.ID_PATTERN`, `REGEX` qui doit compiler, `POSITION` qui doit
+  parser *et* correspondre au contenu réel du fichier (`PositionParser.parse()`,
+  qui vérifie que le nom commence bien à cette colonne, comme mot entier) ;
+- `needsOpenTransaction()` → `NO_OPEN_TRANSACTION` ;
+- `needsJdtlsSession()` → `ensureSessionReady()`, qui relance une session
+  arrêtée par un `exit`/`quit` précédent.
 
-**Un trou plus profond que `CommandResult`.**
-`PositionCommandSupport.goToAndFormat()` s'appuie sur
-`JdtlsSession.goToPosition()`, qui renvoie déjà un `List<String>` — des
-lignes `"chemin:ligne: contenu"` pré-formatées — et
-`PositionCommandSupport.format()` ne fait plus que construire le message
-texte à partir de ce texte déjà aplati. Câbler `Monomorphic` dans
-`CommandResult.data()` ne suffit donc pas à lui seul à donner à
-`find_reference` un résultat structuré : l'écrasement en prose se produit
-une couche plus bas, avant même d'arriver à `CommandResult`. Il faudrait que
-`JdtlsSession` (ou l'appelant) conserve/reconstruise la structure — une
-liste de positions, ou directement une `Monomorphic` LIST — et que
-`format()` construise en parallèle le message texte *et* le payload
-structuré à partir de cette même source structurée, plutôt qu'à partir du
-`List<String>` déjà aplati par `goToPosition()`.
+Si le pont appelle `executeCommand()` en direct, un script peut modifier un
+fichier hors transaction, passer une position jamais validée, ou toucher jdtls
+sans session. **Extraire un point d'entrée partagé** (par exemple un
+`CommandDispatcher.dispatch(ClideContext, Command, String[])`) que le protocole
+texte *et* le pont appellent tous les deux est donc un prérequis, pas une
+élégance : c'est la seule façon que les deux façades ne divergent pas avec le
+temps. La lecture des paramètres (`readParams()`, le `MULTI_LINE` à terminateur)
+reste spécifique au protocole texte et n'a pas à descendre dans ce point
+partagé — Lua reçoit ses arguments déjà séparés.
 
-**Le piège `null` côté Lua.** Une `Monomorphic` MAP contenant une entrée
-`NULL`, ou une LIST avec un `NULL` dedans, ne se traduit pas par un `nil`
-Lua ordinaire dans une table : assigner `nil` à une clé la supprime, et une
-liste avec un « trou » casse `#`/`ipairs`. Le convertisseur aura besoin d'un
-sentinel dans les deux sens (comme `cjson.null`). Dans l'autre sens (un
-script qui construirait une `Monomorphic` à passer à une future commande
-d'édition), la même ambiguïté tableau-vide-vs-objet-vide qu'en JSON se pose
-pour une table Lua `{}` — à trancher explicitement par convention plutôt que
-laissé implicite.
+## Conversion `CommandPayload` → table Lua
 
-**Simplification de l'enveloppe d'erreur.** Le `code`/`hint` structuré
-proposé plus haut pour le cas `ERROR`, à côté d'un `data` distinct pour le
-succès, devient inutile comme structure séparée : une `Monomorphic` MAP
-avec les clés `code`/`hint` sert aussi bien pour l'erreur que pour un
-résultat de succès — même représentation, même chemin de lecture côté Lua
-(`result.data.code`). `CommandResult` resterait à trois champs (`status`,
-`message`, `data`) plutôt que quatre. Cohérent aussi avec la discipline déjà
-en place sur `message` (jamais `null`) : `data` pourrait suivre la même
-règle en défaut à `Monomorphic.createNull()` plutôt qu'à un `null` Java — la
-classe le prévoit déjà explicitement dans sa doc (« an absent value is
-`createNull()` »).
+Le pont a besoin d'un convertisseur récursif payload → valeur Lua, **miroir de
+`render()`** : là où `render()` produit du texte, il produit une table. Un
+`switch` exhaustif sur les treize `CommandPayload`, plus la poignée de records
+de `clide.model` qu'ils contiennent — `Listing<T>`, `Position(path, line,
+column, name)`, `CodeLocation(position, lineText)`, `SymbolHit(kind, name,
+location)`, `SearchMatch(path, line, text)`, `TestOutcome(status, name,
+location, messageLines, origin)`, `Diagnostic(path, line, severity, message)`,
+`DiagnosticsReport`, `CommandSummary`.
 
-## Génération des fonctions Lua : réutiliser la réflexion existante
+Ce que le choix scellé coûte : une nouvelle commande n'obtient pas sa fonction
+Lua tout à fait gratuitement, puisqu'un nouveau payload demande aussi son `case`
+dans le convertisseur. Ce qu'il rapporte : **ce `case` manquant ne compile
+pas** — la propriété qui manquerait à une `Map<String,Object>`, où un nom de clé
+fautif ne se verrait qu'en production. Le contrat est donc : *les arguments*
+d'une fonction Lua se génèrent par réflexion, *le retour* se déclare une fois
+par forme de payload.
 
-Pour que « une commande = une fonction Lua » ne demande pas d'écrire un
-binding à la main par commande : s'appuyer sur la même méta-donnée que
-`help`/`help_ai` (annotations `@Keyword`/`@Param`/`@Help` sur les
-`Command`). Pour chaque `Command` de `CommandRegistry`, générer
-automatiquement une fonction Lua du même nom, de même arité que
-`getParamTypes()`, qui convertit les arguments Lua reçus, exécute la
-commande, et convertit `CommandResult.data()` en valeur Lua (ou lève une
-erreur Lua structurée depuis `code`/`hint` si `status == ERROR`). Une
-nouvelle commande Java obtiendrait alors sa fonction Lua « gratuitement »,
-à condition de peupler correctement son `data`.
+**Conventions à fixer explicitement**, plutôt que laissées au hasard de la
+première implémentation :
 
-## Dispatch partagé : ne pas contourner les garde-fous existants
+- une `Listing` devient-elle une table `{items = {...}, totalCount = n,
+  truncated = bool}` (fidèle, verbeux) ou directement le tableau d'items avec
+  les compteurs en clés à côté (pratique, moins régulier) ? Les deux exemples en
+  tête de ce document supposent la première forme.
+- une chaîne vide qui veut dire « ne s'applique pas » (le `path` de
+  `CommandPayload.Transaction`, le `lineText` d'une `CodeLocation` illisible)
+  reste-t-elle `""` côté Lua, ou devient-elle `nil` ? `""` est plus fidèle au
+  Java et évite le piège de la clé qui disparaît d'une table.
+- un `enum` Java (`TestOutcome.Status`, `Diagnostic.Severity`,
+  `CommandPayload.Transaction.Action`) devient une chaîne Lua — laquelle, le
+  `name()` brut ou une forme minuscule ? Choisir une fois.
+- côté erreur, un `status == ERROR` lève-t-il une erreur Lua (donc `pcall` pour
+  la rattraper) ou renvoie-t-il une table avec `code`/`hint` ? Le naturel en Lua
+  est de renvoyer `nil, err` ou de lever ; à trancher avant d'écrire la première
+  fonction, parce que tout le style des scripts en découle. `ErrorCode` compte
+  trente-deux codes (plus `NONE`) et `hint` est souvent vide — un script décide
+  sur `code`, jamais sur `message`.
 
-Piège identifié : `needsOpenTransaction()`/`needsJdtlsSession()` et la
-validation `ParamType` (`ClideDaemon.validate()`) vivent aujourd'hui dans la
-boucle du daemon texte (`ClideDaemon.runSession()`), **au-dessus** de
-`Command.executeCommand()`, pas dedans. Si le pont Lua appelle
-`executeCommand()` en direct pour éviter la sérialisation, ces contrôles
-doivent absolument rester sur le chemin — sinon un script Lua pourrait par
-exemple modifier un fichier hors transaction, ou passer un symbole jamais
-validé.
+## Génération des fonctions Lua
 
-Piste : extraire un point d'entrée partagé (ex. `CommandRegistry.dispatch(
-ClideContext, Command, args)`) que le protocole texte **et** le futur pont
-Lua appellent tous les deux, plutôt que de laisser chaque façade
-réimplémenter ses propres garde-fous et risquer qu'ils divergent avec le
-temps.
+L'objectif est « une commande = une fonction Lua », avec la nuance ci-dessus.
+Pour chaque `Command` de `CommandRepository` : une fonction Lua du même nom que
+son `@Keyword`, d'arité `paramSize()`, dont les arguments sont convertis puis
+validés selon `getParamTypes()` — la même validation que le protocole texte, via
+le point de dispatch partagé — et dont le retour est le payload converti. Une
+commande dont le payload a déjà son `case` n'a alors rien à écrire.
+
+## La commande de modification
+
+**Aucune commande ne modifie un fichier**, et c'est le prérequis de la seconde
+phase.
+
+Le besoin du second exemple (« renommer seulement dans les fichiers de test »)
+n'est pas un rename sémantique au sens LSP : `textDocument/rename` renvoie un
+`WorkspaceEdit` couvrant *toutes* les occurrences, sans notion de sous-ensemble.
+Ce qu'il faut est plus bas niveau : `replace_symbol`, opérant sur **une seule
+`Position` déjà résolue** à la fois, en substitution textuelle locale, sans
+appel LSP pour l'écriture elle-même. Tout le nécessaire existe :
+`PositionParser.parse()` valide la position, `Position.fileIn(projectRoot)`
+donne le fichier réel, `TransactionStack.backupBeforeModification()` sauvegarde
+avant écriture. Il ne manque que la substitution et l'écriture.
+
+Rappel de `JAVALENSE.md` (idée n°6) : proposer un diff avant d'écrire, jamais
+d'écriture directe. C'est ce que le couple `diff_transaction`/
+`commit_transaction` offre — à condition de les réenregistrer.
 
 ## `Position` : un deuxième point d'entrée pour Lua
 
-(Renommée depuis `Symbol` — la classe réifie une seule position exacte où
-le nom d'un symbole apparaît, pas le symbole lui-même, qui peut apparaître à
-plusieurs positions à la fois (sa déclaration, chacune de ses références) ;
-cette notion plus large de « symbole » n'existe pas encore côté clide.)
+`PositionParser.parse(String, Path)` attend un token unique
+`<chemin>:<ligne>:<colonne>:<nom>`, pensé pour un client texte qui recopie tel
+quel un résultat précédent. Un script a plutôt une table `{path, line, column,
+name}` sous la main — celle que le convertisseur vient de lui donner. Lui faire
+concaténer une chaîne pour la faire reparser serait un aller-retour inutile et
+une source d'erreurs.
 
-`Position.parse(String, Path)` attend une chaîne unique `<chemin>:<ligne>:
-<nom>`, pensée pour un client texte qui recopie tel quel un résultat
-précédent (voir « Notation… » dans `CLAUDE.md`). Un script Lua a plutôt un
-fichier, une ligne (entier) et un nom séparément sous la main — lui faire
-construire une chaîne à concaténer puis reparsée serait un aller-retour
-inutile et une source d'erreurs (échappement, séparateurs). Piste : un
-`Position.of(file, line, name, projectRoot)` partageant la même logique de
-validation interne (mot entier `\bnom\b`, bornes de ligne, fichier
-existant) que `Position.parse()`, sans repasser par la sérialisation texte.
+Attention à ce que ce raccourci ferait sauter. Le constructeur canonique de
+`Position` ne vérifie qu'une chose : que le chemin est relatif au projet. Toute
+la validation utile — le nom commence bien à cette colonne, comme mot entier, la
+ligne existe, le fichier est lisible — vit dans `PositionParser.parse()`. La
+javadoc de `Position` le signale comme un manque assumé (« PENDING ») : une
+`Position` transportée et réutilisée en mémoire contourne entièrement cette
+vérification et peut être devenue fausse. C'est ce que fait le second exemple
+entre son `find_reference` et son `replace_symbol` ; le premier fait circuler
+une `Position` de la même façon mais n'écrit rien entre les deux appels, ce qui
+rend le raccourci sans danger là et dangereux ici. Piste : un
+`PositionParser.of(path, line, column, name, projectRoot)` partageant la logique
+de `parse()` sans passer par la sérialisation, et que le pont appelle à chaque
+fois qu'une table Lua redevient une `Position`.
 
-## Rappel de syntaxe : id de transaction
+## Staleness de l'index : une politique à choisir
 
-`TransactionStack.ID_PATTERN` impose qu'un id commence par `$`, suivi de
-caractères `\w` en minuscule (`ParamType.TRANSACTION_ID`). L'exemple de
-script plus haut a été corrigé en conséquence
-(`open_transaction("$rename_legacy_compute")`). À documenter clairement
-dans l'aide/les erreurs côté Lua le jour venu — l'erreur `?SYNTAX ERROR` du
-protocole texte est claire sur ce point, il faudra l'équivalent côté Lua
-(exception avec message explicite, pas un échec silencieux).
+La mécanique de détection existe (`Snapshot`/`Delta`/`refreshChangedFiles()`).
+Ce qui reste est une question de politique, et elle se pose plus fort en mode
+script qu'en conversationnel : un script qui enchaîne modification → requête →
+modification sans jamais rendre la main est exactement le scénario où un index
+périmé ferait le plus de dégâts, sans personne pour trouver la réponse suspecte.
 
-## Staleness de l'index : plus critique en mode script
-
-`JAVALENSE.md` (idée n°1, `DiskStampService`) identifie déjà l'angle mort
-actuel de clide : Claude édite les fichiers *en dehors* de clide
-(Write/Edit directs), donc le modèle jdtls construit au démarrage du daemon
-devient périmé silencieusement, sans aucun signal. En mode conversationnel
-tour par tour, un humain (ou Claude) a une chance de remarquer une réponse
-qui sent le rassis. **En mode script Lua batché, ce risque grandit** : un
-script qui enchaîne modification → nouvelle requête → modification sans
-jamais rendre la main entre deux étapes est exactement le scénario où un
-index périmé ferait le plus de dégâts, sans personne pour remarquer que les
-résultats intermédiaires sont faux. Le pont Lua et le `DiskStampService`
-(ou équivalent) se justifient l'un l'autre plus qu'ils ne sont indépendants
-— à garder en tête dans l'ordre de priorité des chantiers.
-
-Question dérivée, non tranchée : au sein d'une même transaction Lua, un
-`find_reference` appelé après un `replace_symbol` doit-il voir l'état déjà
-modifié (index « live ») ou rester figé sur l'état d'avant la transaction
+Question non tranchée : au sein d'une même transaction Lua, un `find_reference`
+appelé après un `replace_symbol` doit-il voir l'état déjà modifié (index
+« live », donc un `refreshChangedFiles()` implicite après chaque écriture, avec
+son coût — la pause d'une seconde qu'il s'impose, et le `rebuild` complet à
+9–12 s sur un projet de la taille de PlantUML) ou rester figé sur l'état d'avant
 (snapshot) ? Les deux ont un sens selon le script ; le choix doit être
-documenté explicitement, pas laissé implicite.
+documenté, pas laissé implicite.
 
-## Round-trips : composite commands vs composition en Lua
+## Round-trips : commandes composées vs composition en Lua
 
 `JAVALENSE.md` (idée n°3) motive ses commandes composées (`analyze_type`,
-`analyze_method`…) par la réduction des allers-retours d'agent — chaque
-tour coûte cher en mode conversationnel. Cette motivation s'affaiblit
-fortement une fois qu'un script Lua existe : à l'intérieur d'un script, un
-appel de fonction Lua est quasi gratuit, la composition se fait déjà dans
-le script. Piste de partage des rôles : garder les commandes composées
-côté texte pour le mode tour par tour, garder les primitives Lua fines et
-laisser la composition aux scripts plutôt que de dupliquer la logique de
-composition côté serveur.
+`analyze_method`…) par la réduction des allers-retours d'agent. Cette motivation
+s'affaiblit une fois qu'un script Lua existe : à l'intérieur d'un script, un
+appel de fonction est quasi gratuit et la composition se fait déjà là. Partage
+des rôles envisagé : garder les commandes composées côté texte pour le mode tour
+par tour, garder les primitives Lua fines, et laisser la composition aux scripts
+plutôt que de la dupliquer côté serveur.
 
 ## Questions ouvertes
 
-- Forme de `data` : piste retenue vers `Monomorphic` (désormais dans
-  `clide.json`, package neutre — voir « `Monomorphic` comme forme de
-  `data` ») plutôt qu'une nouvelle interface scellée `CommandData` — reste à
-  trancher entre les deux, et, `Monomorphic` retenu ou non, à refaire
-  remonter la structure aujourd'hui perdue dans
-  `JdtlsSession.goToPosition()`/`PositionCommandSupport.format()` avant
-  qu'elle n'atteigne `CommandResult`.
-- Sentinel pour `null` et convention tableau-vide/objet-vide (`{}` côté Lua)
-  pour la conversion `Monomorphic` ↔ table Lua — non tranché.
-- Gestion d'erreur au sein d'un script : tout le script enveloppé dans un
-  `pcall` par clide, avec rollback automatique de toute transaction encore
-  ouverte sur exception non rattrapée ? Ou à la charge du script (comme
-  dans l'exemple actuel, qui gère lui-même le `if touched > 0 …
-  else rollback`) ?
-- Un flag global type `--dry-run` qui force le rollback quel que soit le
-  script, indépendamment de sa propre logique — utile en CI ou pour
-  explorer sans risque ?
-- `find_reference` après modification dans la même transaction : index
-  live ou snapshot (voir « Staleness » ci-dessus) ?
-- Sandboxing du Lua : le script doit-il être restreint au DSL exposé
-  (pas d'accès filesystem/réseau Lua générique), ou runtime Lua complet ?
-- Une transaction = un bloc Lua implicite (ouverte/fermée automatiquement
-  autour du script), ou explicite comme aujourd'hui (`open_transaction`/
-  `commit_transaction` à la charge du script) ?
-- Garde-fous de sécurité applicatifs : seuil de fichiers touchés avant
-  d'exiger une confirmation, refus de `commit_transaction` si l'arbre git
-  n'est pas propre ?
-- Faut-il des combinateurs de plus haut niveau (ex. `rename_symbol_where
-  (predicate)`) en plus de la boucle manuelle, ou rester au niveau primitif
-  et laisser ces combinateurs vivre en Lua pur (bibliothèque de scripts,
-  pas le cœur de clide) ?
+- **Sortie du script** : au-delà du `print()` redirigé sur la socket, la valeur
+  de retour du script elle-même a-t-elle un sens à remonter, et sous quelle
+  forme ?
+- **Forme des tables** rendues par le convertisseur, `nil` vs `""`, forme des
+  enums, erreur levée vs valeur de retour (voir « Conversion »).
+- **`maxResults` côté Lua** : un script hérite du plafond de sa connexion et
+  peut donc lire une liste tronquée sans le savoir. Le pont ignore-t-il le
+  plafond, l'expose-t-il, ou laisse-t-il le script appeler `set_max_results` ?
+- **Gestion d'erreur** : tout le script enveloppé dans un `pcall` par clide, avec
+  rollback automatique de toute transaction encore ouverte sur exception non
+  rattrapée ? Ou à la charge du script, comme dans le second exemple ?
+- **Un `--dry-run` global** qui force le rollback quel que soit le script,
+  indépendamment de sa propre logique — utile en CI ou pour explorer sans
+  risque ?
+- **`find_reference` après modification dans la même transaction** : index live
+  ou snapshot (voir « Staleness »).
+- **Sandboxing** : le script est-il restreint au DSL exposé (pas d'accès
+  filesystem/réseau Lua générique), ou runtime complet ? Il tourne dans le
+  process du daemon, ce qui rend la question moins théorique.
+- **Transaction implicite** : une transaction ouverte/fermée automatiquement
+  autour du script, ou explicite comme aujourd'hui ?
+- **Garde-fous applicatifs** : seuil de fichiers touchés avant confirmation,
+  refus de `commit_transaction` si l'arbre git n'est pas propre ?
+- **Combinateurs de plus haut niveau** (`rename_symbol_where(predicate)`) dans
+  le cœur de clide, ou en Lua pur dans une bibliothèque de scripts ?
 
 ## Pièges identifiés
 
-- **Identité du symbole ambiguë par nom + ligne rappelés en boucle** : dans
-  l'exemple, `rename_symbol(ref.file, ref.line, "legacyCompute", ...)`
-  repasse le nom en clair après l'avoir déjà localisé une fois — si deux
-  symboles homonymes coexistent sur la même ligne/fichier (peu probable
-  mais possible), mieux vaut faire circuler un identifiant stable
-  (l'équivalent d'une `Position` déjà résolue) plutôt que de re-matcher par
-  nom à chaque appel.
-- **Rename LSP ≠ rename partiel** : ne pas confondre un futur
-  `rename_symbol` façon refactoring IDE (`textDocument/rename`,
-  tout-ou-rien sur l'ensemble des références) avec le besoin réel de
-  l'exemple, qui est une substitution textuelle localisée
-  (`replace_symbol`, voir plus haut) — ce sont deux commandes différentes,
-  pas une seule avec un paramètre de filtre.
-- **Id de transaction** : `$` obligatoire en préfixe, uniquement `\w`
-  minuscule ensuite — piège de syntaxe simple mais bloquant si oublié côté
-  Lua.
-- **Contournement des garde-fous** si le pont Lua appelle
-  `executeCommand()` sans passer par un point de dispatch partagé avec le
-  protocole texte (`needsOpenTransaction()`/`needsJdtlsSession()`/
-  validation `ParamType`) — voir « Dispatch partagé » plus haut.
-- **Staleness de l'index jdtls** en enchaînement modifie → requête sans
-  mécanisme de vérification disque (voir « Staleness » plus haut) — plus
-  dangereux en script batché qu'en mode conversationnel.
-- **`data` non typé** (`Object`/`Map` générique) sacrifierait la sécurité
-  de compilation entre les ~15 commandes existantes et leurs formes de
-  résultat différentes — préférer une interface scellée si le volume de
-  commandes continue de grossir. Nuance depuis « `Monomorphic` comme forme
-  de `data` » : `Monomorphic` évite le cast sauvage (sécurité de *forme*)
-  mais n'apporte pas la sécurité *par commande* qu'aurait donnée une
-  interface scellée — un typo de clé dans un `mapBuilder().put(...)` ne sera
-  jamais détecté à la compilation.
-- **`null` dans une table Lua** : assigner `nil` à une clé de table la
-  supprime, une `Monomorphic` NULL ne peut donc pas se traduire par un
-  `nil` Lua brut — nécessite un sentinel explicite dans le convertisseur
-  (voir « `Monomorphic` comme forme de `data` »).
-- **`JdtlsSession.goToPosition()` aplatit déjà en `List<String>`** avant
-  même `CommandResult` — câbler `Monomorphic` dans `CommandResult.data()`
-  seul ne suffira pas à donner à `find_reference` un résultat structuré tant
-  que cette couche n'est pas revue.
-- **Protocole texte « un token par ligne » + `MULTI_LINE` à terminateur** :
-  conçu pour le client texte du daemon (Claude au clavier) — ne pas le
-  réimplémenter côté Lua, luajava embarqué n'en a pas besoin (voir
-  « Architecture d'intégration »).
-- **Site d'utilisation oublié lors d'un déplacement de package** :
-  `Monomorphic`/`Json`/`MonomorphicType` déplacés de `clide.jdtls` vers
-  `clide.json` sans mettre à jour les imports dans
-  `FindReferenceCommand`/`PositionCommandSupport` — cassait la compilation
-  jusqu'à correction. À vérifier systématiquement après tout renommage de
-  package (`grep` sur l'ancien chemin d'import avant de committer).
-- **Une commande, deux formes de réponse selon un argument** (trouvé et
-  corrigé 2026-08-06) : `diff_transaction <id> [<path>]` répondait
-  `ModifiedFiles` sans `<path>`, `Diff` avec — deux `CommandPayload`
-  incompatibles choisis au runtime, pas par la commande appelée. Concret et
-  pas seulement théorique : ça aurait cassé l'hypothèse « chaque commande
-  déclare une forme » de la génération automatique de fonctions Lua (voir
-  « Génération des fonctions Lua ») - même fonction Lua, deux tables de
-  formes différentes selon l'argument. Fusionner les deux payloads en un
-  seul n'aurait rien réglé (l'ambiguïté est dans le comportement de la
-  commande, pas dans le nombre de types Java qui le portent) : corrigé en
-  scindant la commande en deux, `list_modified_files <id>` (`ModifiedFiles`)
-  et `diff_transaction <id> <path>` (`Diff`, `<path>` désormais obligatoire).
-  À vérifier pour toute future commande dont l'arité admettait un paramètre
-  optionnel changeant la forme de la réponse.
+- **`print()` part dans le log du daemon**, pas sur la socket du client, tant
+  qu'il n'est pas remplacé par le pont — un script qui tourne sans rien afficher.
+- **Le runtime actuel est dans le process client**, où aucun `ClideContext`
+  n'existe : il ne peut binder aucune commande.
+- **Les commandes de transaction sont commentées dans `CommandRepository`** :
+  elles compilent et ont leurs payloads, mais ne sont pas atteignables.
+- **Contournement des garde-fous** si le pont appelle `executeCommand()` sans
+  point de dispatch partagé (`ParamType`, `needsOpenTransaction()`,
+  `needsJdtlsSession()`).
+- **Troncature silencieuse** : `maxResults` (100 par défaut) s'applique aux
+  résultats vus depuis Lua comme depuis le texte. Un script qui lit `items` sans
+  regarder `totalCount` travaille sur un sous-ensemble sans le savoir.
+- **`Position` réutilisée en mémoire** : sa validation vit dans
+  `PositionParser.parse()`, pas dans son constructeur — une position transportée
+  d'un appel Lua au suivant n'est plus vérifiée contre le contenu du fichier.
+- **`SymbolHit.location` est nullable** : l'ignorer ne produit pas une erreur,
+  mais une réponse fausse.
+- **Rename LSP ≠ rename partiel** : `textDocument/rename` est tout-ou-rien sur
+  l'ensemble des références ; le besoin du second exemple est une substitution
+  localisée. Deux commandes différentes, pas une seule avec un filtre.
+- **Id de transaction** : `$` obligatoire en préfixe, `\w` minuscule ensuite
+  (`TransactionStack.ID_PATTERN`, `ParamType.TRANSACTION_ID`). Le protocole
+  texte répond `?ERROR INVALID_TRANSACTION_ID` ; il faut l'équivalent côté Lua —
+  erreur explicite, jamais d'échec silencieux.
+- **Un script long bloque le daemon**, qui sert ses clients un à la fois.
+- **Une commande, deux formes de réponse selon un argument** : un paramètre
+  optionnel qui change la forme du payload casse l'hypothèse « chaque commande
+  déclare une forme » sur laquelle repose la génération des fonctions Lua — même
+  fonction, deux tables différentes selon l'argument. À vérifier pour toute
+  commande dont l'arité admettrait un paramètre optionnel.
 
-## Prochaines étapes envisagées (non implémentées)
+## Prochaines étapes
 
-- Trancher la forme de `data` : `Monomorphic` (désormais dans `clide.json`)
-  réutilisé tel quel (voir « `Monomorphic` comme forme de `data` ») vs
-  interface scellée `CommandData` dédiée.
-- Revoir `JdtlsSession.goToPosition()`/`PositionCommandSupport.format()`
-  pour arrêter d'aplatir le résultat en `List<String>` avant qu'il
-  n'atteigne `CommandResult` — sans quoi `data` reste vide pour les
-  commandes de type `find_*` même une fois `CommandResult` étendu.
-- Extraire un point de dispatch partagé entre protocole texte et futur
-  pont Lua, portant les garde-fous aujourd'hui dans `ClideDaemon`.
-- Écrire la première vraie commande de modification (`replace_symbol`),
-  sur les primitives déjà existantes (`Position`, `Transaction`) — c'est
-  elle qui validera concrètement le design de `CommandData`/`CommandResult`
-  avant de le généraliser aux commandes de lecture.
-- Une fois une commande de modification en place : prototyper une seule
-  fonction Lua de bout en bout (`find_reference` ou la nouvelle commande
-  d'édition) avant de généraliser à toutes les commandes via la réflexion
-  sur `CommandRegistry`.
+Chaque étape valide la suivante. **Le pont n'attend pas la commande
+d'écriture** : tout ce qu'il faut pour faire tourner un script utile de bout en
+bout est déjà enregistré.
+
+**Phase 1 — faire tourner le premier exemple (lecture seule)**
+
+1. **Extraire le point de dispatch partagé** portant les garde-fous aujourd'hui
+   dans `ClideDaemon.runSession()` (`ParamType`, `needsOpenTransaction()`,
+   `needsJdtlsSession()`), appelé par le protocole texte comme par le pont.
+2. **Câbler `--lua` et son handshake** : flag côté `Main`, envoi du script par
+   `ClideClient` suivi de `shutdownOutput()`, branche « mode script » dans
+   `ClideDaemon.readPrintMode()`/`runSession()`, `print` redirigé sur la socket,
+   `ErrorCode` dédié pour une `LuaException`.
+3. **Brancher trois fonctions** — `list_members`, `find_reference`,
+   `set_max_results` — avec les convertisseurs de `Symbols`, `Locations` et
+   `Setting`, plus `PositionParser.of(...)` pour qu'une table Lua redevienne une
+   `Position` validée. Ajouter `rebuild` (payload `Rebuild`) complète le premier
+   exemple, qui devient le test d'acceptation du pont.
+4. **Généraliser** par réflexion sur `CommandRepository`, en complétant le
+   convertisseur payload par payload — le compilateur signalant chaque forme
+   encore non traitée.
+
+**Phase 2 — l'écriture**
+
+5. **Réenregistrer les six commandes de transaction** dans `CommandRepository`
+   (ou écrire pourquoi elles sont désactivées, si c'est délibéré).
+6. **Écrire `replace_symbol`**, la première vraie commande de modification, sur
+   les primitives existantes (`Position`, `TransactionStack`).
+7. **Faire tourner le second exemple**, et trancher au passage ce que seul un
+   script qui écrit oblige à trancher : `pcall` et rollback automatique,
+   `--dry-run`, index live ou snapshot après écriture.
