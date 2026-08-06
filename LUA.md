@@ -41,7 +41,7 @@ for _, ref in ipairs(refs) do
   end
 end
 if touched > 0 then
-  local diff = diff_transaction("$rename_legacy_compute")
+  local modified = list_modified_files("$rename_legacy_compute")
   print(string.format("%d fichiers de test modifiés", touched))
   commit_transaction("$rename_legacy_compute")
 else
@@ -58,8 +58,9 @@ l'exemple) qui n'existe pas encore aujourd'hui — voir « Ce qui manque ».
 ## Ce qui existe déjà et sur quoi s'appuyer
 
 - **Les transactions** (`open_transaction`/`commit_transaction`/
-  `rollback_transaction`/`diff_transaction`/`restore_file`, voir la section
-  dédiée de `CLAUDE.md`) existent déjà, quasiment telles que l'exemple les
+  `rollback_transaction`/`list_modified_files`/`diff_transaction`/
+  `restore_file`, voir la section dédiée de `CLAUDE.md`) existent déjà,
+  quasiment telles que l'exemple les
   utilise : sous-transactions imbriquées en pile, politique « premier
   backup gagne », `restore_file` pour annuler un seul fichier,
   `refuseIfDirty()` au démarrage si le daemon a planté en cours de
@@ -447,6 +448,20 @@ composition côté serveur.
   `FindReferenceCommand`/`PositionCommandSupport` — cassait la compilation
   jusqu'à correction. À vérifier systématiquement après tout renommage de
   package (`grep` sur l'ancien chemin d'import avant de committer).
+- **Une commande, deux formes de réponse selon un argument** (trouvé et
+  corrigé 2026-08-06) : `diff_transaction <id> [<path>]` répondait
+  `ModifiedFiles` sans `<path>`, `Diff` avec — deux `CommandPayload`
+  incompatibles choisis au runtime, pas par la commande appelée. Concret et
+  pas seulement théorique : ça aurait cassé l'hypothèse « chaque commande
+  déclare une forme » de la génération automatique de fonctions Lua (voir
+  « Génération des fonctions Lua ») - même fonction Lua, deux tables de
+  formes différentes selon l'argument. Fusionner les deux payloads en un
+  seul n'aurait rien réglé (l'ambiguïté est dans le comportement de la
+  commande, pas dans le nombre de types Java qui le portent) : corrigé en
+  scindant la commande en deux, `list_modified_files <id>` (`ModifiedFiles`)
+  et `diff_transaction <id> <path>` (`Diff`, `<path>` désormais obligatoire).
+  À vérifier pour toute future commande dont l'arité admettait un paramètre
+  optionnel changeant la forme de la réponse.
 
 ## Prochaines étapes envisagées (non implémentées)
 

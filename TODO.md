@@ -70,7 +70,7 @@ commit_transaction $refactor_foo
 si tout va bien.
 
 On peut aussi faire un:
-"diff_transaction $refactor_foo" pour voir les fichiers modifiés
+"list_modified_files $refactor_foo" pour voir les fichiers modifiés
 "diff_transaction $refactor_foo src/foo.java " pour voir les modifications précises sur ce fichier
 "restore_file $refactor_foo src/foo.java " pour faire un restore sur ce fichier uniquement
 

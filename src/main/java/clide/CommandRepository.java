@@ -74,6 +74,7 @@ public final class CommandRepository {
 //		registered.add(new OpenTransactionCommand());
 //		registered.add(new CommitTransactionCommand());
 //		registered.add(new RollbackTransactionCommand());
+//		registered.add(new ListModifiedFilesCommand());
 //		registered.add(new DiffTransactionCommand());
 //		registered.add(new RestoreFileCommand());
 

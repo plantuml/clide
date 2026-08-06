@@ -370,7 +370,8 @@ exists, it will operate within this framework.
 | `open_transaction <id>` | Opens a transaction: backs up every file touched afterward, so everything can be cleanly undone. `<id>` must start with `$`, followed by lowercase `\w` characters (e.g. `$refactor_foo`). |
 | `commit_transaction <id>` | Keeps the changes made under this transaction. |
 | `rollback_transaction <id>` | Undoes all changes made under this transaction. |
-| `diff_transaction <id> [<path>]` | Without `<path>`: lists the modified files. With `<path>`: shows a unified diff of that specific file. |
+| `list_modified_files <id>` | Lists the files modified so far under this transaction. |
+| `diff_transaction <id> <path>` | Shows a unified diff of that one file, against its state right before the transaction touched it. |
 | `restore_file <id> <path>` | Restores a single file to its pre-transaction state, without closing the transaction or touching anything else — can be called repeatedly. |
 
 Nested sub-transactions: once `$refactor_foo` is open,

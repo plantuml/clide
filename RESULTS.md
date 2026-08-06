@@ -610,10 +610,10 @@ Restored src/main/java/demo/Calc.java to its state before transaction $refactor_
 | `transactionId` | `String` | la transaction concernée |
 | `files` | `Listing<String>` | chemins relatifs |
 
-Produit par `diff_transaction` sans `<file path>`.
+Produit par `list_modified_files`.
 
 ```
-diff_transaction: 2 file(s)
+list_modified_files: 2 file(s)
 src/main/java/demo/Calc.java
 src/main/java/demo/Broken.java
 ```
@@ -630,7 +630,7 @@ Transaction $refactor_foo has not modified any file yet.
 | `path` | `String` | le fichier |
 | `unifiedDiff` | `String` | format `diff -u` ; **vide** si le contenu actuel correspond à la sauvegarde |
 
-Produit par `diff_transaction` avec un `<file path>`.
+Produit par `diff_transaction`.
 
 ```
 --- a/src/main/java/demo/Calc.java
@@ -703,8 +703,8 @@ set_max_results: max_results 100 -> 3
 | `rebuild` | `Rebuild` | oui |
 | `run_test` | `TestRun` | oui |
 | `run_tests` | `TestRun` | oui |
-| `diff_transaction` (sans chemin) | `ModifiedFiles` | oui |
-| `diff_transaction` (avec chemin) | `Diff` | non |
+| `list_modified_files` | `ModifiedFiles` | oui |
+| `diff_transaction` | `Diff` | non |
 | `hover` | `Text` | non |
 | `man` | `Text` | non |
 | `help` | `CommandList` | non (délibérément) |
