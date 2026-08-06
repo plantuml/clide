@@ -76,7 +76,7 @@ public class RestoreFileCommand extends Command {
 
 	@Override
 	public String render(final CommandResult result, final PrintMode printMode) {
-		return TransactionRendering.render(result);
+		return TransactionRendering.render(getKeyword(), result);
 	}
 
 }

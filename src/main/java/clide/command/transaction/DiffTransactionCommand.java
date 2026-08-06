@@ -12,6 +12,7 @@ import clide.annotation.ParamType;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
+import clide.command.answer.ResultEnvelope;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.TransactionStack;
@@ -95,7 +96,7 @@ public class DiffTransactionCommand extends Command {
 		case CommandPayload.Diff diff -> diff.unifiedDiff().isEmpty()
 				? "No differences (current content matches the pre-transaction backup)."
 				: diff.unifiedDiff();
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(getKeyword(), result.payload());
 		};
 	}
 

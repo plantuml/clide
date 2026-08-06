@@ -4,6 +4,7 @@ import java.util.function.Function;
 
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
+import clide.command.answer.ResultEnvelope;
 import clide.model.Listing;
 import clide.model.SymbolHit;
 
@@ -38,7 +39,7 @@ final class SymbolListRendering {
 
 			yield out.toString();
 		}
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(commandName, result.payload());
 		};
 	}
 

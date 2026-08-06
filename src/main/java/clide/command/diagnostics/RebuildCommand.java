@@ -10,6 +10,7 @@ import clide.annotation.ParamType;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
+import clide.command.answer.ResultEnvelope;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.jdtls.JdtlsSession;
@@ -99,7 +100,7 @@ public class RebuildCommand extends Command {
 		case CommandPayload.Rebuild built -> "rebuild: " + built.changedFiles()
 				+ " file(s) changed since the last build, rebuilt in " + built.elapsedMillis() + " ms\n"
 				+ DiagnosticsRendering.render(built.report());
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(getKeyword(), result.payload());
 		};
 	}
 

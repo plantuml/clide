@@ -74,6 +74,31 @@ public final class ResultEnvelope {
 		return payload.toString();
 	}
 
+	/**
+	 * What a command's render() should return when its own switch reaches a
+	 * payload shape none of its cases expected. Not thrown - see ClideDaemon,
+	 * whose serve loop catches no RuntimeException around a session and would
+	 * take the whole daemon down with it, not just the one connection that hit
+	 * the bug.
+	 *
+	 * CommandPayload.Nothing is not that bug: CommandResult.error() defaults an
+	 * ordinary failure's payload to it (see CommandResult), so every command's
+	 * switch reaches its default on every error a user causes, not only on a
+	 * wrongly-wired one. Nothing therefore still renders as "" here, same as any
+	 * other command with nothing to say - only a shape that is neither the one
+	 * case a command's switch names nor Nothing means the payload and the render()
+	 * reading it have drifted apart, which is always a bug. That shouts, in
+	 * English, so it reads as the broken answer it is instead of quietly passing
+	 * for an empty one.
+	 */
+	public static String unexpectedPayload(final String commandName, final CommandPayload payload) {
+		if (payload instanceof CommandPayload.Nothing)
+			return "";
+
+		return "INTERNAL ERROR: " + commandName + ".render() received a payload it does not know how to render ("
+				+ payload.getClass().getSimpleName() + "): " + payload;
+	}
+
 	private static void appendBlock(final StringBuilder out, final String block) {
 		if (block == null || block.isEmpty())
 			return;

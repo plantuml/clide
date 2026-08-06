@@ -9,6 +9,7 @@ import clide.annotation.ParamType;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
+import clide.command.answer.ResultEnvelope;
 import clide.core.ClideContext;
 import clide.core.Command;
 
@@ -104,7 +105,7 @@ public class SetMaxResultsCommand extends Command {
 		return switch (result.payload()) {
 		case CommandPayload.Setting setting ->
 			"set_max_results: " + setting.name() + " " + setting.previousValue() + " -> " + setting.newValue();
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(getKeyword(), result.payload());
 		};
 	}
 

@@ -11,6 +11,7 @@ import clide.annotation.ParamType;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
+import clide.command.answer.ResultEnvelope;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.TransactionStack;
@@ -92,7 +93,7 @@ public class ListModifiedFilesCommand extends Command {
 
 			yield out.toString();
 		}
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(getKeyword(), result.payload());
 		};
 	}
 

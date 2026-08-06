@@ -2,6 +2,7 @@ package clide.command.testrun;
 
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
+import clide.command.answer.ResultEnvelope;
 import clide.model.Listing;
 import clide.model.TestOutcome;
 
@@ -41,7 +42,7 @@ final class TestRunRendering {
 
 			yield out.toString();
 		}
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(label, result.payload());
 		};
 	}
 

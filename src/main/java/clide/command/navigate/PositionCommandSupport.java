@@ -7,6 +7,7 @@ import clide.command.CommandResults;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
+import clide.command.answer.ResultEnvelope;
 import clide.core.ClideContext;
 import clide.core.Monomorphic;
 import clide.core.PositionParser;
@@ -114,7 +115,7 @@ final class PositionCommandSupport {
 
 			yield out.toString();
 		}
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(commandName, result.payload());
 		};
 	}
 

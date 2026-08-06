@@ -18,6 +18,7 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
+import clide.command.answer.ResultEnvelope;
 import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Command;
@@ -177,7 +178,7 @@ public class ResearchRegexCommand extends Command {
 					.append(" file(s)");
 			yield out.toString();
 		}
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(getKeyword(), result.payload());
 		};
 	}
 

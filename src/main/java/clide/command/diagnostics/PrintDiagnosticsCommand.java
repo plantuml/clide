@@ -9,6 +9,7 @@ import clide.annotation.Param;
 import clide.annotation.ParamType;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
+import clide.command.answer.ResultEnvelope;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.jdtls.JdtlsSession;
@@ -66,7 +67,7 @@ public class PrintDiagnosticsCommand extends Command {
 	public String render(final CommandResult result, final PrintMode printMode) {
 		return switch (result.payload()) {
 		case CommandPayload.Diagnostics found -> DiagnosticsRendering.render(found.report());
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(getKeyword(), result.payload());
 		};
 	}
 

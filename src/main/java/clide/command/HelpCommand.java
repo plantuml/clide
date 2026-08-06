@@ -10,6 +10,7 @@ import clide.annotation.Manual;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.CommandSummary;
+import clide.command.answer.ResultEnvelope;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.model.Listing;
@@ -91,7 +92,7 @@ public class HelpCommand extends Command {
 		case CommandPayload.CommandList listed -> printMode == PrintMode.HUMAN
 				? renderTable(listed.commands().items())
 				: renderOneLinePerCommand(listed.commands().items());
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(getKeyword(), result.payload());
 		};
 	}
 

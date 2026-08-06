@@ -2,6 +2,7 @@ package clide.command.transaction;
 
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
+import clide.command.answer.ResultEnvelope;
 
 /**
  * The one sentence open/commit/rollback/restore_file each answer with. Shared so
@@ -13,7 +14,7 @@ final class TransactionRendering {
 	private TransactionRendering() {
 	}
 
-	static String render(final CommandResult result) {
+	static String render(final String commandName, final CommandResult result) {
 		return switch (result.payload()) {
 		case CommandPayload.Transaction transaction -> switch (transaction.action()) {
 		case OPENED -> "Transaction " + transaction.id() + " opened.";
@@ -22,7 +23,7 @@ final class TransactionRendering {
 		case FILE_RESTORED -> "Restored " + transaction.path() + " to its state before transaction "
 				+ transaction.id() + ".";
 		};
-		default -> "";
+		default -> ResultEnvelope.unexpectedPayload(commandName, result.payload());
 		};
 	}
 

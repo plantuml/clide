@@ -88,4 +88,22 @@ class ResultEnvelopeTest {
 		assertEquals("du markdown jdtls", ResultEnvelope.defaultBody(new CommandPayload.Text("du markdown jdtls")));
 	}
 
+	@Test
+	@DisplayName("unexpectedPayload() ne dit rien pour Nothing - c'est la forme ordinaire d'une erreur")
+	void unexpectedPayloadIsSilentForNothing() {
+		assertEquals("", ResultEnvelope.unexpectedPayload("find_symbol", CommandPayload.NOTHING));
+	}
+
+	@Test
+	@DisplayName("unexpectedPayload() hurle, en anglais, pour toute autre forme")
+	void unexpectedPayloadShoutsForAnyOtherShape() {
+		final String rendered = ResultEnvelope.unexpectedPayload("find_symbol",
+				new CommandPayload.Text("wrong shape"));
+
+		assertEquals(
+				"INTERNAL ERROR: find_symbol.render() received a payload it does not know how to render (Text): "
+						+ "Text[text=wrong shape]",
+				rendered);
+	}
+
 }
