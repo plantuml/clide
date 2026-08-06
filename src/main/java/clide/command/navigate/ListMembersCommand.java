@@ -18,7 +18,6 @@ import clide.core.PositionParser;
 import clide.jdtls.JdtlsSession;
 import clide.model.Listing;
 import clide.model.Position;
-import clide.model.SymbolHit;
 
 /**
  * textDocument/documentSymbol: lists the direct members (methods, fields,
@@ -87,21 +86,10 @@ public class ListMembersCommand extends Command {
 
 	@Override
 	public String render(final CommandResult result, final PrintMode printMode) {
-		if (result.payload() instanceof CommandPayload.Symbols found) {
-			final Listing<SymbolHit> members = found.symbols();
-			if (members.totalCount() == 0)
-				return "list_members: " + found.subject()
-						+ " has no direct members (inherited ones are never listed - see man list_members)";
-
-			final StringBuilder out = new StringBuilder();
-			out.append("list_members: ").append(members.summarize("member"));
-			for (final SymbolHit member : members.items())
-				out.append('\n').append(member.display());
-
-			return out.toString();
-		}
-
-		return "";
+		return SymbolListRendering.render("list_members", "member",
+				subject -> "list_members: " + subject
+						+ " has no direct members (inherited ones are never listed - see man list_members)",
+				result);
 	}
 
 }

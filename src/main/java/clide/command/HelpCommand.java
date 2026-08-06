@@ -87,14 +87,12 @@ public class HelpCommand extends Command {
 	 */
 	@Override
 	public String render(final CommandResult result, final PrintMode printMode) {
-		if (result.payload() instanceof CommandPayload.CommandList listed) {
-			if (printMode == PrintMode.HUMAN)
-				return renderTable(listed.commands().items());
-
-			return renderOneLinePerCommand(listed.commands().items());
-		}
-
-		return "";
+		return switch (result.payload()) {
+		case CommandPayload.CommandList listed -> printMode == PrintMode.HUMAN
+				? renderTable(listed.commands().items())
+				: renderOneLinePerCommand(listed.commands().items());
+		default -> "";
+		};
 	}
 
 	/** HUMAN rendering: a fixed-width ASCII table, one row per command. */

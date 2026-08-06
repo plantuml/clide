@@ -13,7 +13,6 @@ import clide.core.ClideContext;
 import clide.core.Command;
 import clide.jdtls.JdtlsSession;
 import clide.model.Listing;
-import clide.model.SymbolHit;
 
 /**
  * workspace/symbol: finds symbols by name anywhere in the project, without
@@ -78,21 +77,10 @@ public class FindSymbolCommand extends Command {
 	 */
 	@Override
 	public String render(final CommandResult result, final PrintMode printMode) {
-		if (result.payload() instanceof CommandPayload.Symbols found) {
-			final Listing<SymbolHit> symbols = found.symbols();
-			if (symbols.totalCount() == 0)
-				return "find_symbol: no symbol found for \"" + found.subject()
-						+ "\" - note that find_symbol matches types and methods only, never a field name";
-
-			final StringBuilder out = new StringBuilder();
-			out.append("find_symbol: ").append(symbols.summarize("symbol"));
-			for (final SymbolHit symbol : symbols.items())
-				out.append('\n').append(symbol.display());
-
-			return out.toString();
-		}
-
-		return "";
+		return SymbolListRendering.render("find_symbol", "symbol",
+				subject -> "find_symbol: no symbol found for \"" + subject
+						+ "\" - note that find_symbol matches types and methods only, never a field name",
+				result);
 	}
 
 }

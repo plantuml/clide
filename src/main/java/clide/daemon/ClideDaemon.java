@@ -14,6 +14,7 @@ import java.util.Collection;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
+import clide.CommandRepository;
 import clide.Main;
 import clide.PrintMode;
 import clide.annotation.ParamType;
@@ -70,7 +71,7 @@ public final class ClideDaemon {
 		if (projectRoot == null)
 			return;
 
-		new ClideDaemon(projectRoot, Main.commands).run();
+		new ClideDaemon(projectRoot, CommandRepository.commands).run();
 	}
 
 	public void run() throws IOException, InterruptedException, TimeoutException {

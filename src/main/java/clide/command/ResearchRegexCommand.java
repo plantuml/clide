@@ -166,7 +166,8 @@ public class ResearchRegexCommand extends Command {
 	 */
 	@Override
 	public String render(final CommandResult result, final PrintMode printMode) {
-		if (result.payload() instanceof CommandPayload.SearchMatches found) {
+		return switch (result.payload()) {
+		case CommandPayload.SearchMatches found -> {
 			final Listing<SearchMatch> matches = found.matches();
 			final StringBuilder out = new StringBuilder();
 			for (final SearchMatch match : matches.items())
@@ -174,10 +175,10 @@ public class ResearchRegexCommand extends Command {
 
 			out.append("search_regex: ").append(matches.summarize("match")).append(" in ").append(found.fileCount())
 					.append(" file(s)");
-			return out.toString();
+			yield out.toString();
 		}
-
-		return "";
+		default -> "";
+		};
 	}
 
 	/**

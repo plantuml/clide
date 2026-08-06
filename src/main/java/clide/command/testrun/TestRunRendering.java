@@ -19,7 +19,8 @@ final class TestRunRendering {
 	}
 
 	static String render(final String label, final CommandResult result) {
-		if (result.payload() instanceof CommandPayload.TestRun run) {
+		return switch (result.payload()) {
+		case CommandPayload.TestRun run -> {
 			final StringBuilder out = new StringBuilder();
 			out.append(label).append(": ").append(run.total()).append(" test(s), ").append(run.passed())
 					.append(" passed, ").append(run.failed()).append(" failed");
@@ -38,10 +39,10 @@ final class TestRunRendering {
 			if (tests.truncated())
 				out.append('\n').append(label).append(": ").append(tests.summarize("entry"));
 
-			return out.toString();
+			yield out.toString();
 		}
-
-		return "";
+		default -> "";
+		};
 	}
 
 	private static String entry(final TestOutcome test) {

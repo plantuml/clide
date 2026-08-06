@@ -64,11 +64,10 @@ public class PrintDiagnosticsCommand extends Command {
 
 	@Override
 	public String render(final CommandResult result, final PrintMode printMode) {
-		if (result.payload() instanceof CommandPayload.Diagnostics found) {
-			return DiagnosticsRendering.render(found.report());
-		}
-
-		return "";
+		return switch (result.payload()) {
+		case CommandPayload.Diagnostics found -> DiagnosticsRendering.render(found.report());
+		default -> "";
+		};
 	}
 
 }

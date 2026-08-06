@@ -101,20 +101,21 @@ final class PositionCommandSupport {
 	 * clide could not answer at all is an ERROR - see CommandStatus.
 	 */
 	static String render(final String commandName, final CommandResult result, final PrintMode printMode) {
-		if (result.payload() instanceof CommandPayload.Locations found) {
+		return switch (result.payload()) {
+		case CommandPayload.Locations found -> {
 			final Listing<CodeLocation> locations = found.locations();
 			if (locations.totalCount() == 0)
-				return commandName + ": no location found";
+				yield commandName + ": no location found";
 
 			final StringBuilder out = new StringBuilder();
 			out.append(commandName).append(": ").append(locations.summarize("location"));
 			for (final CodeLocation location : locations.items())
 				out.append('\n').append(location.display());
 
-			return out.toString();
+			yield out.toString();
 		}
-
-		return "";
+		default -> "";
+		};
 	}
 
 }

@@ -95,12 +95,12 @@ public class RebuildCommand extends Command {
 
 	@Override
 	public String render(final CommandResult result, final PrintMode printMode) {
-		if (result.payload() instanceof CommandPayload.Rebuild built) {
-			return "rebuild: " + built.changedFiles() + " file(s) changed since the last build, rebuilt in "
-					+ built.elapsedMillis() + " ms\n" + DiagnosticsRendering.render(built.report());
-		}
-
-		return "";
+		return switch (result.payload()) {
+		case CommandPayload.Rebuild built -> "rebuild: " + built.changedFiles()
+				+ " file(s) changed since the last build, rebuilt in " + built.elapsedMillis() + " ms\n"
+				+ DiagnosticsRendering.render(built.report());
+		default -> "";
+		};
 	}
 
 }

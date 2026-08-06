@@ -101,11 +101,11 @@ public class SetMaxResultsCommand extends Command {
 
 	@Override
 	public String render(final CommandResult result, final PrintMode printMode) {
-		if (result.payload() instanceof CommandPayload.Setting setting) {
-			return "set_max_results: " + setting.name() + " " + setting.previousValue() + " -> " + setting.newValue();
-		}
-
-		return "";
+		return switch (result.payload()) {
+		case CommandPayload.Setting setting ->
+			"set_max_results: " + setting.name() + " " + setting.previousValue() + " -> " + setting.newValue();
+		default -> "";
+		};
 	}
 
 }

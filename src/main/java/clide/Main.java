@@ -5,26 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
-import java.util.List;
 
-import clide.command.HelpCommand;
-import clide.command.ManualCommand;
-import clide.command.ResearchRegexCommand;
-import clide.command.SetMaxResultsCommand;
-import clide.command.diagnostics.PrintDiagnosticsCommand;
-import clide.command.diagnostics.RebuildCommand;
-import clide.command.navigate.FindDeclarationCommand;
-import clide.command.navigate.FindImplementationCommand;
-import clide.command.navigate.FindReferenceCommand;
-import clide.command.navigate.FindSymbolCommand;
-import clide.command.navigate.HoverCommand;
-import clide.command.navigate.ListMembersCommand;
-import clide.command.session.ExitCommand;
-import clide.command.session.QuitCommand;
-import clide.command.session.TerminateCommand;
-import clide.command.testrun.RunTestCommand;
-import clide.command.testrun.RunTestsCommand;
-import clide.core.Command;
 import clide.daemon.ClideClient;
 import party.iroiro.luajava.Lua;
 import party.iroiro.luajava.LuaException;
@@ -51,16 +32,6 @@ import party.iroiro.luajava.lua51.Lua51;
 public class Main {
 
 	public static final String VERSION = "0.0.1";
-
-	public static final List<Command> commands = List.of(new HelpCommand(), new ManualCommand(),
-			new ExitCommand(), new QuitCommand(), new TerminateCommand(), new RebuildCommand(),
-			new PrintDiagnosticsCommand(),
-			new ResearchRegexCommand(), new FindSymbolCommand(), new HoverCommand(), new ListMembersCommand(),
-			new FindDeclarationCommand(), new FindImplementationCommand(), new FindReferenceCommand(),
-			new RunTestCommand(), new RunTestsCommand(), new SetMaxResultsCommand());
-
-//			new OpenTransactionCommand(), new CommitTransactionCommand(), new RollbackTransactionCommand(),
-//			new DiffTransactionCommand(), new RestoreFileCommand());
 
 	public static void main(final String[] args) throws IOException, InterruptedException {
 		if (args.length > 0 && args[0].equals("--lua")) {

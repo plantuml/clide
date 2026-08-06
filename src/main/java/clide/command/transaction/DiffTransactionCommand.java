@@ -96,27 +96,24 @@ public class DiffTransactionCommand extends Command {
 
 	@Override
 	public String render(final CommandResult result, final PrintMode printMode) {
-		if (result.payload() instanceof CommandPayload.ModifiedFiles listed) {
+		return switch (result.payload()) {
+		case CommandPayload.ModifiedFiles listed -> {
 			final Listing<String> files = listed.files();
 			if (files.totalCount() == 0)
-				return "Transaction " + listed.transactionId() + " has not modified any file yet.";
+				yield "Transaction " + listed.transactionId() + " has not modified any file yet.";
 
 			final StringBuilder out = new StringBuilder();
 			out.append("diff_transaction: ").append(files.summarize("file"));
 			for (final String file : files.items())
 				out.append('\n').append(file);
 
-			return out.toString();
+			yield out.toString();
 		}
-
-		if (result.payload() instanceof CommandPayload.Diff diff) {
-			if (diff.unifiedDiff().isEmpty())
-				return "No differences (current content matches the pre-transaction backup).";
-
-			return diff.unifiedDiff();
-		}
-
-		return "";
+		case CommandPayload.Diff diff -> diff.unifiedDiff().isEmpty()
+				? "No differences (current content matches the pre-transaction backup)."
+				: diff.unifiedDiff();
+		default -> "";
+		};
 	}
 
 }
