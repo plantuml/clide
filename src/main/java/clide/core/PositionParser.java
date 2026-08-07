@@ -59,6 +59,25 @@ public final class PositionParser {
 		return new Position(projectRoot.relativize(file).toString(), line, column, name);
 	}
 
+	/**
+	 * The same position, built from the four fields separately rather than from
+	 * the token that spells them out - what a caller has when it never read a line
+	 * of text: the Lua bridge, handed a {path, line, column, name} table a script
+	 * got from an earlier result (see LuaArguments).
+	 *
+	 * Deliberately the same validation as parse(), reached the same way rather
+	 * than a lighter one of its own: a Position whose name was never checked
+	 * against the file's current content at that column is exactly the stale
+	 * position the notation exists to catch (see Position's class doc, "PENDING").
+	 * Spelling the token out here and handing it to parse() is what keeps the two
+	 * entry points from ever disagreeing; a second copy of the checks is how they
+	 * would.
+	 */
+	public static Position of(final String path, final int line, final int column, final String name,
+			final Path projectRoot) {
+		return parse(path + ":" + line + ":" + column + ":" + name, projectRoot);
+	}
+
 	private static void checkNameAtColumn(final String lineText, final int line, final int column, final String name,
 			final String pathArgument) {
 		final List<Integer> columns = wholeWordColumns(lineText, name);

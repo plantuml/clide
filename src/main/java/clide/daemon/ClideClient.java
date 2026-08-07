@@ -1,6 +1,7 @@
 package clide.daemon;
 
 import java.io.File;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -36,9 +37,14 @@ import clide.jdtls.EclipseProjectFiles;
  * each time.
  *
  * The one thing this class ever sends on its own behalf, rather than relaying,
- * is the print-mode handshake - see announcePrintMode(). That handshake is what
- * makes "clide --human" a property of this one connection rather than of the
- * daemon every other client shares.
+ * is the handshake naming what kind of connection this is - see announceMode().
+ * That handshake is what makes "clide --human" (and "clide --lua") a property of
+ * this one connection rather than of the daemon every other client shares.
+ *
+ * A "--lua" run relays a file instead of a keyboard: same daemon, same socket,
+ * same half-close at the end - only the source of the bytes differs. The Lua
+ * runtime is on the other side (see LuaBridge), so nothing about running a
+ * script belongs here beyond choosing what to send.
  */
 public final class ClideClient {
 
@@ -48,9 +54,22 @@ public final class ClideClient {
 	private final Path projectRoot;
 	private final PrintMode printMode;
 
+	/** The Lua script to send, or null for an ordinary command session. */
+	private final Path scriptPath;
+
 	public ClideClient(final Path projectRoot, final PrintMode printMode) {
+		this(projectRoot, printMode, null);
+	}
+
+	/** "clide --lua &lt;script&gt; &lt;project&gt;" - see announceMode()/relay(). */
+	public ClideClient(final Path projectRoot, final Path scriptPath) {
+		this(projectRoot, PrintMode.AI, scriptPath);
+	}
+
+	private ClideClient(final Path projectRoot, final PrintMode printMode, final Path scriptPath) {
 		this.projectRoot = projectRoot;
 		this.printMode = printMode;
+		this.scriptPath = scriptPath;
 	}
 
 	public void run() throws IOException, InterruptedException {
@@ -58,25 +77,36 @@ public final class ClideClient {
 		System.out.println("*** clide connected to daemon (pid " + daemon.pid() + ") for " + projectRoot);
 
 		try (Socket socket = new Socket(InetAddress.getLoopbackAddress(), daemon.port())) {
-			announcePrintMode(socket);
+			announceMode(socket);
 			relay(socket);
 		}
 	}
 
 	/**
-	 * Sends PrintMode.HUMAN_FLAG as this connection's very first line when - and
-	 * only when - HUMAN mode was asked for, before any of this process' own stdin
-	 * is relayed. Nothing at all is sent in the default AI mode, on purpose: an AI
-	 * session's byte stream then stays exactly what it was before the flag
-	 * existed, and a daemon whose first line is not the flag just treats that line
-	 * as the command it is - see ClideDaemon.runSession().
+	 * Sends this connection's handshake line, when it has one: PrintMode.HUMAN_FLAG
+	 * for a "--human" session, ConnectionMode.SCRIPT_FLAG for a "--lua" one, before
+	 * anything else is relayed.
+	 *
+	 * Nothing at all is sent in the default AI mode, on purpose: an AI session's
+	 * byte stream stays a bare sequence of commands with no preamble to strip, and
+	 * a daemon whose first line is neither flag simply treats that line as the
+	 * command it is - see ConnectionMode.of() and ClideDaemon.runSession().
 	 */
-	private void announcePrintMode(final Socket socket) throws IOException {
-		if (printMode == PrintMode.HUMAN) {
-			final OutputStream out = socket.getOutputStream();
-			out.write((PrintMode.HUMAN_FLAG + "\n").getBytes(StandardCharsets.UTF_8));
-			out.flush();
-		}
+	private void announceMode(final Socket socket) throws IOException {
+		final String flag = handshake();
+		if (flag == null)
+			return;
+
+		final OutputStream out = socket.getOutputStream();
+		out.write((flag + "\n").getBytes(StandardCharsets.UTF_8));
+		out.flush();
+	}
+
+	private String handshake() {
+		if (scriptPath != null)
+			return ConnectionMode.SCRIPT_FLAG;
+
+		return printMode == PrintMode.HUMAN ? PrintMode.HUMAN_FLAG : null;
 	}
 
 	private DaemonLock ensureDaemon() throws IOException, InterruptedException {
@@ -231,10 +261,34 @@ public final class ClideClient {
 		output.setDaemon(true);
 		output.start();
 
-		pump(System.in, socket.getOutputStream());
-		socket.shutdownOutput(); // tells the daemon this client has nothing more to send
+		try (InputStream source = source()) {
+			pump(source, socket.getOutputStream());
+		}
+		// Tells the daemon this client has nothing more to send. For a script that
+		// is not a nicety but the protocol: the daemon reads a script to EOF, and
+		// this half-close is that EOF - the read direction stays open for whatever
+		// the script prints back. See ClideDaemon.runScript().
+		socket.shutdownOutput();
 
 		output.join(); // in practice unreachable - output's own System.exit(0) ends the process first
+	}
+
+	/**
+	 * What this client relays: the script file for a "--lua" run, this process'
+	 * own stdin otherwise. System.in is wrapped in a stream whose close() does
+	 * nothing, so the try-with-resources in relay() can treat both the same
+	 * without ever closing the real stdin.
+	 */
+	private InputStream source() throws IOException {
+		if (scriptPath != null)
+			return Files.newInputStream(scriptPath);
+
+		return new FilterInputStream(System.in) {
+			@Override
+			public void close() {
+				// stdin is not ours to close
+			}
+		};
 	}
 
 	private InputStream socketInput(final Socket socket) {

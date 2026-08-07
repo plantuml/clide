@@ -56,6 +56,15 @@ public class TerminateCommand extends Command {
 		return false;
 	}
 
+	/**
+	 * Never a Lua function: "terminate" shuts down the very daemon running the
+	 * script - see Command.isScriptable().
+	 */
+	@Override
+	public boolean isScriptable() {
+		return false;
+	}
+
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final List<String> open = context.getTransactions().openIds();

@@ -29,6 +29,15 @@ public abstract class DisconnectCommand extends Command {
 		return false;
 	}
 
+	/**
+	 * Never a Lua function: "exit"/"quit" stop the jdtls session, which a script
+	 * is in the middle of using - see Command.isScriptable().
+	 */
+	@Override
+	public final boolean isScriptable() {
+		return false;
+	}
+
 	@Override
 	public final CommandResult executeCommand(final ClideContext context, final String... params) {
 		context.requestDisconnect();

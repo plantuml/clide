@@ -12,8 +12,9 @@ To go further: `HISTORY.md` (past reflections and decisions), `TESTS.md`
 (journal of test campaigns on PlantUML, kept up to date), `TODO.md`
 (backlog), `RESULTS.md` (the shape of every answer, field by field — for
 writing a command or a client, not for asking a question), `JDTLS.md`
-(low-level LSP protocol details), `JAVALENSE.md`/
-`LUA.md`/`ASTPARSER.md` (explorations for future work, not implemented),
+(low-level LSP protocol details), `LUA.md` (what the Lua bridge still has to
+grow — the part that works is described here, under "Scripting a session"),
+`JAVALENSE.md`/`ASTPARSER.md` (explorations for future work, not implemented),
 `CODING.md` (style conventions for clide's own source code — unrelated to
 using it).
 
@@ -391,6 +392,52 @@ commits first, most recent rollbacks first).
 | `set_max_results <count>` | Caps how many entries a listing command returns, for this session only — see "Truncation" above. |
 | `exit` / `quit` | Disconnects cleanly; the daemon and any open transactions survive. |
 | `terminate` | Stops the daemon; refuses if a transaction is still open. |
+
+## Scripting a session: `clide --lua <script> <project path>`
+
+`clide --lua audit.lua <project>` sends one Lua script to the daemon instead of
+opening an interactive session, and prints back whatever the script printed.
+Everything else is unchanged: same daemon, same warm jdtls session, same
+project. Use it when the answer needs a loop — "which of this type's methods
+has no caller", "which of these files still match X after Y" — where the
+command-per-turn mode would spend a round trip per item.
+
+Inside the script, **every command is a function of the same name**, taking its
+parameters in the order `help` lists them:
+
+```lua
+local members = list_members("src/main/java/demo/Square.java:3:14:Square")
+for _, member in ipairs(members.symbols.items) do
+  if member.kind == "method" and member.location ~= nil then
+    local refs = find_reference("method", member.location.position)
+    print(member.name, refs.locations.totalCount)
+  end
+end
+```
+
+Four things are worth knowing before writing one:
+
+- **A result is a table, not text.** No output is parsed: what a command found
+  arrives as fields (`totalCount`, `items`, `position.line`…). `RESULTS.md`
+  documents every shape; the key names are the record's own.
+- **A position may be passed as the table it came in.**
+  `find_reference("method", member.location.position)` works, and so does the
+  `"path:line:column:name"` string. Either way it is re-checked against the
+  file as it stands now, so a position kept across an edit fails loudly rather
+  than pointing somewhere else.
+- **Listings are still capped.** `maxResults` (100 by default) applies to a
+  script exactly as it does to a session: read `totalCount`, not `#items`, and
+  call `set_max_results` if the answer needs the whole list.
+- **A refused command raises.** `?ERROR <CODE>: <message>` is the error text a
+  `pcall` catches, and an uncaught one stops the script and comes back as
+  `?ERROR LUA_SCRIPT_FAILED`. A script that wants to handle a failure wraps
+  that call in `pcall`; one that does not, stops.
+
+The script gets Lua's `base`, `string`, `table` and `math` libraries — no `io`,
+no `os`: everything it touches, it touches through a command. `exit`, `quit`
+and `terminate` are not bound either, for the same reason they would make no
+sense: a script ends by ending, and the daemon it ran in stays up for the next
+one. `--lua` and `--human` cannot be combined.
 
 ## Known limitations to keep in mind
 

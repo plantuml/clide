@@ -101,6 +101,21 @@ public abstract class Command implements Comparable<Command> {
 		return false;
 	}
 
+	/**
+	 * Whether this command is exposed to Lua scripts as a function of the same
+	 * name - see LuaBridge. Defaults to true: a command that answers a question
+	 * about the project answers it just as well from a script.
+	 *
+	 * The three that override it to false control the connection rather than the
+	 * project. "exit"/"quit" would stop the jdtls session in the middle of the
+	 * script still querying it, and "terminate" would shut down the very daemon
+	 * running that script. A script ends by ending; it has nothing to disconnect
+	 * from.
+	 */
+	public boolean isScriptable() {
+		return true;
+	}
+
 	public String getKeyword() {
 		final Constructor<?> ctor = noArgConstructor();
 		if (ctor == null)

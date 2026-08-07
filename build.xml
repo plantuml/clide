@@ -95,8 +95,10 @@
         writes no JUnit 5 test of its own in src/main, and leaving it out keeps
         an @Test from being imported into production code by accident.
 
-        The luajava-* group is for clide's Lua entry point (Main.runLuaScript,
-        the "lua" flag documented in LUA.md): party.iroiro.luajava (the core
+        The luajava-* group is for the Lua bridge (clide.lua.LuaBridge, reached
+        by the script flag ConnectionMode.SCRIPT_FLAG - named that way here
+        rather than spelled out, because an XML comment may not contain two
+        hyphens in a row; see LUA.md): party.iroiro.luajava (the core
         API), lua51 (the Lua51 class), jnigen-loader/jnigen-commons (native
         library loading at runtime - see scripts/fetch_luajava.py for why
         both are needed) and jspecify (nullability annotations on luajava's

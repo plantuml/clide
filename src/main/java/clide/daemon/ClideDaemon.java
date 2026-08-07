@@ -11,8 +11,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 
 import clide.CommandRepository;
 import clide.Main;
@@ -23,11 +21,11 @@ import clide.command.answer.ErrorCode;
 import clide.command.answer.ResultEnvelope;
 import clide.core.ClideContext;
 import clide.core.Command;
+import clide.core.CommandDispatcher;
 import clide.core.FilesRepository;
 import clide.core.Md5Repository;
-import clide.core.PositionException;
-import clide.core.PositionParser;
 import clide.core.TransactionStack;
+import clide.lua.LuaBridge;
 import clide.jdtls.EclipseProjectFiles;
 import clide.jdtls.JdtlsHome;
 import clide.jdtls.JdtlsLauncher;
@@ -51,9 +49,12 @@ import clide.jdtls.LspClient.TimeoutException;
  * disconnecting (EOF on its socket, the normal end of a "clide" run) only ends
  * that connection - the daemon keeps running for the next one. "exit"/"quit"
  * (see DisconnectCommand) additionally stop the jdtls session itself but still
- * leave the daemon up - see ensureSessionReady(), which restarts it lazily the
- * next time a command actually needs it. Only "terminate" (see
- * TerminateCommand) shuts the whole daemon down.
+ * leave the daemon up - CommandDispatcher restarts it lazily the next time a
+ * command actually needs it. Only "terminate" (see TerminateCommand) shuts the
+ * whole daemon down.
+ *
+ * A connection announcing "--lua" is served differently: it carries one Lua
+ * script rather than a stream of commands - see runScript() and ConnectionMode.
  */
 public final class ClideDaemon {
 
@@ -151,9 +152,12 @@ public final class ClideDaemon {
 	}
 
 	/**
-	 * Serves one client's commands until it disconnects, in the print mode that
-	 * client announced - see readPrintMode() for how the very first line decides
-	 * it. The mode is a local, not a field: it belongs to this one connection, so a
+	 * Serves one client until it disconnects, in the mode its very first line
+	 * announced - see ConnectionMode. A script connection is handed straight to
+	 * runScript(); the other two read commands one by one, in the print mode that
+	 * client asked for.
+	 *
+	 * The mode is a local, not a field: it belongs to this one connection, so a
 	 * "clide --human" session and an AI one can be served in turn by the same
 	 * daemon without either seeing the other's prompts. It is also published to the
 	 * context, for the commands whose own output depends on it - see
@@ -165,12 +169,19 @@ public final class ClideDaemon {
 		if (firstLine == null)
 			return; // this client disconnected without saying anything at all
 
-		final PrintMode printMode = readPrintMode(firstLine);
+		final ConnectionMode mode = ConnectionMode.of(firstLine);
+		final PrintMode printMode = mode.printMode();
 		context.setPrintMode(printMode);
+
+		if (mode == ConnectionMode.SCRIPT) {
+			runScript(reader, out, context);
+			return; // a script connection carries one script and ends with it
+		}
+
 		// AI mode announces nothing, so in that mode firstLine is not a handshake
 		// but already this session's first command: it has to be processed, not
 		// swallowed. carried holds it until the loop below consumes it.
-		String carried = printMode == PrintMode.HUMAN ? null : firstLine;
+		String carried = mode.announced() ? null : firstLine;
 
 		while (context.isShutdownRequested() == false) {
 			final String line = carried != null ? carried : readCommandLine(reader, out, printMode);
@@ -209,46 +220,37 @@ public final class ClideDaemon {
 				return; // this client's input ended mid-command
 			}
 
-			final CommandResult paramError = validateParams(command, params, context.getProjectRoot());
-			if (paramError != null) {
-				printResult(out, command, paramError, printMode);
-				continue; // surface-invalid parameter - back to READY, the command never runs
-			}
-
-			if (command.needsOpenTransaction() && context.getTransactions().hasAnyOpen() == false) {
-				printResult(out, command, CommandResult.error(ErrorCode.NO_OPEN_TRANSACTION,
-						keyword + " requires an open transaction - see open_transaction"), printMode);
-				continue;
-			}
-
-			if (command.needsJdtlsSession()) {
-				final CommandResult restartFailure = ensureSessionReady(out, context);
-				if (restartFailure != null) {
-					printResult(out, command, restartFailure, printMode);
-					continue;
-				}
-			}
-
-			printResult(out, command, command.executeCommand(context, params), printMode);
+			// Every check that stands between a parameter and a command running lives
+			// in CommandDispatcher, which the Lua bridge calls too - see its class doc
+			// for why they cannot live here any more.
+			printResult(out, command, CommandDispatcher.dispatch(context, command, out::println, params), printMode);
 			if (context.isShutdownRequested() || context.isDisconnectRequested())
 				return;
 		}
 	}
 
 	/**
-	 * HUMAN when a connection's first line is exactly PrintMode.HUMAN_FLAG - the
-	 * handshake ClideClient sends for "clide --human" and nothing else sends - AI
-	 * for every other first line, which is then a command like any other (see
-	 * runSession()). Recognizing the flag rather than requiring a mode line from
-	 * every client is what keeps a bare socket session, netcat included, working
-	 * unchanged: no first command is ever mistaken for a handshake, since no
-	 * command keyword can look like "--human".
+	 * Serves a connection that announced "--lua": everything after the handshake
+	 * line is one Lua script, read whole and run here - see LuaBridge and LUA.md.
+	 *
+	 * Read to EOF rather than to a terminator, because a script is the entire rest
+	 * of what this client has to say. The client sends the file and half-closes its
+	 * side (see ClideClient.relay(), which already ends that way), keeping the read
+	 * direction open for what the script prints - so EOF arrives without the client
+	 * having to invent a delimiter no line of Lua could ever collide with.
+	 *
+	 * The connection ends with the script, whether it succeeded or not. The daemon
+	 * and its jdtls session stay up, exactly as after any other client hangs up:
+	 * running a script is not a reason to pay for a workspace build again.
 	 */
-	private PrintMode readPrintMode(final String firstLine) {
-		if (firstLine.trim().equals(PrintMode.HUMAN_FLAG))
-			return PrintMode.HUMAN;
+	private void runScript(final BufferedReader reader, final PrintStream out, final ClideContext context)
+			throws IOException {
+		final StringBuilder script = new StringBuilder();
+		String line;
+		while ((line = reader.readLine()) != null)
+			script.append(line).append('\n');
 
-		return PrintMode.AI;
+		new LuaBridge(context, out).run(script.toString());
 	}
 
 	/**
@@ -262,36 +264,6 @@ public final class ClideDaemon {
 			out.println("> READY");
 		}
 		return reader.readLine();
-	}
-
-	/**
-	 * Lazily restarts the jdtls session if a previous "exit"/"quit" stopped it
-	 * while leaving the daemon (and this connection) running. Only called for
-	 * commands that declare needsJdtlsSession() - a cheap no-op (one boolean read)
-	 * when the session is already up. Returns an error CommandResult if the restart
-	 * itself fails, null if the session is ready to use.
-	 */
-	private CommandResult ensureSessionReady(final PrintStream out, final ClideContext context) {
-		final JdtlsSession session = context.getCurrentSession();
-		if (session.isReady())
-			return null;
-
-		out.println("jdtls session was stopped (exit/quit) - restarting it ...");
-		try {
-			// Same try/finally shape as run()'s initial start+build, and for the same
-			// reason: restoreEclipseFiles() must run whichever of the two throws, or
-			// not, so a re-staged .project/.classpath never outlives this restart.
-			try {
-				session.start();
-				session.build();
-			} finally {
-				session.restoreEclipseFiles();
-			}
-			return null;
-		} catch (final Exception e) {
-			return CommandResult.error(ErrorCode.SESSION_START_FAILED,
-					"Failed to restart jdtls session: " + e.getMessage());
-		}
 	}
 
 	/**
@@ -368,88 +340,6 @@ public final class ClideDaemon {
 				block.append('\n');
 			block.append(line);
 		}
-	}
-
-	/**
-	 * Runs validate() over every parameter, in order, before the command they
-	 * belong to ever executes - the "surface" check ParamType.POSITION/REGEX exist
-	 * for (see CLAUDE.md, ParamType). Returns the first error message found, or
-	 * null once every parameter has passed.
-	 */
-	private CommandResult validateParams(final Command command, final String[] params, final Path projectRoot) {
-		final ParamType[] types = command.getParamTypes();
-		for (int i = 0; i < params.length; i++) {
-			final CommandResult error = validate(types[i], params[i], projectRoot);
-			if (error != null)
-				return error;
-		}
-		return null;
-	}
-
-	/**
-	 * Surface-level check for one parameter's raw text, run purely on that text -
-	 * TRANSACTION_ID must match TransactionStack.ID_PATTERN, REGEX must compile
-	 * (java.util.regex.Pattern), POSITION must parse as a real file/line/word (see
-	 * PositionParser.parse()). Every other ParamType has nothing to check here. Returns
-	 * null when value is acceptable, or an error message fit to send back to the
-	 * client as-is otherwise.
-	 */
-	private CommandResult validate(final ParamType type, final String value, final Path projectRoot) {
-		switch (type) {
-		case TRANSACTION_ID:
-			if (TransactionStack.ID_PATTERN.matcher(value).matches() == false)
-				return CommandResult.error(ErrorCode.INVALID_TRANSACTION_ID, "Invalid transaction id '" + value
-						+ "' - expected $segment, lowercase word characters only "
-						+ "(e.g. $refactor_foo, $refactor_foo$part1)");
-			return null;
-		case REGEX:
-			try {
-				Pattern.compile(value);
-			} catch (final PatternSyntaxException e) {
-				return CommandResult.error(ErrorCode.INVALID_REGEX,
-						"Invalid regex '" + value + "': " + e.getMessage());
-			}
-			return null;
-		case POSITION:
-			try {
-				PositionParser.parse(value, projectRoot);
-			} catch (final IllegalArgumentException e) {
-				// PositionException carries which of the ways it failed, and the hint
-				// that goes with it when there is one (NAME_NOT_AT_COLUMN names the
-				// columns the name really starts at) - both have to travel from here,
-				// since this surface check runs before the command itself and is what
-				// the client actually sees. Anything else would be a bug in Position,
-				// reported rather than swallowed.
-				return CommandResult.error(PositionException.codeOf(e), e.getMessage(),
-						PositionException.hintOf(e));
-			}
-			return null;
-		case NON_NEGATIVE_INTEGER:
-			return validateNonNegativeInteger(value);
-		default:
-			return null;
-		}
-	}
-
-	/**
-	 * Zero is accepted and means zero; a negative or unparsable value is refused
-	 * naming the parameter rather than repaired into something plausible. Any upper
-	 * bound belongs to the command, not to the type - see SetMaxResultsCommand.
-	 */
-	private CommandResult validateNonNegativeInteger(final String value) {
-		final int parsed;
-		try {
-			parsed = Integer.parseInt(value.strip());
-		} catch (final NumberFormatException e) {
-			return CommandResult.error(ErrorCode.INVALID_INTEGER,
-					"Invalid count '" + value + "' - expected an integer of 0 or more");
-		}
-
-		if (parsed < 0)
-			return CommandResult.error(ErrorCode.INVALID_INTEGER,
-					"Invalid count '" + value + "' - expected an integer of 0 or more, not a negative one");
-
-		return null;
 	}
 
 	/**

@@ -1,9 +1,9 @@
 # LUA.md — Scripter clide en Lua
 
-Ce que le pont Lua doit devenir : ce qu'on veut en faire, ce sur quoi il
-s'appuie dans le code, ce qui reste à écrire, et les pièges à ne pas
-redécouvrir en route. Rien du pont lui-même n'est implémenté aujourd'hui —
-seul un runtime nu tourne (voir « Ce sur quoi le pont s'appuie »).
+Ce que le pont Lua doit devenir. `CLAUDE.md` décrit ce qui marche
+aujourd'hui — `clide --lua`, les fonctions bindées, ce qu'un script voit ;
+ce document ne garde que ce qui reste à construire par-dessus, les conventions
+encore à figer et les pièges à ne pas redécouvrir en route.
 
 ## Objectif
 
@@ -27,9 +27,10 @@ l'autre.
 ## Premier exemple : lecture seule, sur les commandes d'aujourd'hui
 
 Cet exemple n'appelle **que des commandes enregistrées dans
-`CommandRepository`** — ni transaction, ni écriture. C'est donc lui, et pas le
-suivant, qui sert de cible au premier pont : le jour où le pont existe, ce
-script doit tourner sans qu'aucune commande nouvelle ait été écrite.
+`CommandRepository`** — ni transaction, ni écriture. Il tourne
+(`clide --lua phase1.lua <projet>`), et sert de test d'acceptation du pont :
+c'est lui qui dit si les fonctions bindées, la conversion des payloads et la
+validation des positions tiennent ensemble.
 
 Il répond à une question qu'aucune commande unique ne répond, et qui demande une
 boucle : *parmi les méthodes de ce type, lesquelles ne sont appelées nulle
@@ -195,8 +196,8 @@ derrière elle.
 **Les commandes de lecture** (`find_reference`/`find_declaration`/
 `find_implementation`/`find_symbol`/`hover`/`list_members`/`search_regex`, plus
 `rebuild`/`print_diagnostics`/`run_test`/`run_tests`/`set_max_results`/`help`/
-`man`) sont enregistrées et testées de bout en bout. Ce sont les briques
-directement exposables en Lua.
+`man`) sont enregistrées et testées de bout en bout ; `exit`/`quit`/`terminate`
+sont les trois seules à déclarer `isScriptable()` false.
 
 **Le pattern Command et sa réflexion** (`clide.core.Command`,
 `CommandRepository`, annotations `@Keyword`/`@Param`/`@Help`/`@Manual` lues sur
@@ -213,119 +214,34 @@ en parallèle, `Md5Repository` signe leur contenu, `Snapshot` fige un instant et
 mtime : un fichier réécrit à l'identique n'est pas un changement, un fichier
 édité deux fois dans la même seconde en est un.
 
-**luajava est vendoré et un runtime nu tourne.** `lib/` contient
-`luajava-4.1.0.jar`, `lua51-4.1.0.jar`, `lua51-platform-4.1.0-natives-desktop.jar`,
+**luajava est vendoré.** `lib/` contient `luajava-4.1.0.jar`,
+`lua51-4.1.0.jar`, `lua51-platform-4.1.0-natives-desktop.jar`,
 `jnigen-loader`/`jnigen-commons` (chargement de la bibliothèque native) et
 `jspecify` ; `build.xml` et `build.gradle.kts` les câblent,
-`scripts/fetch_luajava.py` explique d'où ils viennent. `Main.runLuaScript()`
-lit un fichier, fait `new Lua51()`, `lua.run(script)`, attrape `LuaException` et
-l'imprime ; `hello-lua.lua` à la racine est le script de test. Aucune commande
-clide n'y est bindée — et dans cette forme, aucune ne *peut* l'être : `Main`
-s'exécute dans le JVM **client**, alors que le `ClideContext` (et avec lui la
-`JdtlsSession`, la `TransactionStack`, le `projectRoot`, le `maxResults`)
-n'existe que dans le daemon. Ce runtime vaut donc comme preuve que luajava se
-charge, natifs compris, et rien de plus.
+`scripts/fetch_luajava.py` explique d'où ils viennent. Le backend est le Lua
+5.1 natif (`Lua51`), et il tourne dans le process du daemon : c'est la seule
+place où les commandes ont une `JdtlsSession` et un projet à interroger.
 
-## Architecture : le runtime Lua dans le daemon
+## Là où le pont en est
 
-**Le runtime Lua vit dans le process du daemon**, chaque fonction Lua appelant
-les commandes en Java par un point d'entrée partagé, sans repasser par le codec
-texte « un token par ligne ». Plutôt qu'un client Lua externe parlant le
-protocole texte : ce protocole est conçu pour un client texte bête (Claude
-tapant au clavier), pas pour un langage de script, et un client externe devrait
-reparser du texte pretty-printé pour en refaire une table Lua — fragile, et
-redondant avec ce que `CommandPayload` rend inutile. En embarqué,
-`CommandPayload` se convertit directement en table Lua.
+Un script tourne : `clide --lua <script> <projet>` envoie le fichier au daemon,
+qui le lit jusqu'à EOF et l'exécute avec chaque commande bindée comme fonction
+de même nom (`clide.lua.LuaBridge`, `ConnectionMode.SCRIPT`) — voir
+« Scripting a session » dans `CLAUDE.md` pour ce qu'un script voit. Les
+garde-fous sont dans `CommandDispatcher`, appelé aussi bien par le protocole
+texte que par le pont, donc un script ne peut pas les contourner. Le premier
+exemple ci-dessus tourne de bout en bout.
 
-Deux conséquences à assumer. D'abord, `ClideDaemon` sert ses clients
-**strictement un à la fois** (boucle `accept()` séquentielle) : un script long
-bloque toute autre connexion pendant sa durée. Acceptable pour un outil
-mono-utilisateur, mais à dire. Ensuite, `printMode` et `maxResults` sont des
-réglages **par connexion**, remis à zéro par `resetPerConnectionSettings()` : un
-script hérite de ceux de la connexion qui l'a soumis. En particulier, un
-`find_reference` appelé depuis Lua est tronqué à `maxResults` (100 par défaut)
-comme n'importe quel autre — silencieusement, du point de vue d'un script qui ne
-lirait que `items`.
+Ce qui reste, et que ce document couvre : la phase 2 — les transactions,
+`replace_symbol`, et les questions que seul un script qui écrit oblige à
+trancher.
 
-## Soumettre un script : le flag `--lua` et le handshake socket
-
-Côté client, un flag : `clide --lua <chemin du script> <chemin du projet>`.
-Côté socket, un second handshake à côté de `--human`. Le client annonce « ce qui
-suit est un script », envoie le contenu du fichier, puis ferme son côté écriture
-; le daemon lit jusqu'à EOF et exécute.
-
-**Ce que le client fait.** `Main` parse `--lua` et son argument comme il parse
-`--human`, puis construit un `ClideClient` qui connaît le script — il ne fait
-plus tourner de Lua lui-même. `ClideClient.announcePrintMode()` devient
-l'annonce du mode de la connexion en général : elle envoie `--lua` comme
-première ligne quand un script est soumis, `--human` quand c'est demandé, et
-rien du tout en mode AI (le silence en mode AI est délibéré : le flux d'octets
-d'une session AI reste une suite de commandes nue, sans préambule à filtrer, et
-une première ligne qui n'est aucun des deux flags est traitée comme la commande
-qu'elle est). Puis `relay()` pompe le contenu du fichier dans la socket au lieu
-de `System.in`, et appelle `socket.shutdownOutput()` comme il le fait déjà —
-c'est ce `shutdownOutput()` qui produit l'EOF que le daemon attend, la moitié
-lecture de la socket restant ouverte pour recevoir la sortie du script.
-
-**Ce que le daemon fait.** `ClideDaemon.readPrintMode()` devient la lecture du
-mode de connexion : `--human` → mode HUMAN, `--lua` → mode script, toute autre
-première ligne → mode AI, cette ligne étant alors déjà la première commande.
-En mode script, `runSession()` ne boucle pas sur les commandes : il lit le reste
-du flux jusqu'à EOF, l'exécute dans un `Lua51` dont les fonctions sont liées au
-`ClideContext` de cette connexion, écrit la sortie sur la socket, et ferme. La
-`JdtlsSession` et le daemon restent debout, comme après n'importe quelle
-déconnexion.
-
-**Points à ne pas rater dans cette voie :**
-
-- **`print()` écrit sur le mauvais flux par défaut.** Le `print` de Lua écrit
-  sur la sortie standard native du process — donc celle du *daemon*, redirigée
-  vers `.clide/tmp/.clide-daemon.log`, pas sur la socket du client. Le pont doit
-  remplacer `print` par une fonction écrivant sur le `PrintStream` de la
-  connexion, sans quoi un script s'exécute correctement en n'affichant rien.
-- **Une erreur Lua doit sortir dans l'enveloppe habituelle.** Une `LuaException`
-  (script syntaxiquement invalide, erreur levée par une fonction bindée et non
-  rattrapée) se rend au client sous la forme `?ERROR <CODE>: <message>` que
-  `ResultEnvelope` produit déjà, avec un `ErrorCode` dédié — un client parse
-  l'échec d'un script comme il parse tout le reste. Le message doit porter la
-  ligne Lua fautive, que `LuaException` donne.
-- **`--human` et `--lua` ensemble n'ont pas de sens** : les invites
-  `> READY`/`> <paramètre> ?` s'adressent à quelqu'un qui tape. À refuser côté
-  client, avec un message clair, plutôt qu'à faire cohabiter.
-- **`exit`/`quit`/`terminate` n'ont pas à devenir des fonctions Lua.** Ce sont
-  des commandes de contrôle de session : `exit` depuis un script arrêterait la
-  `JdtlsSession` au milieu du script, `terminate` tuerait le daemon qui exécute
-  ce script. Le script se termine en se terminant.
-- **Le mode script n'est pas un `PrintMode`.** `PrintMode` dit comment un
-  résultat s'écrit pour un lecteur (AI ou humain) ; une connexion Lua ne rend
-  aucun résultat en texte, elle convertit des payloads. Le mode script est donc
-  une branche de `runSession()`, et le `ClideContext` reste en `PrintMode.AI`
-  pour le peu qui le consulte.
-
-## Dispatch partagé : ne pas contourner les garde-fous
-
-Les contrôles vivent dans `ClideDaemon.runSession()`, **au-dessus** de
-`Command.executeCommand()`, pas dedans :
-
-- résolution du mot-clé (`ClideContext.getCommand()`, sinon `UNKNOWN_KEYWORD`) ;
-- lecture des paramètres et `MISSING_PARAMETERS` si l'entrée s'arrête en cours ;
-- `validateParams()` → `validate()` par `ParamType` : `TRANSACTION_ID` contre
-  `TransactionStack.ID_PATTERN`, `REGEX` qui doit compiler, `POSITION` qui doit
-  parser *et* correspondre au contenu réel du fichier (`PositionParser.parse()`,
-  qui vérifie que le nom commence bien à cette colonne, comme mot entier) ;
-- `needsOpenTransaction()` → `NO_OPEN_TRANSACTION` ;
-- `needsJdtlsSession()` → `ensureSessionReady()`, qui relance une session
-  arrêtée par un `exit`/`quit` précédent.
-
-Si le pont appelle `executeCommand()` en direct, un script peut modifier un
-fichier hors transaction, passer une position jamais validée, ou toucher jdtls
-sans session. **Extraire un point d'entrée partagé** (par exemple un
-`CommandDispatcher.dispatch(ClideContext, Command, String[])`) que le protocole
-texte *et* le pont appellent tous les deux est donc un prérequis, pas une
-élégance : c'est la seule façon que les deux façades ne divergent pas avec le
-temps. La lecture des paramètres (`readParams()`, le `MULTI_LINE` à terminateur)
-reste spécifique au protocole texte et n'a pas à descendre dans ce point
-partagé — Lua reçoit ses arguments déjà séparés.
+Deux propriétés du daemon dont un script hérite, à garder en tête plutôt qu'à
+découvrir : il sert ses clients **un à la fois** (boucle `accept()`
+séquentielle), donc un script long bloque toute autre connexion pendant sa
+durée ; et `maxResults` est un réglage **par connexion**, donc un
+`find_reference` appelé depuis Lua est tronqué à 100 par défaut comme
+n'importe quel autre.
 
 ## Conversion `CommandPayload` → table Lua
 
@@ -346,35 +262,25 @@ fautif ne se verrait qu'en production. Le contrat est donc : *les arguments*
 d'une fonction Lua se génèrent par réflexion, *le retour* se déclare une fois
 par forme de payload.
 
-**Conventions à fixer explicitement**, plutôt que laissées au hasard de la
-première implémentation :
+**Les conventions de forme sont figées** dans `LuaPayloads` et verrouillées par
+`LuaPayloadsTest` : un nom de clé est ce qu'un script écrit en dur, donc le
+changer casse silencieusement tous les scripts déjà écrits, et ces tests sont
+le seul endroit où ce changement devient visible. Une `Listing` est
+`{items, totalCount, maxResults, truncated}` et non un tableau nu — un script
+qui compte `#items` compte faux dès que la réponse est tronquée. Un `enum` Java
+arrive en minuscules (`"error"`, `"rolled_back"`), comme les `kind` que jdtls
+donne déjà sous cette forme. Une chaîne vide reste `""` : la clé qui disparaît
+d'une table Lua ne se distingue plus de celle que personne n'a écrite. Un
+`null` Java devient `nil`, le seul d'aujourd'hui étant `SymbolHit.location`.
+Une commande refusée lève, plutôt que de rendre une valeur à tester : c'est la
+convention Lua, et le bon défaut pour un script qui écrira un jour — une
+défaillance non testée arrête le script au lieu de le laisser continuer en
+croyant l'édition faite.
 
-- une `Listing` devient-elle une table `{items = {...}, totalCount = n,
-  truncated = bool}` (fidèle, verbeux) ou directement le tableau d'items avec
-  les compteurs en clés à côté (pratique, moins régulier) ? Les deux exemples en
-  tête de ce document supposent la première forme.
-- une chaîne vide qui veut dire « ne s'applique pas » (le `path` de
-  `CommandPayload.Transaction`, le `lineText` d'une `CodeLocation` illisible)
-  reste-t-elle `""` côté Lua, ou devient-elle `nil` ? `""` est plus fidèle au
-  Java et évite le piège de la clé qui disparaît d'une table.
-- un `enum` Java (`TestOutcome.Status`, `Diagnostic.Severity`,
-  `CommandPayload.Transaction.Action`) devient une chaîne Lua — laquelle, le
-  `name()` brut ou une forme minuscule ? Choisir une fois.
-- côté erreur, un `status == ERROR` lève-t-il une erreur Lua (donc `pcall` pour
-  la rattraper) ou renvoie-t-il une table avec `code`/`hint` ? Le naturel en Lua
-  est de renvoyer `nil, err` ou de lever ; à trancher avant d'écrire la première
-  fonction, parce que tout le style des scripts en découle. `ErrorCode` compte
-  trente-deux codes (plus `NONE`) et `hint` est souvent vide — un script décide
-  sur `code`, jamais sur `message`.
-
-## Génération des fonctions Lua
-
-L'objectif est « une commande = une fonction Lua », avec la nuance ci-dessus.
-Pour chaque `Command` de `CommandRepository` : une fonction Lua du même nom que
-son `@Keyword`, d'arité `paramSize()`, dont les arguments sont convertis puis
-validés selon `getParamTypes()` — la même validation que le protocole texte, via
-le point de dispatch partagé — et dont le retour est le payload converti. Une
-commande dont le payload a déjà son `case` n'a alors rien à écrire.
+Reste à trancher, quand une commande le demandera : ce que devient la valeur de
+retour du script lui-même (aujourd'hui rien ne la remonte), et si un script
+doit pouvoir lire les `warnings` d'un résultat autrement que par la ligne
+`!WARNING` qui part sur la sortie.
 
 ## La commande de modification
 
@@ -395,28 +301,28 @@ Rappel de `JAVALENSE.md` (idée n°6) : proposer un diff avant d'écrire, jamais
 d'écriture directe. C'est ce que le couple `diff_transaction`/
 `commit_transaction` offre — à condition de les réenregistrer.
 
-## `Position` : un deuxième point d'entrée pour Lua
+## `Position` : le raccourci et ce qu'il ne doit pas faire sauter
 
-`PositionParser.parse(String, Path)` attend un token unique
-`<chemin>:<ligne>:<colonne>:<nom>`, pensé pour un client texte qui recopie tel
-quel un résultat précédent. Un script a plutôt une table `{path, line, column,
-name}` sous la main — celle que le convertisseur vient de lui donner. Lui faire
-concaténer une chaîne pour la faire reparser serait un aller-retour inutile et
-une source d'erreurs.
+Un script a une table `{path, line, column, name}` sous la main — celle que le
+convertisseur vient de lui donner — là où `PositionParser.parse()` attend le
+token unique `<chemin>:<ligne>:<colonne>:<nom>` d'un client texte recopiant un
+résultat précédent. Le pont accepte les deux, la table passant par
+`PositionParser.of()`.
 
-Attention à ce que ce raccourci ferait sauter. Le constructeur canonique de
-`Position` ne vérifie qu'une chose : que le chemin est relatif au projet. Toute
-la validation utile — le nom commence bien à cette colonne, comme mot entier, la
-ligne existe, le fichier est lisible — vit dans `PositionParser.parse()`. La
-javadoc de `Position` le signale comme un manque assumé (« PENDING ») : une
-`Position` transportée et réutilisée en mémoire contourne entièrement cette
-vérification et peut être devenue fausse. C'est ce que fait le second exemple
-entre son `find_reference` et son `replace_symbol` ; le premier fait circuler
-une `Position` de la même façon mais n'écrit rien entre les deux appels, ce qui
-rend le raccourci sans danger là et dangereux ici. Piste : un
-`PositionParser.of(path, line, column, name, projectRoot)` partageant la logique
-de `parse()` sans passer par la sérialisation, et que le pont appelle à chaque
-fois qu'une table Lua redevient une `Position`.
+Ce qui compte est que ce raccourci ne saute pas la validation. Le constructeur
+canonique de `Position` ne vérifie qu'une chose : que le chemin est relatif au
+projet. Toute la validation utile — le nom commence bien à cette colonne, comme
+mot entier, la ligne existe, le fichier est lisible — vit dans `parse()`, et la
+javadoc de `Position` signale le manque comme assumé (« PENDING ») : une
+`Position` transportée et réutilisée en mémoire contournerait entièrement cette
+vérification et pourrait être devenue fausse. D'où `of()` qui épelle le token et
+appelle `parse()` plutôt que de refaire les contrôles à côté : deux copies des
+mêmes vérifications sont exactement la façon dont les deux chemins finiraient
+par diverger.
+
+Le premier exemple fait circuler une `Position` sans rien écrire entre les deux
+appels, donc rien ne peut avoir bougé. Le second écrit au milieu — c'est là que
+la revalidation cesse d'être une formalité.
 
 ## Staleness de l'index : une politique à choisir
 
@@ -446,43 +352,35 @@ plutôt que de la dupliquer côté serveur.
 
 ## Questions ouvertes
 
-- **Sortie du script** : au-delà du `print()` redirigé sur la socket, la valeur
-  de retour du script elle-même a-t-elle un sens à remonter, et sous quelle
-  forme ?
-- **Forme des tables** rendues par le convertisseur, `nil` vs `""`, forme des
-  enums, erreur levée vs valeur de retour (voir « Conversion »).
-- **`maxResults` côté Lua** : un script hérite du plafond de sa connexion et
-  peut donc lire une liste tronquée sans le savoir. Le pont ignore-t-il le
-  plafond, l'expose-t-il, ou laisse-t-il le script appeler `set_max_results` ?
-- **Gestion d'erreur** : tout le script enveloppé dans un `pcall` par clide, avec
-  rollback automatique de toute transaction encore ouverte sur exception non
-  rattrapée ? Ou à la charge du script, comme dans le second exemple ?
+- **Gestion d'erreur d'un script qui écrit** : tout le script enveloppé dans un
+  `pcall` par clide, avec rollback automatique de toute transaction encore
+  ouverte sur exception non rattrapée ? Ou à la charge du script, comme dans le
+  second exemple ? Aujourd'hui une erreur non rattrapée arrête le script et
+  rien d'autre - ce qui suffit tant que rien n'écrit.
 - **Un `--dry-run` global** qui force le rollback quel que soit le script,
   indépendamment de sa propre logique — utile en CI ou pour explorer sans
   risque ?
 - **`find_reference` après modification dans la même transaction** : index live
   ou snapshot (voir « Staleness »).
-- **Sandboxing** : le script est-il restreint au DSL exposé (pas d'accès
-  filesystem/réseau Lua générique), ou runtime complet ? Il tourne dans le
-  process du daemon, ce qui rend la question moins théorique.
 - **Transaction implicite** : une transaction ouverte/fermée automatiquement
-  autour du script, ou explicite comme aujourd'hui ?
+  autour du script, ou explicite comme dans le second exemple ?
 - **Garde-fous applicatifs** : seuil de fichiers touchés avant confirmation,
   refus de `commit_transaction` si l'arbre git n'est pas propre ?
+- **`maxResults` côté Lua** : un script hérite du plafond de sa connexion et
+  peut donc lire une liste tronquée sans le savoir. Il peut appeler
+  `set_max_results` lui-même ; reste à décider si c'est suffisant, ou si le
+  pont doit faire mieux que compter sur la vigilance de l'auteur.
+- **Bibliothèques Lua** : `base`, `string`, `table` et `math` sont ouvertes,
+  `io`/`os`/`package`/`debug` non — un script tourne dans le process du daemon,
+  et tout ce qu'il touche passe par une commande. À rouvrir si un besoin réel
+  se présente, une bibliothèque à la fois plutôt que d'un `openLibraries()`.
 - **Combinateurs de plus haut niveau** (`rename_symbol_where(predicate)`) dans
   le cœur de clide, ou en Lua pur dans une bibliothèque de scripts ?
 
 ## Pièges identifiés
 
-- **`print()` part dans le log du daemon**, pas sur la socket du client, tant
-  qu'il n'est pas remplacé par le pont — un script qui tourne sans rien afficher.
-- **Le runtime actuel est dans le process client**, où aucun `ClideContext`
-  n'existe : il ne peut binder aucune commande.
 - **Les commandes de transaction sont commentées dans `CommandRepository`** :
   elles compilent et ont leurs payloads, mais ne sont pas atteignables.
-- **Contournement des garde-fous** si le pont appelle `executeCommand()` sans
-  point de dispatch partagé (`ParamType`, `needsOpenTransaction()`,
-  `needsJdtlsSession()`).
 - **Troncature silencieuse** : `maxResults` (100 par défaut) s'applique aux
   résultats vus depuis Lua comme depuis le texte. Un script qui lit `items` sans
   regarder `totalCount` travaille sur un sous-ensemble sans le savoir.
@@ -494,47 +392,38 @@ plutôt que de la dupliquer côté serveur.
 - **Rename LSP ≠ rename partiel** : `textDocument/rename` est tout-ou-rien sur
   l'ensemble des références ; le besoin du second exemple est une substitution
   localisée. Deux commandes différentes, pas une seule avec un filtre.
+- **`print()` de Lua écrit sur la sortie native du process**, c'est-à-dire le
+  log du daemon. Le pont le remplace ; toute autre fonction qui écrirait (un
+  `io.write` si `io` était ouvert un jour) retomberait dans le même trou.
 - **Id de transaction** : `$` obligatoire en préfixe, `\w` minuscule ensuite
-  (`TransactionStack.ID_PATTERN`, `ParamType.TRANSACTION_ID`). Le protocole
-  texte répond `?ERROR INVALID_TRANSACTION_ID` ; il faut l'équivalent côté Lua —
-  erreur explicite, jamais d'échec silencieux.
+  (`TransactionStack.ID_PATTERN`, `ParamType.TRANSACTION_ID`) — la validation
+  est partagée, donc l'erreur côté Lua est le même
+  `?ERROR INVALID_TRANSACTION_ID`.
 - **Un script long bloque le daemon**, qui sert ses clients un à la fois.
 - **Une commande, deux formes de réponse selon un argument** : un paramètre
   optionnel qui change la forme du payload casse l'hypothèse « chaque commande
   déclare une forme » sur laquelle repose la génération des fonctions Lua — même
   fonction, deux tables différentes selon l'argument. À vérifier pour toute
   commande dont l'arité admettrait un paramètre optionnel.
+- **Un nouveau payload sans son `case`** dans `LuaPayloads` ne compile pas :
+  c'est voulu, et c'est le seul rappel qu'une commande ajoutée doit aussi
+  décider de ce qu'un script en voit.
 
 ## Prochaines étapes
 
-Chaque étape valide la suivante. **Le pont n'attend pas la commande
-d'écriture** : tout ce qu'il faut pour faire tourner un script utile de bout en
-bout est déjà enregistré.
+Phase 1 tourne. Ce qui suit est la phase 2, l'écriture — chaque étape validant
+la suivante, et le second exemple servant de test d'acceptation à l'ensemble.
 
-**Phase 1 — faire tourner le premier exemple (lecture seule)**
-
-1. **Extraire le point de dispatch partagé** portant les garde-fous aujourd'hui
-   dans `ClideDaemon.runSession()` (`ParamType`, `needsOpenTransaction()`,
-   `needsJdtlsSession()`), appelé par le protocole texte comme par le pont.
-2. **Câbler `--lua` et son handshake** : flag côté `Main`, envoi du script par
-   `ClideClient` suivi de `shutdownOutput()`, branche « mode script » dans
-   `ClideDaemon.readPrintMode()`/`runSession()`, `print` redirigé sur la socket,
-   `ErrorCode` dédié pour une `LuaException`.
-3. **Brancher trois fonctions** — `list_members`, `find_reference`,
-   `set_max_results` — avec les convertisseurs de `Symbols`, `Locations` et
-   `Setting`, plus `PositionParser.of(...)` pour qu'une table Lua redevienne une
-   `Position` validée. Ajouter `rebuild` (payload `Rebuild`) complète le premier
-   exemple, qui devient le test d'acceptation du pont.
-4. **Généraliser** par réflexion sur `CommandRepository`, en complétant le
-   convertisseur payload par payload — le compilateur signalant chaque forme
-   encore non traitée.
-
-**Phase 2 — l'écriture**
-
-5. **Réenregistrer les six commandes de transaction** dans `CommandRepository`
-   (ou écrire pourquoi elles sont désactivées, si c'est délibéré).
-6. **Écrire `replace_symbol`**, la première vraie commande de modification, sur
-   les primitives existantes (`Position`, `TransactionStack`).
-7. **Faire tourner le second exemple**, et trancher au passage ce que seul un
+1. **Réenregistrer les six commandes de transaction** dans `CommandRepository`
+   (ou écrire pourquoi elles sont désactivées, si c'est délibéré). Elles ont
+   déjà leurs payloads, donc leurs fonctions Lua viennent avec.
+2. **Écrire `replace_symbol`**, la première vraie commande de modification, sur
+   les primitives existantes (`Position`, `TransactionStack`) — et lui faire
+   déclarer `needsOpenTransaction()`, que `CommandDispatcher` fait déjà
+   respecter des deux côtés.
+3. **Faire tourner le second exemple**, et trancher au passage ce que seul un
    script qui écrit oblige à trancher : `pcall` et rollback automatique,
    `--dry-run`, index live ou snapshot après écriture.
+4. **Reprendre la staleness** : une écriture depuis un script rend l'index
+   périmé pour le `find_*` suivant du même script, sans personne pour trouver
+   la réponse suspecte.

@@ -4,12 +4,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import clide.daemon.ClideClient;
-import party.iroiro.luajava.Lua;
-import party.iroiro.luajava.LuaException;
-import party.iroiro.luajava.lua51.Lua51;
+import clide.daemon.ConnectionMode;
 
 /**
  * Entry point for clide's client role: "clide &lt;project path&gt;" connects to
@@ -24,27 +24,103 @@ import party.iroiro.luajava.lua51.Lua51;
  * default AI mode, which prints no prompt at all - see PrintMode. The flag
  * applies to this one session, never to the daemon it connects to.
  *
- * A second entry point, "clide --lua &lt;script&gt; &lt;project path&gt;", runs a Lua
- * script through gudzpoz/luajava instead of starting an interactive session -
- * see runLuaScript() and LUA.md. POC stage: the script runs standalone, with
- * no clide command bound into Lua yet.
+ * "clide --lua &lt;script&gt; &lt;project path&gt;" submits one Lua script to that
+ * same daemon instead of opening an interactive session - see parseScriptPath()
+ * and LUA.md. The Lua runtime itself lives in the daemon, not here: only there
+ * do commands have a jdtls session and a project to answer about (see
+ * LuaBridge). This process does for a script exactly what it does for a
+ * keyboard - find or start the daemon, then relay - and the script is simply
+ * what it relays.
  */
 public class Main {
 
 	public static final String VERSION = "0.0.1";
 
+	/**
+	 * What parseScriptPath() returns when there is no --lua flag at all, which is
+	 * neither a script path nor a failure and so cannot be either null or a Path.
+	 */
+	private static final Path NOT_A_SCRIPT_RUN = Paths.get("");
+
 	public static void main(final String[] args) throws IOException, InterruptedException {
-		if (args.length > 0 && args[0].equals("--lua")) {
-			runLuaScript(args);
+		final Path scriptPath = parseScriptPath(args);
+		if (scriptPath == NOT_A_SCRIPT_RUN) {
+			final PrintMode printMode = parsePrintMode(args);
+			final Path projectRoot = parseProjectRoot(withoutPrintModeFlag(args));
+			if (projectRoot == null)
+				return;
+
+			new ClideClient(projectRoot, printMode).run();
 			return;
 		}
 
-		final PrintMode printMode = parsePrintMode(args);
-		final Path projectRoot = parseProjectRoot(withoutPrintModeFlag(args));
+		if (scriptPath == null)
+			return; // the flag was there, what followed it was not - already said why
+
+		if (parsePrintMode(args) == PrintMode.HUMAN) {
+			// The two contradict each other: HUMAN's prompts exist for someone typing,
+			// and a script reads none of them. Refused rather than quietly dropping
+			// one of the two flags somebody deliberately wrote.
+			System.out.println(
+					"--human and " + ConnectionMode.SCRIPT_FLAG + " cannot be combined: a script reads no prompt");
+			return;
+		}
+
+		final Path projectRoot = parseProjectRoot(withoutScriptFlag(args));
 		if (projectRoot == null)
 			return;
 
-		new ClideClient(projectRoot, printMode).run();
+		new ClideClient(projectRoot, scriptPath).run();
+	}
+
+	/**
+	 * The .lua file "clide --lua &lt;script&gt; &lt;project path&gt;" names;
+	 * NOT_A_SCRIPT_RUN when no --lua flag appears at all, which is not an error but
+	 * the ordinary case; null when the flag is there and what follows it is not
+	 * usable (nothing at all, or not a readable file), the reason already printed.
+	 *
+	 * Unlike --human, this flag is not positional-free: it takes the argument
+	 * immediately after it. A bare flag can be moved around because there is only
+	 * one other argument to confuse it with - a flag that consumes the next one
+	 * cannot.
+	 */
+	private static Path parseScriptPath(final String[] args) {
+		for (int i = 0; i < args.length; i++) {
+			if (args[i].equals(ConnectionMode.SCRIPT_FLAG) == false)
+				continue;
+
+			if (i + 1 >= args.length) {
+				System.out.println("Usage: clide " + ConnectionMode.SCRIPT_FLAG + " <script path> <project path>");
+				return null;
+			}
+
+			final Path scriptPath = Paths.get(args[i + 1]).toAbsolutePath().normalize();
+			if (Files.isRegularFile(scriptPath) == false) {
+				System.out.println("Not a file: " + scriptPath);
+				return null;
+			}
+
+			return scriptPath;
+		}
+
+		return NOT_A_SCRIPT_RUN;
+	}
+
+	/**
+	 * args minus the --lua flag and the script path it consumed, leaving just the
+	 * project path parseProjectRoot() counts.
+	 */
+	private static String[] withoutScriptFlag(final String[] args) {
+		final List<String> kept = new ArrayList<>();
+		for (int i = 0; i < args.length; i++) {
+			if (args[i].equals(ConnectionMode.SCRIPT_FLAG)) {
+				i++; // and the script path with it
+				continue;
+			}
+
+			kept.add(args[i]);
+		}
+		return kept.toArray(new String[0]);
 	}
 
 	/**
@@ -81,7 +157,7 @@ public class Main {
 	 */
 	public static Path parseProjectRoot(final String[] args) {
 		if (args.length != 1) {
-			System.out.println("Usage: clide [--human] <project path>");
+			System.out.println("Usage: clide [--human] [--lua <script path>] <project path>");
 			return null;
 		}
 
@@ -94,39 +170,5 @@ public class Main {
 		return projectRoot;
 	}
 
-	/**
-	 * "clide --lua &lt;script&gt; &lt;project path&gt;": reads the Lua script file whole
-	 * and runs it through party.iroiro.luajava's native Lua 5.1 backend
-	 * (Lua51). The project path is parsed and validated the same way as the
-	 * interactive entry point even though the POC script does not use it yet
-	 * - keeping both entry points consistent about what "a valid project
-	 * path" means avoids a divergence later once Lua scripts do call into
-	 * clide commands (see LUA.md).
-	 */
-	private static void runLuaScript(final String[] args) throws IOException {
-		if (args.length != 3) {
-			System.out.println("Usage: clide --lua <script path> <project path>");
-			return;
-		}
-
-		final Path scriptPath = Paths.get(args[1]);
-		if (Files.isRegularFile(scriptPath) == false) {
-			System.out.println("Not a file: " + scriptPath);
-			return;
-		}
-
-		final Path projectRoot = Paths.get(args[2]).toAbsolutePath().normalize();
-		if (Files.isDirectory(projectRoot) == false) {
-			System.out.println("Not a directory: " + projectRoot);
-			return;
-		}
-
-		final String script = Files.readString(scriptPath);
-		try (Lua lua = new Lua51()) {
-			lua.run(script);
-		} catch (final LuaException error) {
-			System.out.println("Lua error: " + error.getMessage());
-		}
-	}
 
 }

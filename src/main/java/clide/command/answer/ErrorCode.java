@@ -161,5 +161,17 @@ public enum ErrorCode {
 	// ------------------------------------------------------------------
 
 	/** An I/O failure with no more specific code - the message carries the detail. */
-	IO_FAILED
+	IO_FAILED,
+
+	// ------------------------------------------------------------------
+	// Lua
+	// ------------------------------------------------------------------
+
+	/**
+	 * A Lua script did not run to its end: a syntax error, an error one of the
+	 * bound clide functions raised and the script never caught, or one the script
+	 * raised itself. The message is Lua's own, which names the line - see
+	 * LuaBridge.
+	 */
+	LUA_SCRIPT_FAILED
 }
