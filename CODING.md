@@ -4,6 +4,34 @@ Règles de style pour qui écrit ou modifie le code Java de clide lui-même
 (humain ou IA) — sans rapport avec l'utilisation de clide comme outil, voir
 `CLAUDE.md` pour ça.
 
+## Construire et vérifier : `ant`, et rien d'autre
+
+**Toute modification se compile, se teste et s'exécute via `ant`** — `ant dist`
+pour le jar, `ant test` pour la suite. Jamais avec un `javac`/`java -cp`
+fabriqué à la main, même « juste pour aller vite ».
+
+La raison n'est pas le confort : `clide.jar` **porte des ressources dont le code
+dépend à l'exécution**, et un lancement depuis `build/classes` ne les a pas.
+Deux pannes observées, toutes deux silencieuses — rien ne dit « il te manque une
+ressource », le comportement change simplement :
+
+- `JunitVendorJars` lit `resource/vendor-junit/*.jar` depuis le classpath pour
+  les déposer dans le `.clide/tmp/jar-junit/` du projet cible. Hors du jar,
+  `getResourceAsStream()` rend `null`, rien n'est extrait, et jdtls ne résout
+  plus JUnit **dans le projet ouvert** : `rebuild` rapporte une vague de
+  `The import org.junit.platform.launcher cannot be resolved` qui n'a rien à
+  voir avec le code qu'on vient d'écrire. Sur clide lui-même : 30 erreurs
+  fantômes, qui disparaissent en relançant le même code depuis le jar.
+- La suite de tests lancée avec un classpath assemblé à la main perd des jars
+  de `lib/` que `test.runtime.classpath` inclut (voir `build.xml`), et rend des
+  échecs qui n'existent pas sous `ant test`.
+
+Le piège commun aux deux : la panne ressemble à un bug du code testé. On
+diagnostique alors le mauvais objet — et une conclusion tirée d'un lancement
+hors `ant` ne vaut rien, y compris quand elle est rassurante.
+
+## Style
+
 - Indentation : tabulations, pas d'espaces.
 - Accolades :
   - Accolade ouvrante sur la même ligne que l'instruction.

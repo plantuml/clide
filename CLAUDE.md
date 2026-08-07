@@ -50,6 +50,19 @@ compiles and packages `clide.jar` with no network access needed. `ant run`
 starts an interactive session; type `help` at the prompt for the list of
 commands.
 
+**And run that jar** — `java -jar clide.jar <project>` — never the compiled
+classes with `lib/` on the classpath. `clide.jar` is not just a packaging
+convenience: it carries resources the code reads at runtime, and a
+classes-based run has none of them. jdtls itself is one
+(`resource/jdt-language-server-latest.zip`); the JUnit jars clide gives a
+target project so jdtls can compile its test sources are the other
+(`resource/vendor-junit/`, see below). Both are looked up on the classpath, and
+both come back empty outside the jar — with no message saying so. The symptom
+shows up in the *opened project* instead: `rebuild` reports a wave of
+`The import org.junit.platform.launcher cannot be resolved` on files nobody
+touched, which reads exactly like a project whose classpath is broken. It is
+not — the clide that was asked is.
+
 `clide <project-path>` opens (or joins, if already running) a daemon
 dedicated to that project — one per project, running in the background,
 staying alive across multiple launches. There's no separate command to
@@ -354,7 +367,15 @@ when they do; `set_max_results <count>` changes it for the session.
 | `run_tests <all\|failures>` | Runs all tests in the project. `failures` lists only the failing ones (the only readable output on a suite of real size); totals are always shown either way. |
 
 `run_test`/`run_tests` work even if the target project has no JUnit jar of
-its own — clide provides whatever is missing. On a very large suite with
+its own — clide provides whatever is missing. Concretely, the daemon extracts
+the JUnit jars bundled in `clide.jar` into the opened project's
+`.clide/tmp/jar-junit/` at startup, and adds them to the classpath jdtls
+compiles against, *after* whatever jars the project keeps in its own `.clide/`
+— so a project that has its own JUnit version keeps it. Nothing to install,
+nothing to commit: a project needs no JUnit jar in `.clide/` for its test
+sources to compile, and adding one only shadows what clide already brings.
+(This is also why clide has to be run from the jar — see "Getting started".)
+On a very large suite with
 missing external dependencies (e.g. a system tool some tests call out to),
 `run_tests` may never finish in a reasonable time; prefer a targeted
 `run_test` in that case.

@@ -132,7 +132,35 @@ unzip -l clide.jar | grep -E "resource/jdt|resource/vendor-junit"
 Si l'une de ces entrées manque, tu n'as pas un jar utilisable — et c'est un
 problème de build à rapporter, pas un problème d'exécution à contourner.
 
-### 4.3 Où jdtls est extrait — et ce qu'il faut vérifier
+### 4.3 Lance toujours **le jar**, jamais les classes
+
+Corollaire direct de ce qui précède, et piège dans lequel on tombe vite parce
+qu'il paraît anodin : `java -cp build/classes:lib/* clide.Main …` démarre,
+répond aux commandes, et **n'a aucune des ressources ci-dessus**.
+`getResourceAsStream("resource/vendor-junit/…")` rend `null`, rien n'est
+extrait dans le projet cible, et jdtls n'y résout plus JUnit. Symptôme :
+
+```
+[error] line 14: The import org.junit.platform.launcher cannot be resolved
+```
+
+…par dizaines, sur des fichiers auxquels personne n'a touché. Sur clide
+lui-même, 30 erreurs de ce genre, qui s'évaporent en relançant exactement le
+même code avec `java -jar clide.jar`.
+
+Ce qui rend ce piège coûteux n'est pas la panne, c'est le diagnostic : rien
+n'annonce une ressource manquante, donc on conclut que le **projet cible** a un
+problème de classpath, et on va « corriger » son `.clide/` en y copiant des
+jars dont il n'a aucun besoin. Si un `rebuild` sort des erreurs d'import sur
+des bibliothèques que le projet n'a pas touchées, vérifie d'abord **comment tu
+as lancé clide**, avant de toucher au projet.
+
+Même règle pour la suite de tests : `ant test`, jamais un
+`junit-platform-console-standalone` invoqué avec un classpath assemblé à la
+main — il rend des échecs qui n'existent pas sous `ant test` (voir `CODING.md`,
+« Construire et vérifier »).
+
+### 4.4 Où jdtls est extrait — et ce qu'il faut vérifier
 
 jdtls s'extrait tout seul au premier démarrage, dans un **cache utilisateur
 partagé** nommé d'après l'empreinte de l'archive :
@@ -161,7 +189,7 @@ Prends malgré tout un répertoire de travail neutre (`/tmp/run`) pour toute la
 campagne : ça isole les éventuels résidus d'un autre bug de ceux du projet
 testé.
 
-### 4.4 Vérification que le build est sain
+### 4.5 Vérification que le build est sain
 
 ```bash
 mkdir -p /tmp/demo/src/main/java/demo
@@ -298,7 +326,7 @@ fichier, restent ouverts et méritent une vérification explicite :
 | 16 | `run_test` sur une méthode à paramètres (`@ParameterizedTest`) — **priorité 1** |
 | 17 | Le message d'échec de `run_test` est-il encore mangé par `Picked up JAVA_TOOL_OPTIONS` ? |
 | 18 | Un test `ABORTED` (assumption non satisfaite) est-il encore compté `failed` au lieu de `skipped` ? |
-| 19 | `jdtls/` (62 Mo) déposé dans le CWD — **corrigé**, à revalider (voir §4.3) |
+| 19 | `jdtls/` (62 Mo) déposé dans le CWD — **corrigé**, à revalider (voir §4.4) |
 | 20 | Commandes de transaction documentées dans `CLAUDE.md` mais absentes de `help` |
 | 21 | Chiffres périmés de `CLAUDE.md` (coût de `rebuild`, moment où `.project` est retiré) |
 
