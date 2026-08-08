@@ -59,10 +59,15 @@ public enum ErrorCode {
 	NOT_A_DIRECTORY,
 
 	// ------------------------------------------------------------------
-	// Position: resolving <file path>:<line>:<column>:<name> against the project
+	// Position: resolving <file-content-md5>:<file path>:<line>:<column>:<name> against the project
 	// ------------------------------------------------------------------
 
-	/** The token did not even parse as &lt;file path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt;. */
+	/**
+	 * The token did not even parse as
+	 * &lt;file-content-md5&gt;:&lt;file path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt;
+	 * - including the one near miss worth naming separately in the message: a
+	 * &lt;file-content-md5&gt; that is 32 hexadecimal characters but not lowercase.
+	 */
 	MALFORMED_POSITION,
 
 	/** The notation parsed, but its file path names nothing on disk. */
@@ -70,6 +75,20 @@ public enum ErrorCode {
 
 	/** The file exists but could not be read as UTF-8 text. */
 	FILE_UNREADABLE,
+
+	/**
+	 * The token carried a &lt;file-content-md5&gt; that is no longer the file's -
+	 * the file has been edited since this position was produced, so the position
+	 * describes a state of it that is gone. Nothing about the token can be
+	 * repaired in place: the position has to be produced again against the file as
+	 * it now is (see PositionParser.parse()).
+	 *
+	 * No hint, on purpose. The obvious one - the file's current md5 - would be
+	 * read as the fix, and a client pasting it back would have a token that passes
+	 * the check while pointing wherever the edit moved that line to. The check is
+	 * only worth what it costs to satisfy honestly.
+	 */
+	FILE_MODIFIED,
 
 	/** The file exists, the line does not - the message names how many lines it has. */
 	LINE_OUT_OF_RANGE,

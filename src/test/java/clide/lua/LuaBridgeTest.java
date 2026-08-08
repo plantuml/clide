@@ -37,7 +37,24 @@ class LuaBridgeTest {
 		final FilesRepository filesRepository = new FilesRepository(projectRoot, null);
 
 		new LuaBridge(new ClideContext(filesRepository, null, CommandRepository.commands), out).run(script);
-		return written.toString(StandardCharsets.UTF_8);
+		return normalized(written.toString(StandardCharsets.UTF_8));
+	}
+
+	/**
+	 * La sortie du script, ses fins de ligne ramenées à "\n".
+	 *
+	 * LuaBridge écrit par PrintStream.println(), qui termine chaque ligne par le
+	 * séparateur de la plateforme : "\n" sous Unix, "\r\n" sous Windows. Ce que
+	 * ces tests vérifient est ce que print() fait parvenir au client - le texte,
+	 * son ordre, ses tabulations - jamais lequel des deux terminateurs la JVM a
+	 * choisi. Comparer à "\n" en dur faisait donc échouer cinq tests sous Windows
+	 * pour une raison dont aucun ne parle.
+	 *
+	 * Normalise plutôt que supprime : une ligne qui manquerait sa fin de ligne
+	 * reste détectée.
+	 */
+	private static String normalized(final String output) {
+		return output.replace("\r\n", "\n");
 	}
 
 	private boolean succeeded(final Path projectRoot, final String script) {

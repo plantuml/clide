@@ -1,6 +1,7 @@
 package clide.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,6 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -145,12 +147,173 @@ class PositionCodesTest {
 	}
 
 	@Test
-	@DisplayName("toString() rend la notation canonique complète, colonne comprise - le chemin relatif au projet")
+	@DisplayName("toString() rend la notation canonique complète, md5 et colonne compris - le chemin relatif au projet")
 	void toStringIsTheCanonicalNotation(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		// La forme courte entre, la forme longue sort : c'est toute l'asymétrie de
+		// la notation, et ce qui fait qu'un résultat recopié tel quel porte la
+		// signature même quand le token qui l'a produit ne la portait pas.
+		assertEquals(Md5Repository.md5Of(file) + ":Foo.java:1:7:Foo",
+				PositionParser.parse(filesRepository, "Foo.java:1:7:Foo").toString());
+	}
+
+	// ------------------------------------------------------------------
+	// <file-content-md5> : le contrôle de cohérence avec le fichier réel
+	// ------------------------------------------------------------------
+
+	@Test
+	@DisplayName("un md5 qui correspond au contenu actuel est accepté")
+	void matchingMd5IsAccepted(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		final Position position = PositionParser.parse(filesRepository,
+				Md5Repository.md5Of(file) + ":Foo.java:1:7:Foo");
+
+		assertEquals(Md5Repository.md5Of(file), position.md5());
+		assertEquals("Foo.java", position.path());
+		assertEquals(7, position.column());
+	}
+
+	@Test
+	@DisplayName("un md5 périmé est FILE_MODIFIED, même si ligne, colonne et nom sont encore justes")
+	void staleMd5IsRejected(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "}");
+		final String before = Md5Repository.md5Of(file);
+
+		// Le commentaire ajouté en tête décale tout d'une ligne, mais on interroge
+		// la ligne où "Foo" se trouve *maintenant* : sans le md5, ce token passerait
+		// tous les contrôles existants et répondrait sur un fichier qui a changé.
+		write(root, "Foo.java", "// ajouté", "class Foo {", "}");
+
+		assertEquals(ErrorCode.FILE_MODIFIED, codeOf(root, before + ":Foo.java:2:7:Foo"));
+	}
+
+	@Test
+	@DisplayName("FILE_MODIFIED ne donne pas le md5 courant - ce serait livrer le contournement avec l'erreur")
+	void staleMd5GivesNoWayToPatchTheToken(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "}");
+		final String before = Md5Repository.md5Of(file);
+		write(root, "Foo.java", "// ajouté", "class Foo {", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		final PositionException thrown = assertThrows(PositionException.class,
+				() -> PositionParser.parse(filesRepository, before + ":Foo.java:2:7:Foo"));
+
+		assertEquals("", thrown.getHint());
+		assertFalse(thrown.getMessage().contains(Md5Repository.md5Of(file)));
+	}
+
+	@Test
+	@DisplayName("le md5 est vérifié avant la ligne et le nom - la cause, pas le symptôme")
+	void md5IsCheckedBeforeLineAndName(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "}");
+		final String before = Md5Repository.md5Of(file);
+		write(root, "Foo.java", "class Bar {", "}");
+
+		// Sur le fichier tel qu'il est, la ligne 99 n'existe pas et "Foo" n'est plus
+		// nulle part : deux refus possibles, et c'est bien le md5 qui doit parler.
+		assertEquals(ErrorCode.FILE_MODIFIED, codeOf(root, before + ":Foo.java:99:7:Foo"));
+		assertEquals(ErrorCode.FILE_MODIFIED, codeOf(root, before + ":Foo.java:1:7:Foo"));
+	}
+
+	@Test
+	@DisplayName("sans md5, la forme courte reste acceptée - implicitement « sur le fichier actuel »")
+	void shortFormIsStillAccepted(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		final Position position = PositionParser.parse(filesRepository, "Foo.java:1:7:Foo");
+
+		assertEquals(Md5Repository.md5Of(file), position.md5());
+	}
+
+	@Test
+	@DisplayName("un md5 en majuscules est refusé, et l'erreur parle du md5 - pas du chemin")
+	void uppercaseMd5IsRejected(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+		final String upper = Md5Repository.md5Of(file).toUpperCase(Locale.ROOT);
+
+		final PositionException thrown = assertThrows(PositionException.class,
+				() -> PositionParser.parse(filesRepository, upper + ":Foo.java:1:7:Foo"));
+
+		assertEquals(ErrorCode.MALFORMED_POSITION, thrown.getCode());
+		assertTrue(thrown.getMessage().contains("lowercase"));
+	}
+
+	@Test
+	@DisplayName("un md5 de longueur invalide retombe sur le chemin - et rend le même code sur toute plateforme")
+	void nearlyAnMd5IsReadAsAPath(@TempDir final Path root) throws IOException {
+		write(root, "Foo.java", "class Foo {", "}");
+
+		// "abc123" ne fait pas 32 caractères, donc rien ne le distingue plus d'un
+		// début de chemin : le token est lu comme désignant le fichier
+		// "abc123:Foo.java". Il n'existe pas sous Unix ; sous Windows il n'est même
+		// pas un nom de fichier légal, et resolve() y lève InvalidPathException.
+		// Les deux doivent dire FILE_NOT_FOUND - voir resolvePath().
+		assertEquals(ErrorCode.FILE_NOT_FOUND, codeOf(root, "abc123:Foo.java:1:7:Foo"));
+	}
+
+	@Test
+	@DisplayName("un chemin que la plateforme refuse de parser est FILE_NOT_FOUND, pas une InvalidPathException nue")
+	void unparsablePathIsRefusedWithACode(@TempDir final Path root) throws IOException {
+		write(root, "Foo.java", "class Foo {", "}");
+
+		// Le caractère nul est illégal dans un chemin sur toute plateforme, là où le
+		// ':' de nearlyAnMd5IsReadAsAPath ne l'est que sous Windows : c'est ce qui
+		// permet d'exercer la même branche de resolvePath() partout, y compris là où
+		// le cas qui l'a fait découvrir ne se reproduit pas.
+		final String nul = String.valueOf((char) 0);
+
+		assertEquals(ErrorCode.FILE_NOT_FOUND, codeOf(root, "Fo" + nul + "o.java:1:7:Foo"));
+	}
+
+	@Test
+	@DisplayName("une URI file: illisible est MALFORMED_POSITION, pas une IllegalArgumentException nue")
+	void unparsableFileUriIsRefusedWithACode(@TempDir final Path root) throws IOException {
+		write(root, "Foo.java", "class Foo {", "}");
+
+		assertEquals(ErrorCode.MALFORMED_POSITION, codeOf(root, "file://[::::]/Foo.java:1:7:Foo"));
+	}
+
+	@Test
+	@DisplayName("of() refuse un md5 mal formé de front, plutôt que de le laisser passer pour un bout de chemin")
+	void ofRejectsAMalformedMd5(@TempDir final Path root) throws IOException {
 		write(root, "Foo.java", "class Foo {", "}");
 		final FilesRepository filesRepository = new FilesRepository(root, null);
 
-		assertEquals("Foo.java:1:7:Foo", PositionParser.parse(filesRepository, "Foo.java:1:7:Foo").toString());
+		final PositionException thrown = assertThrows(PositionException.class,
+				() -> PositionParser.of(filesRepository, "pas-un-md5", "Foo.java", 1, 7, "Foo"));
+
+		assertEquals(ErrorCode.MALFORMED_POSITION, thrown.getCode());
+	}
+
+	@Test
+	@DisplayName("of() avec un md5 null vaut « sur le fichier actuel », comme la forme courte")
+	void ofAcceptsANullMd5(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		final Position position = PositionParser.of(filesRepository, null, "Foo.java", 1, 7, "Foo");
+
+		assertEquals(Md5Repository.md5Of(file), position.md5());
+	}
+
+	@Test
+	@DisplayName("of() avec un md5 périmé refuse, comme le token qui l'épellerait")
+	void ofRejectsAStaleMd5(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "}");
+		final String before = Md5Repository.md5Of(file);
+		write(root, "Foo.java", "// ajouté", "class Foo {", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		final PositionException thrown = assertThrows(PositionException.class,
+				() -> PositionParser.of(filesRepository, before, "Foo.java", 2, 7, "Foo"));
+
+		assertEquals(ErrorCode.FILE_MODIFIED, thrown.getCode());
 	}
 
 	@Test

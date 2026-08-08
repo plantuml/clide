@@ -17,7 +17,7 @@ import clide.model.Position;
 
 /**
  * textDocument/hover: the signature/Javadoc jdtls knows for the symbol at one
- * specific spot - <position> as <file path>:<line>:<column>:<name> (see Position,
+ * specific spot - <position> as <file-content-md5>:<file path>:<line>:<column>:<name> (see Position,
  * ParamType.POSITION), same notation as find_declaration/find_reference/
  * find_implementation and list_members. Doesn't reuse PositionCommandSupport:
  * those commands' results are lists of Location, hover's is a single blob of
@@ -32,7 +32,7 @@ import clide.model.Position;
 public class HoverCommand extends Command {
 
 	@Keyword("hover")
-	@Help("Shows the signature/Javadoc jdtls knows for a symbol - <position> as <file path>:<line>:<column>:<name>.")
+	@Help("Shows the signature/Javadoc jdtls knows for a symbol - <position> as <file-content-md5>:<file path>:<line>:<column>:<name>.")
 	@Param(type = ParamType.POSITION, description = "Position")
 	@Manual("""
 			NAME
@@ -43,9 +43,13 @@ public class HoverCommand extends Command {
 
 			DESCRIPTION
 				Sends textDocument/hover to jdtls for <position>, given as
-				<file path>:<line>:<column>:<name> with name starting
-				exactly at that column - the same position resolution
-				find_* and list_members use. Returns a single
+				<file-content-md5>:<file path>:<line>:<column>:<name>
+				with name starting exactly at that column - the same
+				position resolution find_* and list_members use, md5
+				included: optional on input (it then means "against the
+				file currently on disk"), always printed on output, and
+				refused as FILE_MODIFIED when the file has changed since
+				the position was produced. Returns a single
 				blob of text, usually Markdown: the resolved signature and
 				whatever Javadoc jdtls knows for it, without having to open
 				and read the symbol's own declaration by hand. Meant for a

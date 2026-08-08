@@ -29,6 +29,8 @@ import clide.model.SymbolHit;
  */
 class LuaPayloadsTest {
 
+	private static final String MD5 = "d41d8cd98f00b204e9800998ecf8427e";
+
 	@SuppressWarnings("unchecked")
 	private static Map<String, Object> table(final Object value) {
 		return (Map<String, Object>) value;
@@ -42,7 +44,7 @@ class LuaPayloadsTest {
 	@Test
 	@DisplayName("une Listing garde son total, pas seulement ses items")
 	void listingCarriesItsTotal() {
-		final Position position = new Position("src/Foo.java", 42, 17, "compute");
+		final Position position = new Position(MD5, "src/Foo.java", 42, 17, "compute");
 		final CodeLocation location = new CodeLocation(position, "int compute() {");
 		final CommandPayload payload = new CommandPayload.Locations("compute",
 				Listing.of(List.of(location, location, location), 2));
@@ -58,16 +60,20 @@ class LuaPayloadsTest {
 	}
 
 	@Test
-	@DisplayName("une position est la table {path, line, column, name} que la notation épelle")
-	void positionKeepsItsFourFields() {
+	@DisplayName("une position est la table {md5, path, line, column, name} que la notation épelle")
+	void positionKeepsItsFiveFields() {
 		final CommandPayload payload = new CommandPayload.Locations("compute",
-				Listing.of(List.of(new CodeLocation(new Position("src/Foo.java", 42, 17, "compute"), "int compute() {")),
+				Listing.of(List.of(new CodeLocation(new Position(MD5, "src/Foo.java", 42, 17, "compute"), "int compute() {")),
 						100));
 
 		final Map<String, Object> first = table(
 				array(table(table(LuaPayloads.toLua(payload)).get("locations")).get("items")).get(0));
 		final Map<String, Object> position = table(first.get("position"));
 
+		// md5 compris : sans lui dans la table, une position gardée par un script
+		// puis repassée plus tard échapperait au contrôle de fraîcheur, alors que
+		// c'est justement le scénario que le md5 existe pour couvrir.
+		assertEquals(MD5, position.get("md5"));
 		assertEquals("src/Foo.java", position.get("path"));
 		assertEquals(42L, position.get("line"));
 		assertEquals(17L, position.get("column"));

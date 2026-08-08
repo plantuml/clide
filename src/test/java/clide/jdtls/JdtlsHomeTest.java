@@ -24,7 +24,17 @@ import org.junit.jupiter.api.Test;
  */
 class JdtlsHomeTest {
 
-	private static final Path HOME = Paths.get("/home/foo");
+	/**
+	 * Un HOME plausible, et surtout absolu sur la plateforme qui exécute le test.
+	 *
+	 * "/home/foo" en dur ne l'était pas sous Windows, faute de lettre de lecteur :
+	 * neverTheWorkingDirectory() y échouait sur \home\foo\.cache\clide, alors que
+	 * l'intérêt déclaré de ce fichier est justement de valider les trois
+	 * plateformes depuis n'importe laquelle. Passer par la racine du système de
+	 * fichiers courant donne /home/foo sous Unix et C:\home\foo sous Windows, sans
+	 * jamais dépendre du répertoire courant - ce que ce test vérifie par ailleurs.
+	 */
+	private static final Path HOME = Paths.get("").toAbsolutePath().getRoot().resolve("home").resolve("foo");
 
 	private static Function<String, String> env(final Map<String, String> values) {
 		return values::get;

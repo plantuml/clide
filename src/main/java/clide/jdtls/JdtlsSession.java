@@ -1,6 +1,7 @@
 package clide.jdtls;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -11,9 +12,12 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
+import clide.command.answer.ErrorCode;
 import clide.core.Delta;
 import clide.core.FilesRepository;
+import clide.core.Md5Repository;
 import clide.core.Monomorphic;
+import clide.core.PositionException;
 import clide.core.Snapshot;
 import clide.model.CodeLocation;
 import clide.model.Diagnostic;
@@ -533,8 +537,36 @@ public class JdtlsSession {
 		// included), the stripped one for display - see JdtlsResponses.
 		final String rawLine = JdtlsResponses.readRawLineSafely(uri, line);
 		final String name = JdtlsResponses.identifierAt(rawLine, column);
-		return new CodeLocation(new Position(shortName(uri), line, column, name),
+		return new CodeLocation(new Position(md5Of(uri), shortName(uri), line, column, name),
 				rawLine == null ? "" : rawLine.strip());
+	}
+
+	/**
+	 * The signature of the file this location is in - what makes a printed
+	 * position re-checkable when it comes back in (see Position and
+	 * PositionParser.parse()).
+	 *
+	 * Raises rather than degrading, and that is the one place this producer
+	 * differs from the rest of locationOf(): a missing name or an unreadable line
+	 * yields an incomplete-but-honest token, whereas a location clide cannot sign
+	 * would yield a *short* token - indistinguishable from one a client wrote
+	 * deliberately without an md5, and therefore silently exempt from the check
+	 * for the rest of its life. Better a failed command than a position that opts
+	 * itself out.
+	 *
+	 * Read fresh every time, no cache: locationOf() already reads the whole file
+	 * per location for its line text (JdtlsResponses.readRawLineSafely()), so
+	 * hashing it costs less again than what is already being paid, and a cache
+	 * held across a request is a cache that can hand back a signature the file no
+	 * longer has - the exact failure this field exists to make impossible.
+	 */
+	private String md5Of(final String uri) {
+		try {
+			return Md5Repository.md5Of(Paths.get(URI.create(uri)));
+		} catch (final IOException | RuntimeException e) {
+			throw new PositionException(ErrorCode.FILE_UNREADABLE,
+					"Could not read " + shortName(uri) + " to sign the position it is in: " + e.getMessage());
+		}
 	}
 
 	/** Whether uri names a file inside the project root (or the root itself). */

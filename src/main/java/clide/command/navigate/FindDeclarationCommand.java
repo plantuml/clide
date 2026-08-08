@@ -23,7 +23,7 @@ import clide.core.Command;
 public class FindDeclarationCommand extends Command {
 
 	@Keyword("find_declaration")
-	@Help("Finds where a symbol is really declared - <what> is method or type, <position> as <file path>:<line>:<column>:<name>.")
+	@Help("Finds where a symbol is really declared - <what> is method or type, <position> as <file-content-md5>:<file path>:<line>:<column>:<name>.")
 	@Param(type = ParamType.SINGLE_LINE, description = "What: method or type")
 	@Param(type = ParamType.POSITION, description = "Position")
 	@Manual("""
@@ -37,8 +37,8 @@ public class FindDeclarationCommand extends Command {
 				Finds where a symbol is really declared - the file and line
 				it's actually defined at, not just a place it's used or
 				referenced. <position> is given as
-				<file path>:<line>:<column>:<name>, name starting exactly
-				at column of that line; the result may live in a completely
+				<file-content-md5>:<file path>:<line>:<column>:<name>,
+				name starting exactly at column of that line; the result may live in a completely
 				different file or class (e.g. an interface method
 				implemented elsewhere). <what> says what kind of
 				declaration is wanted: "method" for the symbol's own
@@ -48,13 +48,22 @@ public class FindDeclarationCommand extends Command {
 			ERRORS
 				<what> must be exactly "method" or "type" - anything else
 				is rejected. <position> must parse as
-				<file path>:<line>:<column>:<name> - the file must exist
-				under the project root, line must be within it, and name
+				<file-content-md5>:<file path>:<line>:<column>:<name> -
+				the file must exist under the project root, line must be within it, and name
 				must start exactly at column of that line as a whole word.
 				Line and column both count from 1. A name present on the
 				line but at another column is refused too, naming the
 				columns it does start at: an edit that shifted the line is
 				caught rather than silently answered.
+
+				When <position> carries a <file-content-md5>, that
+				signature must still be the file's own: a file edited
+				since the position was produced is refused
+				(FILE_MODIFIED) rather than answered about. The md5 is
+				optional on input - a <position> written without it
+				means "against the file currently on disk" - but clide
+				always prints one, so a result pasted straight back in
+				carries the check with it.
 
 			SEE ALSO
 				find_reference(1), find_implementation(1), find_symbol(1)

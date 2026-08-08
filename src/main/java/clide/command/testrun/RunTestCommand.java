@@ -79,6 +79,15 @@ public class RunTestCommand extends Command {
 				refused, with the modules listed - clide cannot yet be told
 				which one to test.
 
+				When <position> carries a <file-content-md5>, that
+				signature must still be the file's own: a file edited
+				since the position was produced is refused
+				(FILE_MODIFIED) rather than answered about. The md5 is
+				optional on input - a <position> written without it
+				means "against the file currently on disk" - but clide
+				always prints one, so a result pasted straight back in
+				carries the check with it.
+
 			SEE ALSO
 				run_tests(1), rebuild(1), find_symbol(1)
 			""")

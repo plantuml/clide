@@ -98,8 +98,12 @@ public final class LuaPayloads {
 		if (position == null)
 			return null;
 
-		return map("path", position.path(), "line", (long) position.line(), "column", (long) position.column(), "name",
-				position.name());
+		// md5 travels in the table for the same reason it travels in the printed
+		// token: a script's natural move is to keep a position and pass it back
+		// later, and without the signature that round trip is exactly the one path
+		// left where a stale position would go unchecked.
+		return map("md5", position.md5(), "path", position.path(), "line", (long) position.line(), "column",
+				(long) position.column(), "name", position.name());
 	}
 
 	private static Object codeLocation(final CodeLocation location) {

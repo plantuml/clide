@@ -23,7 +23,7 @@ import clide.model.Position;
  * textDocument/documentSymbol: lists the direct members (methods, fields,
  * constructors - not the members of a nested type, only the type itself as a
  * member) of the class/interface/enum named by <position> -
- * <file path>:<line>:<column>:<name> (see Position, ParamType.POSITION),
+ * <file-content-md5>:<file path>:<line>:<column>:<name> (see Position, ParamType.POSITION),
  * same notation as
  * find_declaration/find_reference/find_implementation and hover, but here it
  * identifies which type to inspect rather than where to jump/what to explain.
@@ -33,7 +33,7 @@ import clide.model.Position;
 public class ListMembersCommand extends Command {
 
 	@Keyword("list_members")
-	@Help("Lists the members (methods, fields, constructors) of the class/interface/enum named by <position> - <position> as <file path>:<line>:<column>:<name>.")
+	@Help("Lists the members (methods, fields, constructors) of the class/interface/enum named by <position> - <position> as <file-content-md5>:<file path>:<line>:<column>:<name>.")
 	@Param(type = ParamType.POSITION, description = "Position")
 	@Manual("""
 			NAME
@@ -46,10 +46,15 @@ public class ListMembersCommand extends Command {
 				Sends textDocument/documentSymbol to jdtls and lists the
 				direct members - methods, fields, constructors - of the
 				class, interface or enum named at <position>, given as
-				<file path>:<line>:<column>:<name> with name starting
-				exactly at that column: the same position resolution find_*
-				and hover use, but here identifying which type to inspect
-				rather than where to jump or what to explain.
+				<file-content-md5>:<file path>:<line>:<column>:<name>
+				with name starting exactly at that column: the same
+				position resolution find_* and hover use, but here
+				identifying which type to inspect rather than where to
+				jump or what to explain. The md5 is optional on input
+				(without it, <position> means "against the file
+				currently on disk"), always printed on output, and
+				refused as FILE_MODIFIED when the file has changed since
+				the position was produced.
 
 			SEE ALSO
 				hover(1), find_declaration(1)

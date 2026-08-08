@@ -151,7 +151,7 @@ hint: find_symbol Foo locates it
   so a caller branches on the kind of failure instead of matching on wording:
   `UNKNOWN_KEYWORD`, `MISSING_PARAMETERS`, `INVALID_ENUM_VALUE`,
   `INVALID_REGEX`, `INVALID_INTEGER`, `VALUE_OUT_OF_RANGE`, `NOT_A_DIRECTORY`,
-  `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`,
+  `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`, `FILE_MODIFIED`,
   `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NAME_NOT_AT_COLUMN`, `NOT_A_TYPE`,
   `JDTLS_REQUEST_FAILED`,
   `BUILD_FAILED`, `SESSION_START_FAILED`, `TEST_FAILURES`, `NO_TEST_FOUND`,
@@ -238,20 +238,24 @@ its root because of clide.
 It's unnecessary — and even counterproductive, since it would mask the
 normal automatic behavior instead of helping it.
 
-## The `<position>` notation: `<file path>:<line>:<column>:<name>`
+## The `<position>` notation: `<file-content-md5>:<file path>:<line>:<column>:<name>`
 
 Most commands that point to a precise spot in the code
 (`find_declaration`, `find_reference`, `find_implementation`, `hover`,
 `list_members`, `run_test`) take a single `<position>` parameter, written
-`<file path>:<line>:<column>:<name>` — for example
-`src/main/java/clide/command/ManualCommand.java:27:21:needsJdtlsSession`.
+`<file-content-md5>:<file path>:<line>:<column>:<name>` — for example
+`0f5a2c8e91b47d63ae05f8c2d1904e7b:src/main/java/clide/command/ManualCommand.java:27:21:needsJdtlsSession`.
 
 This is the only notation clide accepts today. The shorter forms sketched
 in `SYMBOLS.md` (`Classe::membre`, a bare file name, a bare class name) are
 not implemented; sending one gets `?ERROR MALFORMED_POSITION`.
 
-Four rules are enough to use it correctly:
+Five rules are enough to use it correctly:
 
+- `<file-content-md5>` is the md5 of the whole content of the file the
+  position points into, 32 lowercase hexadecimal characters — the same
+  signature clide uses everywhere else to tell whether a file moved.
+  **It is optional on input, and always present on output** (see below).
 - `<file path>` is always relative to the root of the opened project,
   never to the current working directory. It also accepts a `file:` URI —
   that's the format every `find_*`/`hover`/`list_members` command already
@@ -266,12 +270,44 @@ Four rules are enough to use it correctly:
   is guessed and nothing falls back — a token that does not check out is
   refused, never answered approximately.
 
-That last rule is what makes a stale position visible instead of dangerous.
-Edit a file after copying a position out of it, and the columns shift; the
-old token then gets `?ERROR NAME_NOT_AT_COLUMN`, whose hint names the
-columns the name actually starts at now. `?ERROR NAME_NOT_ON_LINE` means
-something else entirely: the name is nowhere on that line, so the line (or
-the file) is wrong and a corrected column would not help.
+### The md5 is what makes a stale position fail instead of lie
+
+A `<position>` carrying an md5 is checked against the file **as it stands
+right now**: if the content no longer signs the same, the file has been
+edited since that position was produced, and clide refuses it with
+`?ERROR FILE_MODIFIED` before looking at the line, the column or the name.
+That check comes first on purpose — the others would report a symptom
+(`NAME_NOT_AT_COLUMN`), or worse, would happen to pass while pointing at
+whatever the edit moved into that spot.
+
+Note what the signature covers: **the whole file**. Any edit anywhere in a
+file invalidates every position in it, not only the ones on the line that
+moved. That is the intended strictness — clide already requires a `rebuild`
+after an external edit, and the positions worth trusting afterwards are the
+ones re-derived from it.
+
+There is no way to repair a refused token in place, and the error
+deliberately does not hand you the file's current md5: pasting it back would
+produce a token that passes the check while pointing somewhere else. Ask
+again — `find_symbol`, or whichever command produced the position — and use
+what comes back.
+
+**Omitting the md5 is allowed**, and is the one asymmetry in the notation:
+`src/main/java/demo/Square.java:3:14:Square` still works and means
+*implicitly* "against the file currently on disk". You get the checks clide
+always did (the file exists, the line exists, the name starts at that
+column) and nothing more. Convenient when typing a position by hand; it is
+also, exactly, opting out of the staleness check.
+
+Written with an md5 that is 32 hexadecimal characters but not lowercase, a
+token is refused as `MALFORMED_POSITION` naming that as the reason, rather
+than being read as a strange file path.
+
+The older failures still exist and still mean what they meant, for a token
+sent without an md5: `?ERROR NAME_NOT_AT_COLUMN`, whose hint names the
+columns the name actually starts at now, and `?ERROR NAME_NOT_ON_LINE` —
+the name is nowhere on that line, so the line (or the file) is wrong and a
+corrected column would not help.
 
 The column is also why clide never has to choose for you. `a.foo(b.foo())`
 names two unrelated methods on one line; each has its own column, so each is
@@ -289,11 +325,14 @@ the next command with no editing at all:
 
 ```
 find_symbol Square
-→ [class] src/main/java/demo/Square.java:3:14:Square public class Square implements Shape {
+→ [class] 6b1e0a4c37d9f28e5c0b93ad718f4c26:src/main/java/demo/Square.java:3:14:Square public class Square implements Shape {
 
-list_members src/main/java/demo/Square.java:3:14:Square
-→ [method] src/main/java/demo/Square.java:12:16:area public double area() {
+list_members 6b1e0a4c37d9f28e5c0b93ad718f4c26:src/main/java/demo/Square.java:3:14:Square
+→ [method] 6b1e0a4c37d9f28e5c0b93ad718f4c26:src/main/java/demo/Square.java:12:16:area public double area() {
 ```
+
+The md5 is the same in both lines of that second result because both name
+the same file — it signs the file, not the line.
 
 The shape is `<position> <line text>`: a whole `<position>` as one
 whitespace-free token, one space, then the line as it reads. Splitting on the
@@ -427,7 +466,7 @@ Inside the script, **every command is a function of the same name**, taking its
 parameters in the order `help` lists them:
 
 ```lua
-local members = list_members("src/main/java/demo/Square.java:3:14:Square")
+local members = list_members("6b1e0a4c37d9f28e5c0b93ad718f4c26:src/main/java/demo/Square.java:3:14:Square")
 for _, member in ipairs(members.symbols.items) do
   if member.kind == "method" and member.location ~= nil then
     local refs = find_reference("method", member.location.position)
@@ -443,9 +482,14 @@ Four things are worth knowing before writing one:
   documents every shape; the key names are the record's own.
 - **A position may be passed as the table it came in.**
   `find_reference("method", member.location.position)` works, and so does the
-  `"path:line:column:name"` string. Either way it is re-checked against the
-  file as it stands now, so a position kept across an edit fails loudly rather
-  than pointing somewhere else.
+  `"md5:path:line:column:name"` string. Either way it is re-checked against
+  the file as it stands now, so a position kept across an edit fails loudly
+  rather than pointing somewhere else. This is where the `<file-content-md5>`
+  earns its keep: a table clide handed you carries it (as `position.md5`), so
+  a position held in a local variable across an edit raises `FILE_MODIFIED`
+  instead of quietly answering about a file that has moved on. A table a
+  script builds by hand, with no `md5` key, means "the file as it is now" —
+  the same thing as omitting the md5 from a written token.
 - **Listings are still capped.** `maxResults` (100 by default) applies to a
   script exactly as it does to a session: read `totalCount`, not `#items`, and
   call `set_max_results` if the answer needs the whole list.

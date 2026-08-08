@@ -19,13 +19,20 @@ import party.iroiro.luajava.Lua;
  * arguments to a command that takes two.
  *
  * <b>A position may be a table.</b> Every clide result gives a script positions
- * as {path, line, column, name} tables, and the natural thing to do with one is
- * to pass it straight to the next call - so that is accepted, alongside the
- * "path:line:column:name" string a script may equally well have written itself.
- * The table goes through PositionParser.of(), which runs the very same
+ * as {md5, path, line, column, name} tables, and the natural thing to do with
+ * one is to pass it straight to the next call - so that is accepted, alongside
+ * the "md5:path:line:column:name" string a script may equally well have written
+ * itself. The table goes through PositionParser.of(), which runs the very same
  * validation parse() does: a position a script carried across an edit is
  * checked against the file as it stands now, not trusted because it was true
  * when it was produced.
+ *
+ * That check is why md5 is in the table at all, and this is the path it matters
+ * most on. A script is precisely the caller that keeps a position in a local
+ * variable across a loop, and clide's own tables now carry the signature that
+ * makes reusing one after the file moved a loud failure rather than a quiet
+ * wrong answer. A table a script built by hand, with no md5 in it, still works -
+ * it just means "the file as it is now".
  */
 final class LuaArguments {
 
@@ -68,7 +75,7 @@ final class LuaArguments {
 	}
 
 	/**
-	 * A {path, line, column, name} table, validated into a Position and written
+	 * A {md5, path, line, column, name} table, validated into a Position and written
 	 * back out in the notation the command expects. The round trip is deliberate:
 	 * the command's own ParamType.POSITION check re-reads it downstream, and going
 	 * through the notation is what guarantees a table-built position and a
@@ -76,16 +83,33 @@ final class LuaArguments {
 	 */
 	private static String positionFromTable(final FilesRepository filesRepository, final Lua lua, final int index,
 			final String label, final String keyword) {
+		final String md5 = optionalField(lua, index, "md5");
 		final String path = field(lua, index, "path", label, keyword);
 		final String name = field(lua, index, "name", label, keyword);
 		final int line = intField(lua, index, "line", label, keyword);
 		final int column = intField(lua, index, "column", label, keyword);
 
 		try {
-			final Position position = PositionParser.of(filesRepository, path, line, column, name);
+			final Position position = PositionParser.of(filesRepository, md5, path, line, column, name);
 			return position.toString();
 		} catch (final PositionException e) {
 			throw new LuaScriptError(LuaErrors.text(PositionException.codeOf(e), e.getMessage(), e.getHint()));
+		}
+	}
+
+	/**
+	 * The one field of a position table that may be missing: null when the script
+	 * wrote the table itself rather than passing one clide handed it, which
+	 * PositionParser.of() reads as "against the file currently on disk". Absent and
+	 * present-but-wrong are not the same thing - a non-string md5 is a mistake
+	 * worth naming, not a table without one.
+	 */
+	private static String optionalField(final Lua lua, final int index, final String key) {
+		lua.getField(index, key);
+		try {
+			return lua.isString(-1) ? lua.toString(-1).trim() : null;
+		} finally {
+			lua.pop(1);
 		}
 	}
 
@@ -95,7 +119,7 @@ final class LuaArguments {
 		try {
 			if (lua.isString(-1) == false)
 				throw new LuaScriptError(keyword + "(): <" + label.toLowerCase() + "> table has no string '" + key
-						+ "' - a position table is {path, line, column, name}, as every clide result gives it");
+						+ "' - a position table is {md5, path, line, column, name}, as every clide result gives it");
 
 			return lua.toString(-1).trim();
 		} finally {
@@ -109,7 +133,7 @@ final class LuaArguments {
 		try {
 			if (lua.isNumber(-1) == false)
 				throw new LuaScriptError(keyword + "(): <" + label.toLowerCase() + "> table has no number '" + key
-						+ "' - a position table is {path, line, column, name}, as every clide result gives it");
+						+ "' - a position table is {md5, path, line, column, name}, as every clide result gives it");
 
 			final double value = lua.toNumber(-1);
 			if (value != Math.floor(value))

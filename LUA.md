@@ -97,9 +97,11 @@ Ce que cet exemple engage, et qu'il faut donc trancher pour lui :
   la liste peut être tronquée.
 - **Une `Position` circule comme table.** `member.location.position` est passée
   telle quelle à `find_reference`, sans jamais repasser par la chaîne
-  `chemin:ligne:colonne:nom`. C'est exactement le `PositionParser.of(...)`
-  réclamé plus bas — et ici le raccourci est sans risque, puisque rien n'écrit
-  entre le `list_members` et les `find_reference`.
+  `md5:chemin:ligne:colonne:nom`. C'est exactement le `PositionParser.of(...)`
+  réclamé plus bas — et le raccourci n'a plus besoin d'être sûr par hasard : la
+  table porte le `md5` du fichier, donc si quelque chose écrit entre le
+  `list_members` et les `find_reference`, l'appel lève `FILE_MODIFIED` au lieu
+  de répondre sur un fichier qui a bougé.
 - **`location` peut être `nil`.** `SymbolHit.location` est nullable (jdtls
   renvoie parfois un symbole sans emplacement) et `display()` le gère déjà côté
   texte. Un script qui l'ignore compterait ces méthodes comme « sans appelant »,
@@ -248,7 +250,7 @@ n'importe quel autre.
 Le pont a besoin d'un convertisseur récursif payload → valeur Lua, **miroir de
 `render()`** : là où `render()` produit du texte, il produit une table. Un
 `switch` exhaustif sur les treize `CommandPayload`, plus la poignée de records
-de `clide.model` qu'ils contiennent — `Listing<T>`, `Position(path, line,
+de `clide.model` qu'ils contiennent — `Listing<T>`, `Position(md5, path, line,
 column, name)`, `CodeLocation(position, lineText)`, `SymbolHit(kind, name,
 location)`, `SearchMatch(path, line, text)`, `TestOutcome(status, name,
 location, messageLines, origin)`, `Diagnostic(path, line, severity, message)`,
@@ -384,9 +386,13 @@ plutôt que de la dupliquer côté serveur.
 - **Troncature silencieuse** : `maxResults` (100 par défaut) s'applique aux
   résultats vus depuis Lua comme depuis le texte. Un script qui lit `items` sans
   regarder `totalCount` travaille sur un sous-ensemble sans le savoir.
-- **`Position` réutilisée en mémoire** : sa validation vit dans
-  `PositionParser.parse()`, pas dans son constructeur — une position transportée
-  d'un appel Lua au suivant n'est plus vérifiée contre le contenu du fichier.
+- **`Position` réutilisée en mémoire** — *réglé.* Sa validation vit toujours
+  dans `PositionParser.parse()` et non dans son constructeur, mais la table Lua
+  porte désormais le `md5` du contenu du fichier, et `PositionParser.of()` le
+  revérifie : une position transportée d'un appel Lua au suivant à travers une
+  écriture est refusée (`FILE_MODIFIED`), au lieu de désigner autre chose en
+  silence. Une table écrite à la main sans clé `md5` vaut, elle, « sur le
+  fichier actuel » — c'est un choix explicite, pas un oubli du contrôle.
 - **`SymbolHit.location` est nullable** : l'ignorer ne produit pas une erreur,
   mais une réponse fausse.
 - **Rename LSP ≠ rename partiel** : `textDocument/rename` est tout-ou-rien sur
