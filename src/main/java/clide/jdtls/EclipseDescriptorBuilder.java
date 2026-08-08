@@ -80,9 +80,10 @@ public final class EclipseDescriptorBuilder {
 
 	/**
 	 * Test source folders are marked test="true" and given their own output
-	 * folder (bin/test, production code going to the default bin/main), as
-	 * "gradlew eclipse" would. Without that attribute JDT treats test code as
-	 * production code, with three consequences that all bite later:
+	 * folder (.clide/tmp/bin/test, production code going to the default
+	 * .clide/tmp/bin/main), as "gradlew eclipse" would - except for the location,
+	 * see below. Without that attribute JDT treats test code as production code,
+	 * with three consequences that all bite later:
 	 * java.project.isTestFile() answers false for a file that plainly is one,
 	 * java.project.getClasspaths() returns the same thing for the "test" and the
 	 * "runtime" scope, and every .class lands in one output folder with no way to
@@ -92,6 +93,16 @@ public final class EclipseDescriptorBuilder {
 	 * nothing here can tell a test-only dependency from a real one, and guessing
 	 * wrong in that direction merely fails to flag a questionable import, where
 	 * guessing wrong in the other one would break a build that was fine.
+	 *
+	 * Both output folders live under .clide/tmp/ rather than at the project root,
+	 * where "gradlew eclipse" would put them. A bin/ at the root is 148 MB on a
+	 * project the size of PlantUML and shows up as an untracked directory in the
+	 * user's own git status - which contradicts what clide promises, and only
+	 * happened to go unnoticed because clide and PlantUML both gitignore "bin".
+	 * Under .clide/tmp/ it is covered by the "*" .gitignore clide already writes
+	 * there. Nothing else needs to know: .clide is already skipped by
+	 * FilesRepository's source scan, and ProjectTests asks jdtls for the output
+	 * folders instead of assuming where they are.
 	 */
 	public String buildDotClasspath(final List<String> sourceFolders) {
 		final StringBuilder xml = new StringBuilder();
@@ -107,7 +118,7 @@ public final class EclipseDescriptorBuilder {
 
 		xml.append("""
 					<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
-					<classpathentry kind="output" path="bin/main"/>
+					<classpathentry kind="output" path=".clide/tmp/bin/main"/>
 				</classpath>
 				""");
 		return xml.toString();
@@ -115,7 +126,7 @@ public final class EclipseDescriptorBuilder {
 
 	private String sourceEntry(final String folder) {
 		// No output= on production folders: they land in the project's default
-		// output, declared as bin/main below. Naming a *third* folder here would
+		// output, declared as .clide/tmp/bin/main below. Naming a *third* folder would
 		// declare a default nothing ever writes to, and getClasspaths() reports a
 		// never-created output folder as an Eclipse workspace path ("/proj/bin/
 		// default") instead of a filesystem one - a bogus entry to filter out of
@@ -124,7 +135,7 @@ public final class EclipseDescriptorBuilder {
 			return "\t<classpathentry kind=\"src\" path=\"%s\"/>\n".formatted(folder);
 
 		return """
-				\t<classpathentry kind="src" output="bin/test" path="%s">
+				\t<classpathentry kind="src" output=".clide/tmp/bin/test" path="%s">
 				\t\t<attributes>
 				\t\t\t<attribute name="test" value="true"/>
 				\t\t</attributes>

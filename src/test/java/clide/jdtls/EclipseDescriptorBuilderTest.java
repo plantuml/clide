@@ -70,10 +70,23 @@ class EclipseDescriptorBuilderTest {
 
 		assertTrue(xml.contains("<classpathentry kind=\"src\" path=\"src/main/java\"/>"),
 				"un dossier de production est une entrée simple, sans output ni attribut");
-		assertTrue(xml.contains("<classpathentry kind=\"src\" output=\"bin/test\" path=\"src/test/java\">"));
+		assertTrue(xml.contains("<classpathentry kind=\"src\" output=\".clide/tmp/bin/test\" path=\"src/test/java\">"));
 		assertTrue(xml.contains("<attribute name=\"test\" value=\"true\"/>"));
 		assertTrue(xml.contains("<classpathentry kind=\"con\" path=\"org.eclipse.jdt.launching.JRE_CONTAINER\"/>"));
-		assertTrue(xml.contains("<classpathentry kind=\"output\" path=\"bin/main\"/>"));
+		assertTrue(xml.contains("<classpathentry kind=\"output\" path=\".clide/tmp/bin/main\"/>"));
+	}
+
+	@Test
+	@DisplayName("aucun dossier de sortie n'est déclaré à la racine du projet")
+	void outputFoldersNeverSitAtTheProjectRoot(@TempDir final Path projectRoot) {
+		// Un bin/ à la racine apparaîtrait dans le git status de l'utilisateur, ce
+		// que CLAUDE.md promet explicitement de ne jamais faire. Sous .clide/tmp/ il
+		// est couvert par le .gitignore que clide y écrit déjà.
+		final String xml = EclipseDescriptorBuilder.forProject(projectRoot)
+				.buildDotClasspath(List.of("src/main/java", "src/test/java"));
+
+		assertFalse(xml.contains("path=\"bin/"), "le dossier de sortie par défaut ne doit pas être bin/");
+		assertFalse(xml.contains("output=\"bin/"), "le dossier de sortie des tests ne doit pas être bin/");
 	}
 
 	@Test
