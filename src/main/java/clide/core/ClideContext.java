@@ -52,7 +52,7 @@ public class ClideContext {
 	 */
 	public static final int MAX_RESULTS_CEILING = 10000;
 
-	private final Path projectRoot;
+	private final FilesRepository filesRepository;
 	private final JdtlsSession session;
 	private final TransactionStack transactions;
 	private boolean shutdownRequested;
@@ -60,10 +60,10 @@ public class ClideContext {
 	private PrintMode printMode = PrintMode.AI;
 	private int maxResults = DEFAULT_MAX_RESULTS;
 
-	public ClideContext(final Path projectRoot, final JdtlsSession session, Collection<Command> commands) {
-		this.projectRoot = projectRoot;
+	public ClideContext(final FilesRepository filesRepository, final JdtlsSession session, Collection<Command> commands) {
+		this.filesRepository = filesRepository;
 		this.session = session;
-		this.transactions = new TransactionStack(projectRoot);
+		this.transactions = new TransactionStack(filesRepository.getProjectRoot());
 
 		for (final Command command : commands) {
 			final String keyword = command.getKeyword();
@@ -93,7 +93,11 @@ public class ClideContext {
 	 * never against the daemon process' own current directory.
 	 */
 	public Path getProjectRoot() {
-		return projectRoot;
+		return filesRepository.getProjectRoot();
+	}
+
+	public FilesRepository getFilesRepository() {
+		return filesRepository;
 	}
 
 	public JdtlsSession getCurrentSession() {

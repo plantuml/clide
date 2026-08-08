@@ -1,6 +1,5 @@
 package clide.core;
 
-import java.nio.file.Path;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -16,26 +15,26 @@ import clide.jdtls.JdtlsSession;
  * (see LuaBridge) both come through here.
  *
  * <b>Why this is not just a call to Command.executeCommand().</b> Three checks
- * stand between a client's request and a command running, and none of them lives
- * inside the command: every parameter has to pass its ParamType's surface check,
- * a command that modifies files has to find a transaction open, and a command
- * that queries jdtls has to find a session up (or get one restarted). Left in the
- * daemon's read loop, as they were, they would have guarded the text protocol
- * only - a Lua script calling executeCommand() directly could have edited a file
- * outside any transaction, or passed a position nobody ever checked against the
- * file it names. Two façades, one gate: the guards cannot drift apart because
- * there is only one copy of them.
+ * stand between a client's request and a command running, and none of them
+ * lives inside the command: every parameter has to pass its ParamType's surface
+ * check, a command that modifies files has to find a transaction open, and a
+ * command that queries jdtls has to find a session up (or get one restarted).
+ * Left in the daemon's read loop, as they were, they would have guarded the
+ * text protocol only - a Lua script calling executeCommand() directly could
+ * have edited a file outside any transaction, or passed a position nobody ever
+ * checked against the file it names. Two façades, one gate: the guards cannot
+ * drift apart because there is only one copy of them.
  *
  * What is deliberately NOT here: reading the parameters. The "one token per
  * line" codec, its MULTI_LINE terminator and its MISSING_PARAMETERS case belong
- * to the text protocol alone (see ClideDaemon.readParams()) - Lua hands over its
- * arguments already separated. By the time dispatch() is called, params is
+ * to the text protocol alone (see ClideDaemon.readParams()) - Lua hands over
+ * its arguments already separated. By the time dispatch() is called, params is
  * complete and command.paramSize() long, whoever built it.
  *
  * notice is where the few things that are neither the result nor an error go -
- * today only the "restarting jdtls" line, printed while a client waits. The text
- * protocol points it at the client's socket; a script points it at the same
- * stream its print() writes to. It is never the way a result travels back:
+ * today only the "restarting jdtls" line, printed while a client waits. The
+ * text protocol points it at the client's socket; a script points it at the
+ * same stream its print() writes to. It is never the way a result travels back:
  * that is the returned CommandResult, and only that.
  */
 public final class CommandDispatcher {
@@ -44,14 +43,14 @@ public final class CommandDispatcher {
 	}
 
 	/**
-	 * Validates params, checks what command declares it needs, and runs it.
-	 * Returns the command's own CommandResult, or the error that stopped it from
-	 * ever running - a caller cannot tell the two apart, and does not have to:
-	 * both are answers to send back.
+	 * Validates params, checks what command declares it needs, and runs it. Returns
+	 * the command's own CommandResult, or the error that stopped it from ever
+	 * running - a caller cannot tell the two apart, and does not have to: both are
+	 * answers to send back.
 	 */
 	public static CommandResult dispatch(final ClideContext context, final Command command,
 			final Consumer<String> notice, final String... params) {
-		final CommandResult invalid = validateParams(command, params, context.getProjectRoot());
+		final CommandResult invalid = validateParams(context.getFilesRepository(), command, params);
 		if (invalid != null)
 			return invalid;
 
@@ -103,11 +102,11 @@ public final class CommandDispatcher {
 	 * belong to ever executes. Returns the first error found, or null once every
 	 * parameter has passed.
 	 */
-	private static CommandResult validateParams(final Command command, final String[] params,
-			final Path projectRoot) {
+	private static CommandResult validateParams(final FilesRepository filesRepository, final Command command,
+			final String[] params) {
 		final ParamType[] types = command.getParamTypes();
 		for (int i = 0; i < params.length; i++) {
-			final CommandResult error = validate(types[i], params[i], projectRoot);
+			final CommandResult error = validate(filesRepository, types[i], params[i]);
 			if (error != null)
 				return error;
 		}
@@ -117,19 +116,19 @@ public final class CommandDispatcher {
 	/**
 	 * Surface-level check for one parameter's raw text, run purely on that text -
 	 * TRANSACTION_ID must match TransactionStack.ID_PATTERN, REGEX must compile
-	 * (java.util.regex.Pattern), POSITION must parse as a real file/line/column/word
-	 * (see PositionParser.parse()). Every other ParamType has nothing to check here.
-	 * Returns null when value is acceptable, or an error fit to send back to the
-	 * client as-is otherwise.
+	 * (java.util.regex.Pattern), POSITION must parse as a real
+	 * file/line/column/word (see PositionParser.parse()). Every other ParamType has
+	 * nothing to check here. Returns null when value is acceptable, or an error fit
+	 * to send back to the client as-is otherwise.
 	 */
-	private static CommandResult validate(final ParamType type, final String value,
-			final Path projectRoot) {
+	private static CommandResult validate(final FilesRepository filesRepository, final ParamType type,
+			final String value) {
 		switch (type) {
 		case TRANSACTION_ID:
 			if (TransactionStack.ID_PATTERN.matcher(value).matches() == false)
-				return CommandResult.error(ErrorCode.INVALID_TRANSACTION_ID, "Invalid transaction id '" + value
-						+ "' - expected $segment, lowercase word characters only "
-						+ "(e.g. $refactor_foo, $refactor_foo$part1)");
+				return CommandResult.error(ErrorCode.INVALID_TRANSACTION_ID,
+						"Invalid transaction id '" + value + "' - expected $segment, lowercase word characters only "
+								+ "(e.g. $refactor_foo, $refactor_foo$part1)");
 			return null;
 		case REGEX:
 			try {
@@ -140,7 +139,7 @@ public final class CommandDispatcher {
 			return null;
 		case POSITION:
 			try {
-				PositionParser.parse(value, projectRoot);
+				PositionParser.parse(filesRepository, value);
 			} catch (final IllegalArgumentException e) {
 				// PositionException carries which of the ways it failed, and the hint
 				// that goes with it when there is one (NAME_NOT_AT_COLUMN names the

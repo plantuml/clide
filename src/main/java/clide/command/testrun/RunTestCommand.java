@@ -90,7 +90,7 @@ public class RunTestCommand extends Command {
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final Position position;
 		try {
-			position = PositionParser.parse(params[0], context.getProjectRoot());
+			position = PositionParser.parse(context.getFilesRepository(), params[0]);
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
 		}

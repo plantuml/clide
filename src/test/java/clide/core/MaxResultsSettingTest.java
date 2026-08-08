@@ -23,7 +23,7 @@ class MaxResultsSettingTest {
 	private static ClideContext contextOn(final Path root) {
 		// La session jdtls n'est jamais touchée ici : ce test ne porte que sur un
 		// entier détenu par le contexte.
-		return new ClideContext(root, null, List.of());
+		return new ClideContext(new FilesRepository(root, null), null, List.of());
 	}
 
 	@Test

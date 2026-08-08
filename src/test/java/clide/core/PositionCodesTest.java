@@ -37,7 +37,8 @@ class PositionCodesTest {
 	}
 
 	private static ErrorCode codeOf(final Path root, final String token) {
-		final PositionException thrown = assertThrows(PositionException.class, () -> PositionParser.parse(token, root));
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+		final PositionException thrown = assertThrows(PositionException.class, () -> PositionParser.parse(filesRepository, token));
 		return thrown.getCode();
 	}
 
@@ -75,9 +76,10 @@ class PositionCodesTest {
 	@DisplayName("une ligne hors du fichier est LINE_OUT_OF_RANGE et le message dit combien il y en a")
 	void lineOutOfRange(@TempDir final Path root) throws IOException {
 		write(root, "Foo.java", "class Foo {", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
 
 		final PositionException thrown = assertThrows(PositionException.class,
-				() -> PositionParser.parse("Foo.java:99:7:Foo", root));
+				() -> PositionParser.parse(filesRepository, "Foo.java:99:7:Foo"));
 
 		assertEquals(ErrorCode.LINE_OUT_OF_RANGE, thrown.getCode());
 		assertTrue(thrown.getMessage().contains("file has 2 line(s)"));
@@ -97,8 +99,9 @@ class PositionCodesTest {
 		// "\tvoid calculer() {" : la tabulation occupe la colonne 1, "void " les
 		// colonnes 2 à 6, donc "calculer" commence en colonne 7.
 		write(root, "Foo.java", "class Foo {", "\tvoid calculer() {", "\t}", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
 
-		final Position position = PositionParser.parse("Foo.java:2:7:calculer", root);
+		final Position position = PositionParser.parse(filesRepository, "Foo.java:2:7:calculer");
 
 		assertEquals(2, position.line());
 		assertEquals(7, position.column());
@@ -113,9 +116,10 @@ class PositionCodesTest {
 		// "a." 3-4, donc le premier "calculer" commence en 5 ; "(b." occupe 13-15,
 		// donc le second commence en 16.
 		write(root, "Foo.java", "class Foo {", "\t\ta.calculer(b.calculer());", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
 
 		final PositionException thrown = assertThrows(PositionException.class,
-				() -> PositionParser.parse("Foo.java:2:9:calculer", root));
+				() -> PositionParser.parse(filesRepository, "Foo.java:2:9:calculer"));
 
 		assertEquals(ErrorCode.NAME_NOT_AT_COLUMN, thrown.getCode());
 		assertTrue(thrown.getHint().contains("5"));
@@ -126,9 +130,10 @@ class PositionCodesTest {
 	@DisplayName("chaque occurrence d'une ligne ambiguë est atteignable par sa propre colonne")
 	void eachOccurrenceHasItsOwnColumn(@TempDir final Path root) throws IOException {
 		write(root, "Foo.java", "class Foo {", "\t\ta.calculer(b.calculer());", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
 
-		assertEquals(5, PositionParser.parse("Foo.java:2:5:calculer", root).column());
-		assertEquals(16, PositionParser.parse("Foo.java:2:16:calculer", root).column());
+		assertEquals(5, PositionParser.parse(filesRepository, "Foo.java:2:5:calculer").column());
+		assertEquals(16, PositionParser.parse(filesRepository, "Foo.java:2:16:calculer").column());
 	}
 
 	@Test
@@ -143,14 +148,17 @@ class PositionCodesTest {
 	@DisplayName("toString() rend la notation canonique complète, colonne comprise - le chemin relatif au projet")
 	void toStringIsTheCanonicalNotation(@TempDir final Path root) throws IOException {
 		write(root, "Foo.java", "class Foo {", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
 
-		assertEquals("Foo.java:1:7:Foo", PositionParser.parse("Foo.java:1:7:Foo", root).toString());
+		assertEquals("Foo.java:1:7:Foo", PositionParser.parse(filesRepository, "Foo.java:1:7:Foo").toString());
 	}
 
 	@Test
 	@DisplayName("PositionException reste une IllegalArgumentException pour les appelants d'avant les codes")
 	void stillAnIllegalArgumentException(@TempDir final Path root) {
-		assertThrows(IllegalArgumentException.class, () -> PositionParser.parse("Absent.java:1:1:bar", root));
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		assertThrows(IllegalArgumentException.class, () -> PositionParser.parse(filesRepository, "Absent.java:1:1:bar"));
 	}
 
 }

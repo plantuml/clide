@@ -15,6 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import clide.CommandRepository;
 import clide.core.ClideContext;
+import clide.core.FilesRepository;
 
 /**
  * Tests du pont Lua avec un vrai runtime : les fonctions sont bindées, le
@@ -33,13 +34,16 @@ class LuaBridgeTest {
 
 	private String run(final Path projectRoot, final String script) {
 		final PrintStream out = new PrintStream(written, true, StandardCharsets.UTF_8);
-		new LuaBridge(new ClideContext(projectRoot, null, CommandRepository.commands), out).run(script);
+		final FilesRepository filesRepository = new FilesRepository(projectRoot, null);
+
+		new LuaBridge(new ClideContext(filesRepository, null, CommandRepository.commands), out).run(script);
 		return written.toString(StandardCharsets.UTF_8);
 	}
 
 	private boolean succeeded(final Path projectRoot, final String script) {
 		final PrintStream out = new PrintStream(written, true, StandardCharsets.UTF_8);
-		return new LuaBridge(new ClideContext(projectRoot, null, CommandRepository.commands), out).run(script);
+		final FilesRepository filesRepository = new FilesRepository(projectRoot, null);
+		return new LuaBridge(new ClideContext(filesRepository, null, CommandRepository.commands), out).run(script);
 	}
 
 	@Test

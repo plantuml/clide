@@ -21,7 +21,8 @@ public final class PositionParser {
 	private PositionParser() {
 	}
 
-	public static Position parse(final String token, final Path projectRoot) {
+	public static Position parse(final FilesRepository filesRepository, final String token) {
+		final Path projectRoot = filesRepository.getProjectRoot();
 		final Matcher notation = NOTATION.matcher(token.trim());
 		if (notation.matches() == false)
 			throw new PositionException(ErrorCode.MALFORMED_POSITION,
@@ -73,9 +74,9 @@ public final class PositionParser {
 	 * entry points from ever disagreeing; a second copy of the checks is how they
 	 * would.
 	 */
-	public static Position of(final String path, final int line, final int column, final String name,
-			final Path projectRoot) {
-		return parse(path + ":" + line + ":" + column + ":" + name, projectRoot);
+	public static Position of(final FilesRepository filesRepository, final String path, final int line, final int column,
+			final String name) {
+		return parse(filesRepository, path + ":" + line + ":" + column + ":" + name);
 	}
 
 	private static void checkNameAtColumn(final String lineText, final int line, final int column, final String name,

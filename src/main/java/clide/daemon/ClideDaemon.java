@@ -25,12 +25,12 @@ import clide.core.CommandDispatcher;
 import clide.core.FilesRepository;
 import clide.core.Md5Repository;
 import clide.core.TransactionStack;
-import clide.lua.LuaBridge;
 import clide.jdtls.EclipseProjectFiles;
 import clide.jdtls.JdtlsHome;
 import clide.jdtls.JdtlsLauncher;
 import clide.jdtls.JdtlsSession;
 import clide.jdtls.LspClient.TimeoutException;
+import clide.lua.LuaBridge;
 
 /**
  * The long-lived side of clide: owns the single JdtlsSession for a project and
@@ -118,7 +118,7 @@ public final class ClideDaemon {
 			System.out.println(" [OK] (imported via a temporary .project/.classpath, "
 					+ "the project's own restored afterward - see .clide/tmp/ for what was actually used)");
 
-		final ClideContext context = new ClideContext(projectRoot, session, commands);
+		final ClideContext context = new ClideContext(filesRepository, session, commands);
 
 		final ServerSocket serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
 		DaemonLock.write(projectRoot, serverSocket.getLocalPort());

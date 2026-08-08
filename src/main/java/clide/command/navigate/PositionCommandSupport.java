@@ -49,7 +49,7 @@ final class PositionCommandSupport {
 			final String positionText, final Monomorphic requestContext) {
 		final Position position;
 		try {
-			position = PositionParser.parse(positionText, context.getProjectRoot());
+			position = PositionParser.parse(context.getFilesRepository(), positionText);
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
 		}
@@ -72,7 +72,7 @@ final class PositionCommandSupport {
 			final String positionText) {
 		final Position position;
 		try {
-			position = PositionParser.parse(positionText, context.getProjectRoot());
+			position = PositionParser.parse(context.getFilesRepository(), positionText);
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
 		}

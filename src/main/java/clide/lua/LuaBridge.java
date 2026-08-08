@@ -127,7 +127,7 @@ public final class LuaBridge {
 	 */
 	private int call(final Lua lua, final Command command) {
 		try {
-			final String[] params = LuaArguments.read(lua, command, context.getProjectRoot());
+			final String[] params = LuaArguments.read(context.getFilesRepository(), lua, command);
 			final CommandResult result = CommandDispatcher.dispatch(context, command, out::println, params);
 
 			// A warning does not stop anything - it is printed where the script's own
