@@ -20,6 +20,12 @@ import clide.command.session.QuitCommand;
 import clide.command.session.TerminateCommand;
 import clide.command.testrun.RunTestCommand;
 import clide.command.testrun.RunTestsCommand;
+import clide.command.transaction.CommitTransactionCommand;
+import clide.command.transaction.DiffTransactionCommand;
+import clide.command.transaction.ListModifiedFilesCommand;
+import clide.command.transaction.OpenTransactionCommand;
+import clide.command.transaction.RestoreFileCommand;
+import clide.command.transaction.RollbackTransactionCommand;
 import clide.core.Command;
 
 /**
@@ -71,12 +77,12 @@ public final class CommandRepository {
 		registered.add(new RunTestsCommand());
 		registered.add(new SetMaxResultsCommand());
 
-//		registered.add(new OpenTransactionCommand());
-//		registered.add(new CommitTransactionCommand());
-//		registered.add(new RollbackTransactionCommand());
-//		registered.add(new ListModifiedFilesCommand());
-//		registered.add(new DiffTransactionCommand());
-//		registered.add(new RestoreFileCommand());
+		registered.add(new OpenTransactionCommand());
+		registered.add(new CommitTransactionCommand());
+		registered.add(new RollbackTransactionCommand());
+		registered.add(new ListModifiedFilesCommand());
+		registered.add(new DiffTransactionCommand());
+		registered.add(new RestoreFileCommand());
 
 		commands = List.copyOf(registered);
 	}

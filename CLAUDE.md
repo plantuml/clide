@@ -468,6 +468,25 @@ cascade is really just bookkeeping: `$refactor_foo`'s own snapshot was
 taken before `$refactor_foo$part1` ever existed, so rolling `$refactor_foo`
 back undoes `part1`'s changes too in the very same step, committed or not.
 
+**Editing outside clide while a transaction is open is the normal way to
+use one today.** With no file-modifying command of clide's own yet, the
+actual workflow is: `open_transaction`, edit with other tools, `exit` (the
+daemon and the open transaction survive — see below), then reconnect later
+to decide `commit_transaction` or `rollback_transaction`. A **human**
+connection that finds a still-open transaction with files modified since it
+opened says so on its own, before anything else — the same output
+`list_modified_files` would give, printed unprompted so a reconnecting
+person never has to remember to ask. Silent when nothing changed, and
+silent when nothing is open.
+
+An **AI** connection never gets this unprompted announcement, even under
+the same conditions — its whole contract is to print nothing but what the
+commands it was sent actually answer, so a machine client can rely on a
+strict 1:1 correspondence between what it wrote and what it reads back. An
+AI client that wants to know whether a transaction it is reopening was
+touched from outside should call `list_modified_files` itself right after
+reconnecting. `--lua` script connections never see this either.
+
 ### Help and session
 
 | Command | Role |

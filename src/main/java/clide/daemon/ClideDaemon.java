@@ -16,6 +16,7 @@ import clide.CommandRepository;
 import clide.Main;
 import clide.PrintMode;
 import clide.annotation.ParamType;
+import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
 import clide.command.answer.ResultEnvelope;
@@ -178,9 +179,16 @@ public final class ClideDaemon {
 			return; // a script connection carries one script and ends with it
 		}
 
-		// AI mode announces nothing, so in that mode firstLine is not a handshake
-		// but already this session's first command: it has to be processed, not
-		// swallowed. carried holds it until the loop below consumes it.
+		// HUMAN only - never AI, see announceExternalChanges()'s own doc for why:
+		// a still-open transaction may have something worth saying before this
+		// connection's own first command is even read.
+		if (printMode == PrintMode.HUMAN)
+			announceExternalChanges(out, context);
+
+		// AI mode otherwise announces nothing, so in that mode firstLine is not a
+		// handshake but already this session's first command: it has to be
+		// processed, not swallowed. carried holds it until the loop below consumes
+		// it.
 		String carried = mode.announced() ? null : firstLine;
 
 		while (context.isShutdownRequested() == false) {
@@ -226,6 +234,55 @@ public final class ClideDaemon {
 			printResult(out, command, CommandDispatcher.dispatch(context, command, out::println, params), printMode);
 			if (context.isShutdownRequested() || context.isDisconnectRequested())
 				return;
+		}
+	}
+
+	/**
+	 * Tells a HUMAN connection - never AI, never a script, see runSession()'s own
+	 * callers - about any file a still-open transaction's own snapshot no longer
+	 * matches.
+	 *
+	 * This is the normal way a transaction sees an edit today: with no
+	 * file-modifying command of clide's own yet (see CLAUDE.md), the actual
+	 * workflow is open_transaction, edit with other tools, then reconnect -
+	 * possibly much later, possibly from a different clide invocation entirely -
+	 * to inspect and commit_transaction or rollback_transaction. Without this, a
+	 * human reconnecting would see nothing at all unless they remembered to type
+	 * list_modified_files themselves first.
+	 *
+	 * HUMAN only, on purpose: AI mode's whole contract (see PrintMode and
+	 * CLAUDE.md) is that it prints nothing but what the commands a client sent
+	 * actually answer, so a machine client can assume a strict 1:1 correspondence
+	 * between what it wrote and what it reads back. Printing this unasked would
+	 * break that - worse, indistinguishably so if the client's own first command
+	 * happens to be list_modified_files itself. An AI client that cares whether a
+	 * transaction it reopens was touched from outside is expected to call
+	 * list_modified_files itself right after reconnecting, the same way it would
+	 * for anything else it wants to know.
+	 *
+	 * Reuses list_modified_files' own command - same executeCommand(), same
+	 * render() - rather than reformatting the same information a second way: what
+	 * a client sees here is byte-for-byte what typing the command itself would
+	 * have printed for that id. Silent for a transaction with nothing to report,
+	 * and silent altogether when nothing is open - the same "nothing at all
+	 * printed when there is nothing to say" printResult() already follows for a
+	 * command's own answer.
+	 *
+	 * Calling executeCommand() directly - not through CommandDispatcher, which
+	 * every client-typed command goes through - skips CommandDispatcher's
+	 * needsOpenTransaction()/needsJdtlsSession() gate on purpose: openIds() has
+	 * already established a transaction is open, and list_modified_files itself
+	 * needs no jdtls session, so nothing that gate would have caught is being
+	 * bypassed here.
+	 */
+	private void announceExternalChanges(final PrintStream out, final ClideContext context) {
+		final Command listModifiedFiles = context.getCommand("list_modified_files");
+		for (final String id : context.getTransactions().openIds()) {
+			final CommandResult result = listModifiedFiles.executeCommand(context, id);
+			if (result.payload() instanceof CommandPayload.ModifiedFiles modified && modified.files().totalCount() == 0)
+				continue;
+
+			printResult(out, listModifiedFiles, result, PrintMode.HUMAN);
 		}
 	}
 
