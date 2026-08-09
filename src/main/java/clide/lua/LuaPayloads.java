@@ -78,26 +78,7 @@ public final class LuaPayloads {
 				listing(commands.commands(), LuaPayloads::commandSummary));
 		case CommandPayload.Setting setting -> map("name", setting.name(), "previousValue", setting.previousValue(),
 				"newValue", setting.newValue());
-		case CommandPayload.Rename renamed -> renamed(renamed);
 		};
-	}
-
-	/**
-	 * declaration stays nil when clide could not derive a checked position for
-	 * the renamed symbol - the same contract as SymbolHit.location, and for the
-	 * same reason: a script has to test it rather than assume it. Chaining
-	 * straight into find_reference(result.declaration.position) is the whole
-	 * point of its being there, and doing that on a nil stops the script rather
-	 * than asking about the wrong place.
-	 */
-	private static Object renamed(final CommandPayload.Rename renamed) {
-		final List<Object> fileRenames = new ArrayList<>();
-		for (final CommandPayload.Rename.FileRenaming renaming : renamed.fileRenames())
-			fileRenames.add(map("from", renaming.from(), "to", renaming.to()));
-
-		return map("subject", renamed.subject(), "newName", renamed.newName(), "changedFiles",
-				listing(renamed.changedFiles(), file -> file), "fileRenames", fileRenames, "declaration",
-				codeLocation(renamed.declaration()), "errorCount", (long) renamed.errorCount());
 	}
 
 	// ------------------------------------------------------------------

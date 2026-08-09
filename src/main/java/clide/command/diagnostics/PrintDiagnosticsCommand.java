@@ -54,16 +54,6 @@ public class PrintDiagnosticsCommand extends Command {
 
 	}
 
-	/**
-	 * Being about the last build <i>is</i> this command's contract - it
-	 * re-displays what that build said, without recompiling, and never claimed
-	 * to describe the current disk. See Command.needsFreshModel().
-	 */
-	@Override
-	public boolean needsFreshModel() {
-		return false;
-	}
-
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final JdtlsSession session = context.getCurrentSession();

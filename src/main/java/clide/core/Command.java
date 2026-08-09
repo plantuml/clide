@@ -102,33 +102,6 @@ public abstract class Command implements Comparable<Command> {
 	}
 
 	/**
-	 * Whether this command's answer is only worth anything if jdtls' model still
-	 * describes the project as it stands on disk. Defaults to true, and only
-	 * matters for a command that also declares needsJdtlsSession() - see
-	 * CommandDispatcher, which refuses with STALE_MODEL rather than answering
-	 * against a build that no longer matches the files.
-	 *
-	 * True by default because that is what every question put to jdtls quietly
-	 * assumed and nothing ever checked. CLAUDE.md has always required a rebuild
-	 * after an edit made outside clide, and a caller who forgot got a plausible
-	 * answer about a project that had moved on - find_reference missing the usage
-	 * added five minutes ago, hover describing the signature before it changed.
-	 *
-	 * Two commands override it to false, both because being about the last build
-	 * is precisely their contract:
-	 * <ul>
-	 * <li><b>rebuild</b> - it is the cure. Refusing it on a stale model would
-	 * leave no way at all to become un-stale.</li>
-	 * <li><b>print_diagnostics</b> - it re-displays what the last build said,
-	 * without recompiling, and says so. It never claimed to describe the current
-	 * disk.</li>
-	 * </ul>
-	 */
-	public boolean needsFreshModel() {
-		return true;
-	}
-
-	/**
 	 * Whether this command is exposed to Lua scripts as a function of the same
 	 * name - see LuaBridge. Defaults to true: a command that answers a question
 	 * about the project answers it just as well from a script.
