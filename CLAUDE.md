@@ -441,12 +441,21 @@ exists, it will operate within this framework.
 
 | Command | Role |
 |---|---|
-| `open_transaction <id>` | Opens a transaction: backs up every file touched afterward, so everything can be cleanly undone. `<id>` must start with `$`, followed by lowercase `\w` characters (e.g. `$refactor_foo`). |
+| `open_transaction <id>` | Opens a transaction: takes a snapshot of every `.java` source file's content, so any of them can later be cleanly undone. `<id>` must start with `$`, followed by lowercase `\w` characters (e.g. `$refactor_foo`). |
 | `commit_transaction <id>` | Keeps the changes made under this transaction. |
 | `rollback_transaction <id>` | Undoes all changes made under this transaction. |
 | `list_modified_files <id>` | Lists the files modified so far under this transaction. |
 | `diff_transaction <id> <path>` | Shows a unified diff of that one file, against its state right before the transaction touched it. |
 | `restore_file <id> <path>` | Restores a single file to its pre-transaction state, without closing the transaction or touching anything else — can be called repeatedly. |
+
+`open_transaction` is the one moment that costs something: it snapshots
+every `.java` file under the project (same scope `rebuild` itself walks),
+not just the ones a later edit will touch. That single upfront snapshot
+is also what makes everything else on this list cheap and simple
+afterward — a modification is never "recorded" as it happens, it is just
+detected, by comparing the live file against what the snapshot already
+knows. Only `.java` files are covered: a transaction gives no protection
+to anything else the project might contain (build files, resources).
 
 Nested sub-transactions: once `$refactor_foo` is open,
 `open_transaction $refactor_foo$part1` opens a sub-transaction beneath it.
@@ -454,7 +463,10 @@ It's a stack (LIFO), not a tree: two sibling sub-transactions can't be
 open at the same time — the first must be closed before opening another
 at the same level. `commit_transaction`/`rollback_transaction` on a parent
 transaction automatically closes any still-open children first (deepest
-commits first, most recent rollbacks first).
+commits first, most recent rollbacks first) — though for `rollback`, that
+cascade is really just bookkeeping: `$refactor_foo`'s own snapshot was
+taken before `$refactor_foo$part1` ever existed, so rolling `$refactor_foo`
+back undoes `part1`'s changes too in the very same step, committed or not.
 
 ### Help and session
 

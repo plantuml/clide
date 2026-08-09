@@ -5,12 +5,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -31,6 +28,18 @@ import java.util.stream.Stream;
  * two siblings open together) - it matches the class' own requested name and
  * keeps "which transaction backs up the next modification" unambiguous:
  * always whatever is on top. See CLAUDE.md.
+ *
+ * Each Transaction on the stack carries its own opening Snapshot of the whole
+ * project (see Transaction, Snapshot) - a complete restore point, not an
+ * incremental one. That is what makes closing (commit or rollback) a nested
+ * chain simple: a Transaction's opening Snapshot was taken before any of its
+ * still-open sub-transactions existed, so whatever they went on to change
+ * already shows up when that Transaction is compared against the live tree -
+ * nothing has to be folded from child to parent first. commit() therefore
+ * never touches file content at all (everything is already exactly as it
+ * should be on disk); it only discards restore points. rollback(id) restores
+ * from id's own Snapshot alone - one compare, not one per stack level - and
+ * that single restore already undoes id's own subtree in full.
  */
 public final class TransactionStack {
 
@@ -44,11 +53,13 @@ public final class TransactionStack {
 	private static final Pattern SEGMENT = Pattern.compile("\\$([a-z0-9_]+)");
 	private static final String TRANSACTIONS_DIR = ".clide/transactions";
 
+	private final FilesRepository filesRepository;
 	private final Path projectRoot;
 	private final List<Transaction> stack = new ArrayList<>();
 
-	public TransactionStack(final Path projectRoot) {
-		this.projectRoot = projectRoot;
+	public TransactionStack(final FilesRepository filesRepository) {
+		this.filesRepository = filesRepository;
+		this.projectRoot = filesRepository.getProjectRoot();
 	}
 
 	/** Whether any transaction at all is currently open - see Command.needsOpenTransaction(). */
@@ -70,26 +81,12 @@ public final class TransactionStack {
 	}
 
 	/**
-	 * Records, once, the state of absoluteFile right before a modification about
-	 * to happen to it, in whichever transaction is currently on top of the stack
-	 * - see Transaction.backupBeforeModification(). This is the integration
-	 * point future file-modifying commands are expected to call, right before
-	 * they write anything; every command that does so must also override
-	 * Command.needsOpenTransaction() so ClideDaemon refuses to even reach
-	 * executeCommand() with an empty stack (see ClideDaemon.runSession()) -
-	 * the check here is only a defensive backstop, not the primary guard.
-	 */
-	public void backupBeforeModification(final Path absoluteFile) throws IOException {
-		if (stack.isEmpty())
-			throw new IllegalStateException("No transaction is open - call open_transaction first");
-
-		stack.get(stack.size() - 1).backupBeforeModification(absoluteFile);
-	}
-
-	/**
 	 * Opens a new transaction. id must extend the id currently on top of the
 	 * stack by exactly one more "$segment" - or, if the stack is empty, be a
-	 * single segment (a new root transaction). Creates id's backup directory.
+	 * single segment (a new root transaction). Takes id's opening Snapshot of
+	 * the whole project - see Transaction - which is the (only) potentially
+	 * costly part of this call: the same cost as a rebuild's own file scan,
+	 * paid again for every level of nesting, warm-cache after the first.
 	 */
 	public void open(final String id) throws IOException {
 		if (ID_PATTERN.matcher(id).matches() == false)
@@ -113,71 +110,62 @@ public final class TransactionStack {
 		}
 
 		final Path directory = projectRoot.resolve(TRANSACTIONS_DIR).resolve(String.join("/", segments));
-		stack.add(new Transaction(id, directory, projectRoot));
+		stack.add(new Transaction(id, directory, filesRepository));
 	}
 
 	/**
-	 * Commits id: implicitly commits every open sub-transaction still open below
-	 * it first (deepest first, each folding its backups into its parent - see
-	 * Transaction.mergeInto()), then folds id itself into its own parent (if
-	 * any), then deletes id's now-redundant directory.
+	 * Commits id: implicitly commits every open sub-transaction still open under
+	 * it first, then id itself. Nothing on disk changes - every file is already
+	 * exactly as this transaction (and its subtree) left it - this only forgets
+	 * the restore points that would otherwise let a rollback undo them.
 	 */
 	public void commit(final String id) throws IOException {
 		final int index = indexOf(id);
-		for (int i = stack.size() - 1; i > index; i--)
-			stack.get(i).mergeInto(stack.get(i - 1));
+		for (int i = stack.size() - 1; i >= index; i--)
+			stack.get(i).deleteDirectory();
 
-		final Transaction target = stack.get(index);
-		if (index > 0)
-			target.mergeInto(stack.get(index - 1));
-
-		target.deleteDirectory();
 		removeFrom(index);
 	}
 
 	/**
-	 * Rolls back id: implicitly rolls back every open sub-transaction still open
-	 * below it first (deepest/most-recent first), ending with id's own restore
-	 * last - id's backups are the oldest, closest to the true pre-transaction
-	 * state, so restoring them last is what makes them the ones left in place.
-	 * Then deletes id's directory (and, nested inside it, every sub-transaction
-	 * directory not already separately removed).
+	 * Rolls back id: restores every .java file to the state id's own opening
+	 * Snapshot recorded for it - which, because that Snapshot predates every
+	 * still-open sub-transaction of id, already undoes their changes too in the
+	 * same single pass (see Transaction.restoreAll(), and this class' own doc).
+	 * Then discards id's restore point and every still-open sub-transaction's.
 	 */
 	public void rollback(final String id) throws IOException {
 		final int index = indexOf(id);
-		for (int i = stack.size() - 1; i >= index; i--)
-			stack.get(i).restoreAll();
+		stack.get(index).restoreAll();
 
-		stack.get(index).deleteDirectory();
+		for (int i = stack.size() - 1; i >= index; i--)
+			stack.get(i).deleteDirectory();
+
 		removeFrom(index);
 	}
 
 	/**
-	 * Every relative path modified anywhere from id down to the top of the
-	 * stack: id's own changes plus every still-open sub-transaction's.
+	 * Every relative path that reads differently now than it did when id
+	 * opened - id's own subtree in full, still-open sub-transactions included
+	 * (see Transaction.modifiedFiles() and this class' own doc for why no
+	 * aggregation across stack levels is needed).
 	 */
 	public List<String> modifiedFiles(final String id) throws IOException {
-		final int index = indexOf(id);
-		final Set<String> all = new LinkedHashSet<>();
-		for (int i = index; i < stack.size(); i++)
-			all.addAll(stack.get(i).modifiedFiles());
-
-		return all.stream().sorted().collect(Collectors.toList());
+		return stack.get(indexOf(id)).modifiedFiles();
 	}
 
 	/**
-	 * "Before" content of relativePath, as it stood right before id's subtree
-	 * first touched it: id's own backup if it has one, otherwise the earliest
-	 * (closest to id) still-open sub-transaction that does.
+	 * "Before" content of relativePath, as id's own opening Snapshot recorded
+	 * it - refused if relativePath reads the same now as it did then, under
+	 * id's subtree.
 	 */
 	public List<String> beforeLines(final String id, final String relativePath) throws IOException {
-		final int index = indexOf(id);
+		final Transaction transaction = stack.get(indexOf(id));
 		final String relative = normalizeRelative(relativePath);
-		for (int i = index; i < stack.size(); i++)
-			if (stack.get(i).hasBackup(relative))
-				return stack.get(i).beforeLines(relative);
+		if (transaction.hasBackup(relative) == false)
+			throw new IllegalArgumentException("'" + relativePath + "' was not modified under transaction " + id);
 
-		throw new IllegalArgumentException("'" + relativePath + "' was not modified under transaction " + id);
+		return transaction.beforeLines(relative);
 	}
 
 	/** Current on-disk content of relativePath - no lines if the file doesn't currently exist. */
@@ -190,21 +178,19 @@ public final class TransactionStack {
 	}
 
 	/**
-	 * Restores relativePath to the state it had right before id's subtree first
-	 * touched it - same "closest to id" lookup as beforeLines(). Leaves
-	 * transaction bookkeeping untouched: the backup stays, so this (and
-	 * diff_transaction) keep working the same way if called again afterwards.
+	 * Restores relativePath to the state it had when id opened - refused if
+	 * relativePath reads the same now as it did then. Leaves every other file
+	 * id's subtree modified untouched, and id itself stays open: the opening
+	 * Snapshot never changes, so this (and diff_transaction) keep working the
+	 * same way if called again afterwards.
 	 */
 	public void restoreFile(final String id, final String relativePath) throws IOException {
-		final int index = indexOf(id);
+		final Transaction transaction = stack.get(indexOf(id));
 		final String relative = normalizeRelative(relativePath);
-		for (int i = index; i < stack.size(); i++)
-			if (stack.get(i).hasBackup(relative)) {
-				stack.get(i).restoreFile(relative);
-				return;
-			}
+		if (transaction.hasBackup(relative) == false)
+			throw new IllegalArgumentException("'" + relativePath + "' was not modified under transaction " + id);
 
-		throw new IllegalArgumentException("'" + relativePath + "' was not modified under transaction " + id);
+		transaction.restoreFile(relative);
 	}
 
 	/**
@@ -214,6 +200,12 @@ public final class TransactionStack {
 	 * in what order) cannot safely resume it. Cleanup is manual, by design -
 	 * silently rolling back or committing a stranger's half-finished transaction
 	 * is worse than refusing to start - see CLAUDE.md.
+	 *
+	 * What a stranded directory holds today is only an empty marker, not a
+	 * manifest: the content a leftover transaction could have restored is
+	 * already durably filed, content-addressed, in Md5Repository's own store -
+	 * see Transaction. There is no file list left here to inspect; the marker's
+	 * one job is telling the operator which id(s) were open, from its path.
 	 */
 	public static void refuseIfDirty(final Path projectRoot) throws IOException {
 		final Path transactions = projectRoot.resolve(TRANSACTIONS_DIR);

@@ -202,4 +202,22 @@ public class Md5Repository {
 		return lines;
 	}
 
+	/**
+	 * The exact bytes filed under fullMd5, decompressed - what register() was
+	 * originally handed, untouched.
+	 *
+	 * Reached from TransactionStack's rollback/restore_file (see Transaction): a
+	 * decode-then-re-encode round trip through readLines() would risk changing
+	 * whatever register() actually saw - line-ending style, a trailing newline's
+	 * presence, an encoding that is not valid UTF-8 - none of which a transaction
+	 * restoring a file is entitled to touch. This is the same guarantee
+	 * Transaction's own byte-for-byte Files.copy() gave before it started
+	 * restoring from this store instead.
+	 */
+	byte[] readBytes(final String fullMd5) throws IOException {
+		try (GZIPInputStream in = new GZIPInputStream(Files.newInputStream(blobPath(fullMd5)))) {
+			return in.readAllBytes();
+		}
+	}
+
 }

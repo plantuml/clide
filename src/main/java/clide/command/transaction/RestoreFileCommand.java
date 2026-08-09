@@ -32,16 +32,15 @@ public class RestoreFileCommand extends Command {
 
 			DESCRIPTION
 				Restores <file path> to the state it had right before
-				<transaction id>'s subtree (itself, or whichever of its
-				still-open sub-transactions first touched the file) first
-				modified it - deleted outright if that subtree is what
-				created it.
+				<transaction id> was opened - deleted outright if it did
+				not exist yet at that point.
 
 				Unlike rollback_transaction, this only touches <file path>
 				- every other file <transaction id> modified is left as-is,
-				and the transaction itself stays open. The backup used is
-				not discarded, so diff_transaction and restore_file keep
-				working normally afterwards if called again.
+				and the transaction itself stays open. The pre-transaction
+				state used is not discarded, so diff_transaction and
+				restore_file keep working normally afterwards if called
+				again.
 
 			ERRORS
 				Refused if <transaction id> is not currently open, or if

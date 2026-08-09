@@ -128,4 +128,22 @@ public class FilesRepository {
 		return false;
 	}
 
+	/**
+	 * Whether path is one currentSourceFiles() would walk into and sign - a
+	 * .java file, outside every skipped directory.
+	 *
+	 * Reached from Transaction (see its class doc on scope): a Snapshot never
+	 * records anything about a path outside this, so "absent from the opening
+	 * Snapshot" alone cannot tell a file that was created after the transaction
+	 * opened apart from one this transaction never had a reason to look at in
+	 * the first place - both read as "no entry". Checking this first is what
+	 * keeps that second case from being mistaken for the first: without it, an
+	 * untouched pom.xml sitting next to the sources would look "created" the
+	 * moment it is asked about, and a restore would delete a file nobody ever
+	 * touched.
+	 */
+	boolean isSource(final Path path) {
+		return path.toString().endsWith(".java") && isSkipped(path) == false;
+	}
+
 }

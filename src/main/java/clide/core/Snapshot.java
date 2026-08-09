@@ -1,6 +1,7 @@
 package clide.core;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -26,10 +27,17 @@ import java.util.Map;
  * twice within the same second is one even though its mtime never moved.
  *
  * An instance is fully built by the time it is handed out, is never mutated
- * afterwards, and never exposes its map: comparing it with another snapshot is
- * the only thing a caller can do with it. That is also what makes the
- * comparison testable here - see SnapshotTest and SnapshotDeltaTest - instead of
- * only through a live jdtls session.
+ * afterwards, and never exposes its map wholesale: comparing it with another
+ * snapshot, or asking it for the one md5 it recorded under a given path (see
+ * md5Of()), are the only things a caller can do with it. That is also what
+ * makes the comparison testable here - see SnapshotTest and SnapshotDeltaTest -
+ * instead of only through a live jdtls session.
+ *
+ * md5Of() exists for TransactionStack (see Transaction): a caller that only
+ * ever needs one file's answer - was this path modified since this snapshot
+ * was taken? what did it read before? - reads that straight out of the map
+ * already held in memory, rather than paying for a second full-project scan
+ * (see compareWithPreviousSnapshot()) just to throw away every entry but one.
  */
 public final class Snapshot {
 
@@ -67,6 +75,21 @@ public final class Snapshot {
 	 * "compare what I see now with what was there before" - the opposite of
 	 * fileEventsTo(), whose receiver is the older one.
 	 */
+	/**
+	 * The md5 this snapshot recorded for path, or null if path was not a .java
+	 * source file this snapshot saw - either because it did not exist yet, or
+	 * because it is outside what FilesRepository.currentSourceFiles() walks (see
+	 * its own doc for what is skipped).
+	 *
+	 * path is matched exactly as Files.walk(projectRoot) produced it when this
+	 * snapshot was built - the same projectRoot a caller already has to agree on
+	 * for the lookup to land on the right entry.
+	 */
+	public String md5Of(final Path path) {
+		final SourceFile file = files.get(path.toString());
+		return file == null ? null : file.sourceFileMd5();
+	}
+
 	public Delta compareWithPreviousSnapshot(final Snapshot previousSnapshot) {
 		final List<FileChange> changes = new ArrayList<>();
 

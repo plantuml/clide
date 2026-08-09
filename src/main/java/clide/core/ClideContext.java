@@ -63,7 +63,7 @@ public class ClideContext {
 	public ClideContext(final FilesRepository filesRepository, final JdtlsSession session, Collection<Command> commands) {
 		this.filesRepository = filesRepository;
 		this.session = session;
-		this.transactions = new TransactionStack(filesRepository.getProjectRoot());
+		this.transactions = new TransactionStack(filesRepository);
 
 		for (final Command command : commands) {
 			final String keyword = command.getKeyword();

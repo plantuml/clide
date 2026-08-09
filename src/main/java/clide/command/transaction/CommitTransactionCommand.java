@@ -30,22 +30,17 @@ public class CommitTransactionCommand extends Command {
 				commit_transaction <transaction id>
 
 			DESCRIPTION
-				Commits <transaction id>. Every file modification recorded
-				under it is kept as-is on disk; only the backups clide was
-				holding onto (in case of a rollback) are discarded.
+				Commits <transaction id>. Nothing changes on disk - every
+				file it touched is already exactly as it should be - only
+				the restore point clide was holding onto (in case of a
+				rollback) is discarded, for <transaction id> and any
+				sub-transaction of it.
 
 				If <transaction id> still has open sub-transactions, they
-				are committed first, deepest one first, each folding its
-				own recorded changes into the transaction it was opened
-				under - so committing "$refactor_foo" while
-				"$refactor_foo$part1" is still open commits part1 first,
-				then "$refactor_foo" itself.
-
-				If <transaction id> is itself a sub-transaction, committing
-				it folds its recorded changes into its own parent
-				transaction instead of discarding them outright - only
-				committing a root transaction (no "$parent" of its own)
-				actually discards the backups for good.
+				are committed first, deepest one first - so committing
+				"$refactor_foo" while "$refactor_foo$part1" is still open
+				commits part1 first, then "$refactor_foo" itself. Either
+				way the outcome is the same: their changes simply stay.
 
 			ERRORS
 				Refused if <transaction id> is not currently open.
