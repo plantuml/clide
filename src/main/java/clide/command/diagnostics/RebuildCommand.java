@@ -72,6 +72,15 @@ public class RebuildCommand extends Command {
 
 	}
 
+	/**
+	 * The cure, so never the patient: refusing rebuild on a stale model would
+	 * leave no way at all of becoming un-stale - see Command.needsFreshModel().
+	 */
+	@Override
+	public boolean needsFreshModel() {
+		return false;
+	}
+
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
 		final JdtlsSession session = context.getCurrentSession();

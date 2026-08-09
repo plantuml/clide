@@ -1,5 +1,8 @@
 package clide.core;
 
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -14,11 +17,13 @@ import clide.jdtls.JdtlsSession;
  * line-oriented text protocol (see ClideDaemon.runSession()) and the Lua bridge
  * (see LuaBridge) both come through here.
  *
- * <b>Why this is not just a call to Command.executeCommand().</b> Three checks
+ * <b>Why this is not just a call to Command.executeCommand().</b> Four checks
  * stand between a client's request and a command running, and none of them
  * lives inside the command: every parameter has to pass its ParamType's surface
- * check, a command that modifies files has to find a transaction open, and a
- * command that queries jdtls has to find a session up (or get one restarted).
+ * check, a command that modifies files has to find a transaction open, a
+ * command that queries jdtls has to find a session up (or get one restarted),
+ * and its answer has to be about the project as it stands rather than as the
+ * last build left it (see rejectIfModelIsStale()).
  * Left in the daemon's read loop, as they were, they would have guarded the
  * text protocol only - a Lua script calling executeCommand() directly could
  * have edited a file outside any transaction, or passed a position nobody ever
@@ -38,6 +43,9 @@ import clide.jdtls.JdtlsSession;
  * that is the returned CommandResult, and only that.
  */
 public final class CommandDispatcher {
+
+	/** How many changed files a STALE_MODEL message names before it stops listing them. */
+	private static final int STALE_FILES_NAMED = 10;
 
 	private CommandDispatcher() {
 	}
@@ -62,9 +70,97 @@ public final class CommandDispatcher {
 			final CommandResult restartFailure = ensureSessionReady(context, notice);
 			if (restartFailure != null)
 				return restartFailure;
+
+			// After ensureSessionReady(), never before: restarting a stopped session
+			// runs a build of its own, which is exactly what makes the model fresh
+			// again. Checking first would refuse a command that restart was about to
+			// make perfectly answerable.
+			final CommandResult stale = rejectIfModelIsStale(context, command);
+			if (stale != null)
+				return stale;
 		}
 
 		return command.executeCommand(context, params);
+	}
+
+	/**
+	 * Refuses a command whose answer would describe the project as the last
+	 * build left it rather than as it now stands - see Command.needsFreshModel()
+	 * and ErrorCode.STALE_MODEL.
+	 *
+	 * Here rather than in each command, for the reason needsOpenTransaction() is
+	 * here: it is a precondition on running at all, not part of what any one
+	 * command does, and a precondition copied into a dozen classes is one that a
+	 * thirteenth will eventually be written without. It also puts the check on
+	 * the single path both façades take, so a Lua script cannot reach past it.
+	 *
+	 * <b>What it costs.</b> One full-project file scan per command - the very
+	 * scan a rebuild already pays: an md5 over every .java file, read in
+	 * parallel (see FilesRepository.currentSourceFiles()). Measured on the
+	 * PlantUML checkout, 3633 sources, cache-warm, 2 cores: about 180 ms. What
+	 * it buys is that every find_*, hover and list_members answers about this
+	 * project rather than possibly about a former one, which is the whole reason
+	 * clide is preferred to a grep.
+	 *
+	 * Cheaper is possible and deliberately not done yet. On that same checkout
+	 * the walk alone costs ~40 ms and stat-ing every file for its mtime and size
+	 * ~12 ms, so a "nothing looks touched" pre-check would answer the common
+	 * case in a third of the time. It is not free of meaning, though: it would
+	 * trade Snapshot's content-based definition of "changed" (see its class doc)
+	 * for a timestamp one, and miss an edit that preserved both mtime and size.
+	 * Worth doing on measured need, not on principle.
+	 */
+	private static CommandResult rejectIfModelIsStale(final ClideContext context, final Command command) {
+		if (command.needsFreshModel() == false)
+			return null;
+
+		final Delta delta;
+		try {
+			delta = context.getCurrentSession().changesSinceLastBuild();
+		} catch (final IOException e) {
+			return CommandResult.error(ErrorCode.IO_FAILED,
+					"could not check whether the project changed since the last build: " + e.getMessage());
+		}
+
+		if (delta.isEmpty())
+			return null;
+
+		return CommandResult.error(ErrorCode.STALE_MODEL, staleMessage(context.getProjectRoot(), delta, command));
+	}
+
+	private static String staleMessage(final Path projectRoot, final Delta delta, final Command command) {
+		final StringBuilder message = new StringBuilder();
+		message.append(delta.size()).append(" .java file(s) changed since the last build, so ")
+				.append(command.getKeyword()).append(" would answer about another state of this project")
+				.append(" - run rebuild first:");
+
+		int named = 0;
+		for (final FileChange change : delta.changes()) {
+			if (named == STALE_FILES_NAMED) {
+				message.append("\n... and ").append(delta.size() - named).append(" more");
+				break;
+			}
+			message.append('\n').append(change.type().name().toLowerCase(Locale.ROOT)).append(' ')
+					.append(relativize(projectRoot, change.path()));
+			named++;
+		}
+
+		return message.toString();
+	}
+
+	/**
+	 * A FileChange carries the absolute path a Snapshot walked; nothing clide
+	 * prints ever may (see TODO.md). Falls back to the path as given if it does
+	 * not sit under the project, rather than throwing while building an error
+	 * message - a wrong path in a diagnostic is a nuisance, an exception raised
+	 * while reporting a problem hides the problem.
+	 */
+	private static String relativize(final Path projectRoot, final String absolute) {
+		try {
+			return projectRoot.relativize(Path.of(absolute)).toString().replace('\\', '/');
+		} catch (final RuntimeException e) {
+			return absolute;
+		}
 	}
 
 	/**
