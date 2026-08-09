@@ -9,6 +9,7 @@ import clide.command.ResearchRegexCommand;
 import clide.command.SetMaxResultsCommand;
 import clide.command.diagnostics.PrintDiagnosticsCommand;
 import clide.command.diagnostics.RebuildCommand;
+import clide.command.edit.RenameCommand;
 import clide.command.navigate.FindDeclarationCommand;
 import clide.command.navigate.FindImplementationCommand;
 import clide.command.navigate.FindReferenceCommand;
@@ -76,6 +77,8 @@ public final class CommandRepository {
 		registered.add(new RunTestCommand());
 		registered.add(new RunTestsCommand());
 		registered.add(new SetMaxResultsCommand());
+
+		registered.add(new RenameCommand());
 
 		registered.add(new OpenTransactionCommand());
 		registered.add(new CommitTransactionCommand());

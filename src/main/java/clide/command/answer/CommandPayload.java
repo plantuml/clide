@@ -1,5 +1,7 @@
 package clide.command.answer;
 
+import java.util.List;
+
 import clide.model.CodeLocation;
 import clide.model.DiagnosticsReport;
 import clide.model.Listing;
@@ -129,6 +131,46 @@ public sealed interface CommandPayload {
 
 	/** Every registered command - help. */
 	record CommandList(Listing<CommandSummary> commands) implements CommandPayload {
+	}
+
+	/**
+	 * A symbol renamed across the project - rename.
+	 *
+	 * <b>No occurrence count, deliberately.</b> jdtls does not answer with one
+	 * TextEdit per occurrence: two occurrences on neighbouring lines come back
+	 * as a single edit spanning both, whose replacement text reproduces
+	 * everything in between. Counting edits would therefore report a number that
+	 * looks like an occurrence count, is not one, and is wrong by an amount that
+	 * varies with how the source happens to be laid out. Files are counted
+	 * instead, because a file is something the answer can be checked against;
+	 * find_reference on the fresh declaration below gives the occurrences, and
+	 * gives them right.
+	 *
+	 * fileRenames is kept apart from changedFiles rather than folded into it:
+	 * "7 file(s) changed" reads as a routine refactoring, "and Square.java is
+	 * now Rectangle.java" is the part a reader could not have guessed.
+	 *
+	 * declaration is the renamed symbol's position <i>after</i> the edit, so the
+	 * next command needs no find_symbol to locate what was just renamed. Null
+	 * when clide could not derive one it had checked - a real possibility, and
+	 * not an error (see RenameCommand.freshDeclaration()): an absent position
+	 * costs a round trip, a wrong one costs an edit in the wrong place.
+	 *
+	 * errorCount is what the rebuild that followed the edit reported, so the
+	 * answer says in one line whether the refactoring left the project
+	 * compiling. The diagnostics themselves are not carried here -
+	 * print_diagnostics prints them without recompiling anything.
+	 */
+	record Rename(String subject, String newName, Listing<String> changedFiles, List<FileRenaming> fileRenames,
+			CodeLocation declaration, int errorCount) implements CommandPayload {
+
+		/** One file that changed name because the type it declares did. */
+		public record FileRenaming(String from, String to) {
+		}
+
+		public Rename {
+			fileRenames = List.copyOf(fileRenames);
+		}
 	}
 
 	/**

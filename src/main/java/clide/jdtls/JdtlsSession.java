@@ -156,8 +156,27 @@ public class JdtlsSession {
 	 * the events to send - see Snapshot.fileEventsTo(). All that is left here is
 	 * sending them and waiting for jdtls to catch up.
 	 */
+	/**
+	 * Every .java file that reads differently now than it did when the last
+	 * build() ran - what jdtls' model does <i>not</i> know about the project as
+	 * it currently stands on disk.
+	 *
+	 * refreshChangedFiles() has always computed this to decide what to notify;
+	 * it is public because a modifying command has to ask the same question for
+	 * a different reason. A refactoring is computed by jdtls against its model
+	 * and rewrites files the caller never named, so "is the model still the
+	 * project" stops being an optimisation and becomes a precondition - see
+	 * ErrorCode.STALE_MODEL and RenameCommand.
+	 *
+	 * Costs one full-project file scan (the same one a rebuild pays), and reads
+	 * nothing back from jdtls.
+	 */
+	public Delta changesSinceLastBuild() throws IOException {
+		return Snapshot.build(filesRepository).compareWithPreviousSnapshot(snapshot);
+	}
+
 	public int refreshChangedFiles() throws IOException {
-		final Delta delta = Snapshot.build(filesRepository).compareWithPreviousSnapshot(snapshot);
+		final Delta delta = changesSinceLastBuild();
 
 		if (delta.size() == 0)
 			return 0;
