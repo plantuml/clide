@@ -737,8 +737,44 @@ public class JdtlsSession {
 				.put("publishDiagnostics", publishDiagnostics) //
 				.put("documentSymbol", documentSymbolCapabilities) //
 				.build();
+		// What clide can do with a WorkspaceEdit jdtls *answers with* - the return
+		// value of textDocument/rename, java/getRefactorEdit and friends. Not to be
+		// confused with workspace.applyEdit, the unrelated permission for jdtls to
+		// push an edit at clide on its own initiative: that one is deliberately
+		// still not declared (see CLAUDE.md, "Known limitations").
+		//
+		// documentChanges is what turns the answer from the legacy shape (a bare
+		// uri -> TextEdit[] map, which can only ever change file *contents*) into an
+		// ordered list that may also carry resource operations. Without
+		// resourceOperations alongside it, jdtls has no way to express the file
+		// rename that goes with renaming a public class: renaming Square to
+		// Rectangle would leave "public class Rectangle" sitting in Square.java -
+		// exactly the PublicClassMustMatchFileName situation jdtls would then try to
+		// repair behind clide's back through workspace/applyEdit. Declaring this is
+		// therefore also what keeps clide out of that hole, rather than having to
+		// climb out of it afterwards.
+		//
+		// normalizesLineEndings false says clide writes back the newText it is
+		// given, byte for byte: WorkspaceEdit.applyTo() splices into the file's
+		// existing content and never rewrites terminators it was not asked about.
+		//
+		// failureHandling "abort": if jdtls cannot compute the whole edit, clide
+		// wants no edit at all rather than a half-applied refactoring - the
+		// transaction can undo a bad write, but only a client that knows one
+		// happened would think to.
+		final Monomorphic workspaceEditCapabilities = Monomorphic.mapBuilder() //
+				.putBoolean("documentChanges", true) //
+				.putBoolean("normalizesLineEndings", false) //
+				.putList("resourceOperations", List.of(Monomorphic.createString("create"),
+						Monomorphic.createString("rename"), Monomorphic.createString("delete"))) //
+				.putString("failureHandling", "abort") //
+				.build();
+		final Monomorphic workspaceCapabilities = Monomorphic.mapBuilder() //
+				.put("workspaceEdit", workspaceEditCapabilities) //
+				.build();
 		final Monomorphic capabilities = Monomorphic.mapBuilder() //
 				.put("textDocument", textDocumentCapabilities) //
+				.put("workspace", workspaceCapabilities) //
 				.build();
 
 		return Monomorphic.mapBuilder() //

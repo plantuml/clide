@@ -574,12 +574,27 @@ one. `--lua` and `--human` cannot be combined.
   yet (excluding `.clide/**` from jdtls's import scan would be the natural
   fix).
 - **jdtls's `workspace/applyEdit` (server-initiated edits) can't reach
-  clide today.** One concrete case: saving `Truc.java` when it actually
-  declares `public class Machin` — jdtls detects the
+  clide, deliberately.** One concrete case: saving `Truc.java` when it
+  actually declares `public class Machin` — jdtls detects the
   `PublicClassMustMatchFileName` error and, entirely on its own
   initiative (not in response to any client request), can rename the file
   to `Machin.java` via `workspace/applyEdit`. clide never advertises
   `workspace.applyEdit` support during `initialize`, so jdtls won't
-  attempt this; even if it did, `LspClient`'s message dispatch would
-  currently misroute the incoming request as a notification and never
-  send back a reply, leaving jdtls waiting indefinitely.
+  attempt this. Should it try anyway, `LspClient` now answers JSON-RPC's
+  `MethodNotFound` (-32601) instead of misrouting the request into its
+  notification queue and leaving jdtls waiting for a reply that never
+  came — a refusal jdtls can read, rather than a hang.
+
+  **Not to be confused with the `WorkspaceEdit` jdtls *answers with*.**
+  That one is the ordinary return value of a request clide itself sent
+  (`textDocument/rename`, and later `java/getRefactorEdit`), it needs no
+  `applyEdit` permission, and clide does handle it: `workspace.workspaceEdit`
+  is declared during `initialize` with `documentChanges` and
+  `resourceOperations` (create/rename/delete), so an answer can express the
+  file rename that goes with renaming a public class rather than leaving
+  `public class Rectangle` sitting in `Square.java`. `clide.edit`
+  (`WorkspaceEdit`, `TextEdit`, `ResourceOperation`) is the model, and
+  `WorkspaceEdit.applyTo()` applies it: operations front to back, edits
+  within one file back to front, splicing by character offset so line
+  endings and a missing trailing newline survive untouched. No command uses
+  it yet — see "Transactions", above.

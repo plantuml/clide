@@ -134,8 +134,58 @@ public class LspClient {
 			if (queue != null)
 				queue.offer(message);
 
+		} else if (isServerRequest(message)) {
+			refuse(message);
+
 		} else {
 			notifications.offer(message);
+		}
+	}
+
+	/**
+	 * A server-to-client <em>request</em> - a message carrying both a method and
+	 * an id, which JSON-RPC says must be answered. workspace/applyEdit is the one
+	 * clide would meet first (see CLAUDE.md), but window/showMessageRequest,
+	 * client/registerCapability and workspace/configuration have the same shape.
+	 *
+	 * Told apart from a notification by the id alone: a notification carries a
+	 * method and no id, and is the only thing the notifications queue was ever
+	 * meant to hold. Without this branch an incoming request landed in that queue,
+	 * where nothing ever answers - so jdtls waited for a reply that was never
+	 * coming, silently, for as long as the daemon lived.
+	 */
+	private static boolean isServerRequest(final Monomorphic message) {
+		if (message.containsKey("method") == false)
+			return false;
+
+		return message.containsKey("id");
+	}
+
+	/**
+	 * Answers a server request clide does not implement with JSON-RPC's own
+	 * MethodNotFound (-32601), so jdtls learns straight away that this client will
+	 * not do it and carries on. Saying no is the point: a refusal jdtls can read is
+	 * worth more than a request left hanging, and the day clide does implement one
+	 * of these, it grows a branch above this one rather than replacing it.
+	 *
+	 * The id is echoed as the value that came in, never re-read as a number:
+	 * JSON-RPC allows a string id too, and a reply carrying a different id than
+	 * the request would go unmatched on the server side.
+	 */
+	private void refuse(final Monomorphic message) {
+		final Monomorphic error = Monomorphic.mapBuilder() //
+				.putNumber("code", -32601) //
+				.putString("message", "clide does not implement " + message.getFromMap("method").asString()) //
+				.build();
+		final Monomorphic reply = Monomorphic.mapBuilder() //
+				.putString("jsonrpc", "2.0") //
+				.put("id", message.getFromMap("id")) //
+				.put("error", error) //
+				.build();
+		try {
+			send(reply);
+		} catch (final IOException e) {
+			// Server stream already gone - the reader loop is about to stop anyway.
 		}
 	}
 
