@@ -18,7 +18,7 @@ class CodeLocationTest {
 	 * coherence entre position et lineText, pas sur le contenu d'un fichier - il
 	 * n'y en a aucun ici. Voir PositionCodesTest pour le controle du md5 lui-meme.
 	 */
-	private static final String MD5 = "d41d8cd98f00b204e9800998ecf8427e";
+	private static final String MD5 = "d41d8cd9";
 
 
 	@Test

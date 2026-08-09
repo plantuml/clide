@@ -29,7 +29,7 @@ import clide.model.SymbolHit;
  */
 class LuaPayloadsTest {
 
-	private static final String MD5 = "d41d8cd98f00b204e9800998ecf8427e";
+	private static final String MD5 = "d41d8cd9";
 
 	@SuppressWarnings("unchecked")
 	private static Map<String, Object> table(final Object value) {

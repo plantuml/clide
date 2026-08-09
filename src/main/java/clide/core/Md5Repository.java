@@ -1,14 +1,21 @@
 package clide.core;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.zip.Deflater;
+import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
 /**
@@ -132,6 +139,67 @@ public class Md5Repository {
 				def.setLevel(Deflater.BEST_SPEED);
 			}
 		};
+	}
+
+	/**
+	 * The one full md5 filed in this store whose spelling starts with prefix -
+	 * null if none does, or if more than one does.
+	 *
+	 * Reached only from PositionParser's stale-position hint (see
+	 * PositionParser.staleHint()): a client's token carries just
+	 * Position.MD5_LENGTH characters (see Position), never the full md5
+	 * blobPath() needs to address one specific blob. The bucket - prefix's own
+	 * first two characters - narrows the search to the same directory storeBlob()
+	 * already separates content into; nothing outside it is read.
+	 *
+	 * More than one match is answered exactly like none, on purpose: this store
+	 * never purges a blob (see the class doc), so a project edited over months can
+	 * pile up several historical revisions of the same file sharing one prefix.
+	 * With no way to tell which one the caller actually meant, guessing between
+	 * them would risk building a hint off the wrong revision - worse than no hint
+	 * at all (see CODING.md on hints).
+	 */
+	String md5WithPrefix(final String prefix) {
+		if (projectRoot == null)
+			return null;
+
+		final Path bucket = projectRoot.resolve(".clide").resolve("tmp").resolve("md5").resolve(prefix.substring(0, 2));
+		if (Files.isDirectory(bucket) == false)
+			return null;
+
+		String found = null;
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(bucket, prefix + "*.gz")) {
+			for (final Path entry : entries) {
+				if (found != null)
+					return null; // a second match makes the first one just as unusable
+
+				final String name = entry.getFileName().toString();
+				found = name.substring(0, name.length() - ".gz".length());
+			}
+		} catch (final IOException e) {
+			return null;
+		}
+
+		return found;
+	}
+
+	/**
+	 * The lines of the blob filed under fullMd5 (the whole 32 characters this
+	 * store addresses blobs by - see md5WithPrefix() for going from a client's
+	 * shorter prefix to this), decoded as UTF-8: the same decoding
+	 * PositionParser.parse() applies to a live file, so an old line only ever
+	 * compares equal to a live one when the two really were byte-for-byte
+	 * identical.
+	 */
+	List<String> readLines(final String fullMd5) throws IOException {
+		final List<String> lines = new ArrayList<>();
+		try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+				new GZIPInputStream(Files.newInputStream(blobPath(fullMd5))), StandardCharsets.UTF_8))) {
+			String line;
+			while ((line = reader.readLine()) != null)
+				lines.add(line);
+		}
+		return lines;
 	}
 
 }

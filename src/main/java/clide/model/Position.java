@@ -28,14 +28,15 @@ import java.util.regex.Pattern;
  *
  * &lt;file-content-md5&gt; is what closes the staleness gap this class used to
  * carry as a known defect. It signs the whole content of the file the
- * position points into - the same signature Snapshot compares and
- * Md5Repository files blobs under, so one notion of "this file's content"
- * serves both. A Position built here always carries the md5 the file has
- * *now*, never the one a client sent: PositionParser.parse() compares the
- * two and refuses the token when they differ (ErrorCode.FILE_MODIFIED), so
- * a position that survived an edit fails loudly instead of pointing
- * somewhere else. md5 is null only for a position no producer could sign -
- * see toString(), which then falls back to the short form.
+ * position points into - the first MD5_LENGTH characters of the same
+ * signature Snapshot compares and Md5Repository files blobs under, so one
+ * notion of "this file's content" serves both. A Position built here always
+ * carries the md5 the file has *now*, never the one a client sent:
+ * PositionParser.parse() compares the two and refuses the token when they
+ * differ (ErrorCode.FILE_MODIFIED), so a position that survived an edit
+ * fails loudly instead of pointing somewhere else. md5 is null only for a
+ * position no producer could sign - see toString(), which then falls back
+ * to the short form.
  *
  * Note that any edit anywhere in the file invalidates every position in it,
  * not just the ones on the edited line: the signature covers the content,
@@ -46,13 +47,38 @@ import java.util.regex.Pattern;
 public record Position(String md5, String path, int line, int column, String name) {
 
 	/**
-	 * A &lt;file-content-md5&gt; exactly as Md5Repository.md5Of() emits it: 32
-	 * hexadecimal characters, lowercase. Uppercase is refused rather than
-	 * normalised - clide only ever prints one spelling, so accepting a second one
-	 * would mean two tokens naming the same position and neither being the
-	 * canonical one.
+	 * How much of the md5 a &lt;position&gt; carries: the first 8 of the 32
+	 * characters Md5Repository.md5Of() emits.
+	 *
+	 * 8 rather than all 32 because this signature is never looked up, only
+	 * compared - PositionParser.parse() already knows which file it is checking,
+	 * the path says so, and there is exactly one candidate md5: the one the file
+	 * has right now. Nothing has to be told apart, so the only question is how
+	 * many bits are enough to notice an edit. 8 hexadecimal characters are 32
+	 * bits: one chance in 4.3 billion that editing a file leaves its signature
+	 * starting the same way. The other 24 characters bought nothing and cost a
+	 * line - on a find_reference capped at 100 results, 2400 characters of hex a
+	 * client has to read past.
+	 *
+	 * Not a security property, and never was: md5 is a change detector here, not
+	 * a defence against someone crafting a collision on purpose.
 	 */
-	public static final String MD5_REGEX = "[0-9a-f]{32}";
+	public static final int MD5_LENGTH = 8;
+
+	/**
+	 * A &lt;file-content-md5&gt; exactly as a Position carries it: MD5_LENGTH
+	 * hexadecimal characters, lowercase, never more and never fewer. Uppercase is
+	 * refused rather than normalised - clide only ever prints one spelling, so
+	 * accepting a second one would mean two tokens naming the same position and
+	 * neither being the canonical one.
+	 *
+	 * PositionParser.parse() enforces the same length on input, not just here on
+	 * output: nothing above MD5_LENGTH buys the staleness check any more
+	 * confidence (8 hex characters are already 32 bits - see MD5_LENGTH), so
+	 * there is no reason to let a client send more, and every reason to keep one
+	 * shape for what clide reads and what it prints.
+	 */
+	public static final String MD5_REGEX = "[0-9a-f]{" + MD5_LENGTH + "}";
 
 	private static final Pattern MD5 = Pattern.compile(MD5_REGEX);
 
@@ -62,13 +88,28 @@ public record Position(String md5, String path, int line, int column, String nam
 					"path must be relative to the project root, not absolute and not a file: URI: " + path);
 
 		if (md5 != null && isMd5(md5) == false)
-			throw new IllegalArgumentException(
-					"md5 must be 32 lowercase hexadecimal characters, as Md5Repository writes them: " + md5);
+			throw new IllegalArgumentException("md5 must be " + MD5_LENGTH
+					+ " lowercase hexadecimal characters - the start of what Md5Repository writes: " + md5);
 	}
 
 	/** Whether candidate is spelled the one way a &lt;file-content-md5&gt; is written. */
 	public static boolean isMd5(final String candidate) {
 		return candidate != null && MD5.matcher(candidate).matches();
+	}
+
+	/**
+	 * A full md5 cut down to what a Position carries.
+	 *
+	 * The one place the truncation happens, so that the two producers - a parsed
+	 * token and a jdtls result - cannot end up carrying different lengths. Passes
+	 * null through: a position nobody could sign stays unsigned rather than
+	 * becoming a signature of nothing.
+	 */
+	public static String abbreviate(final String fullMd5) {
+		if (fullMd5 == null || fullMd5.length() <= MD5_LENGTH)
+			return fullMd5;
+
+		return fullMd5.substring(0, MD5_LENGTH);
 	}
 
 	/**

@@ -79,14 +79,26 @@ public enum ErrorCode {
 	/**
 	 * The token carried a &lt;file-content-md5&gt; that is no longer the file's -
 	 * the file has been edited since this position was produced, so the position
-	 * describes a state of it that is gone. Nothing about the token can be
-	 * repaired in place: the position has to be produced again against the file as
-	 * it now is (see PositionParser.parse()).
+	 * describes a state of it that is gone. Nothing about the *token* can be
+	 * repaired in place - the position has to be produced again against the file
+	 * as it now is (see PositionParser.parse()).
 	 *
-	 * No hint, on purpose. The obvious one - the file's current md5 - would be
-	 * read as the fix, and a client pasting it back would have a token that passes
-	 * the check while pointing wherever the edit moved that line to. The check is
-	 * only worth what it costs to satisfy honestly.
+	 * The obvious "repair" - handing back the file's current md5 so the same
+	 * token passes next time - is deliberately never done: pasting that back
+	 * would produce a token that passes the check while pointing wherever the
+	 * edit moved that line to, defeating the very thing FILE_MODIFIED exists to
+	 * catch.
+	 *
+	 * A hint may still appear, and it is a different thing entirely: a complete,
+	 * freshly re-derived &lt;position&gt; for the same name, offered only when
+	 * clide found real evidence - the name's exact old line, read back unchanged
+	 * from a cached historical revision, still exists byte for byte somewhere in
+	 * the current file - that it still names the right spot (see
+	 * PositionParser.staleHint()). That evidence is often missing (any edit to
+	 * the line itself defeats it, and the historical revision is only cached at
+	 * all if a rebuild ran while it was live), so most FILE_MODIFIED failures
+	 * still carry no hint - but when one appears, it is a genuinely fresh,
+	 * already-checked position, not a way around the check.
 	 */
 	FILE_MODIFIED,
 

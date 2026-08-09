@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test;
  */
 class PositionTest {
 
-	private static final String MD5 = "d41d8cd98f00b204e9800998ecf8427e";
+	private static final String MD5 = "d41d8cd9";
 
 	/**
 	 * La racine du système de fichiers courant - "/" sous Unix, "C:\\" (ou la

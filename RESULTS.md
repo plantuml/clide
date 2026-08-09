@@ -166,17 +166,30 @@ codes fonctionne inchangé.
 pareil, d'où deux codes plutôt qu'un : le premier dit que le nom n'est **nulle
 part** sur la ligne (mauvaise ligne, ou fichier périmé — changer de colonne n'y
 ferait rien) ; le second qu'il est bien sur la ligne, mais ailleurs, et son
-`hint` donne les colonnes où il commence réellement. C'est le seul code de
-`<position>` à porter un hint.
+`hint` donne les colonnes où il commence réellement.
 
 `FILE_MODIFIED` est le troisième de cette famille, et le seul qui ne se corrige
-pas du tout : le `<file-content-md5>` du token n'est plus celui du fichier, donc
-le fichier a changé depuis que la position a été produite et il n'y a rien à
-rectifier dans le token — il faut redemander la position. Il est vérifié **avant**
-la ligne, la colonne et le nom, précisément parce que ceux-ci diraient un
-symptôme (`NAME_NOT_AT_COLUMN`) au lieu de la cause, ou passeraient par accident.
-Et il ne porte volontairement pas de hint : donner le md5 courant reviendrait à
-livrer le contournement avec l'erreur.
+pas du tout dans le token lui-même : le `<file-content-md5>` n'est plus celui du
+fichier, donc le fichier a changé depuis que la position a été produite, et il
+n'y a rien à rectifier dans ce token — il faut redemander la position. Il est
+vérifié **avant** la ligne, la colonne et le nom, précisément parce que ceux-ci
+diraient un symptôme (`NAME_NOT_AT_COLUMN`) au lieu de la cause, ou
+passeraient par accident. Il ne porte volontairement jamais le md5 courant
+dans son `hint` : ce serait livrer le contournement avec l'erreur, puisqu'un
+client pourrait le recoller tel quel dans le token et faire taire le contrôle
+sans jamais avoir revérifié la ligne, la colonne ou le nom.
+
+Un `hint` peut néanmoins apparaître, et c'est autre chose : une `<position>`
+fraîche et complète, entièrement re-dérivée pour le même nom, offerte
+seulement quand clide a une vraie preuve — la ligne exacte que visait l'ancien
+token, relue telle quelle depuis une révision historique mise en cache, existe
+encore mot pour mot quelque part dans le fichier actuel (voir
+`PositionParser.staleHint()` et `Md5Repository.md5WithPrefix()`). Cette preuve
+manque souvent (n'importe quelle modification de la ligne elle-même la fait
+échouer, et la révision historique n'est en cache que si un `rebuild` a tourné
+pendant qu'elle était encore la version courante) — la plupart des
+`FILE_MODIFIED` restent donc sans hint, mais quand il y en a un, c'est une
+position fraîche déjà vérifiée, pas un moyen de contourner le contrôle.
 
 Rappel de l'asymétrie de la notation : le `<file-content-md5>` est **facultatif
 en entrée** (l'omettre vaut « sur le fichier actuellement sur le disque », donc
@@ -274,7 +287,7 @@ Un endroit précis du projet, tel que le nomment tous les `find_*`,
 
 | Champ | Type | Rôle |
 |---|---|---|
-| `md5` | `String` | signature md5 du contenu **entier** du fichier, 32 caractères hexadécimaux minuscules ; `null` si la position n'a pas pu être signée |
+| `md5` | `String` | signature md5 du contenu **entier** du fichier, 8 caractères hexadécimaux minuscules (les 8 premiers des 32 que produit l'algorithme - jamais recherchée, seulement comparée) ; `null` si la position n'a pas pu être signée |
 | `path` | `String` | chemin relatif à la racine du projet, séparateurs `/` |
 | `line` | `int` | ligne 1-based ; `-1` si la réponse ne portait aucune plage exploitable |
 | `column` | `int` | colonne 1-based du début du symbole ; `-1` dans le même cas |

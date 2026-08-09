@@ -562,7 +562,7 @@ public class JdtlsSession {
 	 */
 	private String md5Of(final String uri) {
 		try {
-			return Md5Repository.md5Of(Paths.get(URI.create(uri)));
+			return Position.abbreviate(Md5Repository.md5Of(Paths.get(URI.create(uri))));
 		} catch (final IOException | RuntimeException e) {
 			throw new PositionException(ErrorCode.FILE_UNREADABLE,
 					"Could not read " + shortName(uri) + " to sign the position it is in: " + e.getMessage());

@@ -244,7 +244,7 @@ Most commands that point to a precise spot in the code
 (`find_declaration`, `find_reference`, `find_implementation`, `hover`,
 `list_members`, `run_test`) take a single `<position>` parameter, written
 `<file-content-md5>:<file path>:<line>:<column>:<name>` — for example
-`0f5a2c8e91b47d63ae05f8c2d1904e7b:src/main/java/clide/command/ManualCommand.java:27:21:needsJdtlsSession`.
+`0f5a2c8e:src/main/java/clide/command/ManualCommand.java:27:21:needsJdtlsSession`.
 
 This is the only notation clide accepts today. The shorter forms sketched
 in `SYMBOLS.md` (`Classe::membre`, a bare file name, a bare class name) are
@@ -252,10 +252,12 @@ not implemented; sending one gets `?ERROR MALFORMED_POSITION`.
 
 Five rules are enough to use it correctly:
 
-- `<file-content-md5>` is the md5 of the whole content of the file the
-  position points into, 32 lowercase hexadecimal characters — the same
-  signature clide uses everywhere else to tell whether a file moved.
-  **It is optional on input, and always present on output** (see below).
+- `<file-content-md5>` is the first 8 lowercase hexadecimal characters of
+  the md5 of the whole content of the file the position points into — the
+  same signature clide uses everywhere else to tell whether a file moved,
+  cut down to what is enough to notice an edit (nothing ever looks it up,
+  only compares it against the one file the path already names). **It is
+  optional on input, and always present on output** (see below).
 - `<file path>` is always relative to the root of the opened project,
   never to the current working directory. It also accepts a `file:` URI —
   that's the format every `find_*`/`hover`/`list_members` command already
@@ -292,6 +294,17 @@ produce a token that passes the check while pointing somewhere else. Ask
 again — `find_symbol`, or whichever command produced the position — and use
 what comes back.
 
+A `?ERROR FILE_MODIFIED` may carry a `hint:` line instead, and it is a
+different thing entirely from that shortcut: a complete, freshly re-derived
+`<position>` for the same name, offered only when clide found real evidence
+that it still names the right spot — the name's exact old line, read back
+unchanged from a cached historical revision, still exists byte for byte
+somewhere in the current file. That evidence is often missing (any edit to
+the line itself defeats it, and the historical revision is only cached at
+all if a `rebuild` ran while it was live), so most `FILE_MODIFIED` failures
+still carry no hint — but when one appears, it is a genuinely fresh,
+already-checked position, safe to use as-is, not a way around the check.
+
 **Omitting the md5 is allowed**, and is the one asymmetry in the notation:
 `src/main/java/demo/Square.java:3:14:Square` still works and means
 *implicitly* "against the file currently on disk". You get the checks clide
@@ -299,7 +312,7 @@ always did (the file exists, the line exists, the name starts at that
 column) and nothing more. Convenient when typing a position by hand; it is
 also, exactly, opting out of the staleness check.
 
-Written with an md5 that is 32 hexadecimal characters but not lowercase, a
+Written with an md5 that is 8 hexadecimal characters but not lowercase, a
 token is refused as `MALFORMED_POSITION` naming that as the reason, rather
 than being read as a strange file path.
 
@@ -325,10 +338,10 @@ the next command with no editing at all:
 
 ```
 find_symbol Square
-→ [class] 6b1e0a4c37d9f28e5c0b93ad718f4c26:src/main/java/demo/Square.java:3:14:Square public class Square implements Shape {
+→ [class] 6b1e0a4c:src/main/java/demo/Square.java:3:14:Square public class Square implements Shape {
 
-list_members 6b1e0a4c37d9f28e5c0b93ad718f4c26:src/main/java/demo/Square.java:3:14:Square
-→ [method] 6b1e0a4c37d9f28e5c0b93ad718f4c26:src/main/java/demo/Square.java:12:16:area public double area() {
+list_members 6b1e0a4c:src/main/java/demo/Square.java:3:14:Square
+→ [method] 6b1e0a4c:src/main/java/demo/Square.java:12:16:area public double area() {
 ```
 
 The md5 is the same in both lines of that second result because both name
@@ -466,7 +479,7 @@ Inside the script, **every command is a function of the same name**, taking its
 parameters in the order `help` lists them:
 
 ```lua
-local members = list_members("6b1e0a4c37d9f28e5c0b93ad718f4c26:src/main/java/demo/Square.java:3:14:Square")
+local members = list_members("6b1e0a4c:src/main/java/demo/Square.java:3:14:Square")
 for _, member in ipairs(members.symbols.items) do
   if member.kind == "method" and member.location ~= nil then
     local refs = find_reference("method", member.location.position)

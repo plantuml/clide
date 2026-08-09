@@ -3,6 +3,7 @@ package clide.core;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -10,6 +11,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.zip.GZIPInputStream;
 
 import org.junit.jupiter.api.DisplayName;
@@ -134,6 +136,46 @@ class Md5RepositoryTest {
 		try (java.util.stream.Stream<Path> walk = Files.walk(repository.blobPath(md5).getParent())) {
 			assertTrue(walk.filter(Files::isRegularFile).allMatch(p -> p.toString().endsWith(".gz")));
 		}
+	}
+
+	@Test
+	@DisplayName("md5WithPrefix() retrouve le seul blob filé sous ce préfixe")
+	void md5WithPrefixFindsTheSoleMatch(@TempDir final Path projectRoot) throws IOException {
+		final Path source = write(projectRoot, "Alpha.java", "class Alpha {}");
+		final Md5Repository repository = new Md5Repository(projectRoot);
+		final String full = repository.register(source);
+
+		assertEquals(full, repository.md5WithPrefix(full.substring(0, 8)));
+	}
+
+	@Test
+	@DisplayName("md5WithPrefix() rend null quand rien n'est filé sous ce préfixe")
+	void md5WithPrefixFindsNothing(@TempDir final Path projectRoot) throws IOException {
+		final Md5Repository repository = new Md5Repository(projectRoot);
+
+		assertNull(repository.md5WithPrefix("deadbeef"));
+	}
+
+	@Test
+	@DisplayName("md5WithPrefix() refuse de deviner entre deux blobs partageant le même préfixe")
+	void md5WithPrefixRefusesToGuess(@TempDir final Path projectRoot) throws IOException {
+		final Path bucket = projectRoot.resolve(".clide").resolve("tmp").resolve("md5").resolve("de");
+		Files.createDirectories(bucket);
+		Files.write(bucket.resolve("deadbeef1111111111111111111111.gz"), new byte[0]);
+		Files.write(bucket.resolve("deadbeef2222222222222222222222.gz"), new byte[0]);
+		final Md5Repository repository = new Md5Repository(projectRoot);
+
+		assertNull(repository.md5WithPrefix("deadbeef"));
+	}
+
+	@Test
+	@DisplayName("readLines() rend exactement les lignes d'origine, décodées comme un fichier vivant")
+	void readLinesRoundTrips(@TempDir final Path projectRoot) throws IOException {
+		final Path source = write(projectRoot, "Alpha.java", "class Alpha {\n  int i;\n}\n");
+		final Md5Repository repository = new Md5Repository(projectRoot);
+		final String md5 = repository.register(source);
+
+		assertEquals(Files.readAllLines(source, StandardCharsets.UTF_8), repository.readLines(md5));
 	}
 
 	private Path write(final Path projectRoot, final String name, final String content) throws IOException {

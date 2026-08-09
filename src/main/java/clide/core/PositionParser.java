@@ -21,24 +21,30 @@ public final class PositionParser {
 	 * &lt;file-content-md5&gt;:&lt;file path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt;,
 	 * the md5 optional (see parse()).
 	 *
-	 * The md5 is what makes this decidable despite the path itself being allowed
-	 * to contain colons (a file: URI does): the signature is of fixed width, hex,
-	 * and anchored at the very start, so the only token that could be read two
-	 * ways is one whose *path* begins with 32 lowercase hex characters followed by
-	 * a colon. Legal on Unix, never seen; a separate separator would only have
-	 * moved that same improbability elsewhere, at the cost of a second kind of
-	 * boundary in a notation that otherwise has one.
+	 * The md5 stays decidable despite the path itself being allowed to contain
+	 * colons (a file: URI does): it is hex, of fixed width, and anchored at the
+	 * very start, so the only token that could be read two ways is one whose
+	 * *path* begins with exactly Position.MD5_LENGTH lowercase hex characters
+	 * followed by a colon. Legal on Unix, never seen, impossible on Windows; a
+	 * separate separator would only have moved that same improbability elsewhere,
+	 * at the cost of a second kind of boundary in a notation that otherwise has
+	 * one.
+	 *
+	 * Exactly Position.MD5_LENGTH, on input as on output - not "at least": nothing
+	 * past it buys the staleness check more confidence (see Position.MD5_LENGTH),
+	 * so there is nothing to gain from accepting more, and one fixed shape is
+	 * simpler than a range to document, test and explain.
 	 */
 	private static final Pattern NOTATION = Pattern
 			.compile("^(?:(" + Position.MD5_REGEX + "):)?(.+):(\\d+):(\\d+):(\\w+)$");
 
 	/**
-	 * A prefix that is 32 hexadecimal characters and a colon, yet did not match
-	 * NOTATION's md5 group - which leaves exactly one possibility, since NOTATION
-	 * accepts every lowercase spelling: an md5 written with uppercase letters. See
-	 * refuseMiscasedMd5().
+	 * A prefix that is Position.MD5_LENGTH hexadecimal characters and a colon,
+	 * yet did not match NOTATION's md5 group - which leaves exactly one
+	 * possibility, since NOTATION accepts every lowercase spelling of that
+	 * length: an md5 written with uppercase letters. See refuseMiscasedMd5().
 	 */
-	private static final Pattern MISCASED_MD5 = Pattern.compile("^([0-9a-fA-F]{32}):");
+	private static final Pattern MISCASED_MD5 = Pattern.compile("^([0-9a-fA-F]{" + Position.MD5_LENGTH + "}):");
 
 	private PositionParser() {
 	}
@@ -85,10 +91,16 @@ public final class PositionParser {
 		if (Files.isRegularFile(file) == false)
 			throw new PositionException(ErrorCode.FILE_NOT_FOUND, "Not a file: " + pathArgument);
 
+		// No lookup anywhere: the path already said which file, so there is only
+		// ever one candidate signature to compare against - the file's own, cut
+		// down to the same MD5_LENGTH a token carries (see Position.abbreviate()).
 		final String currentMd5 = md5Of(file, pathArgument);
-		if (md5 != null && md5.equals(currentMd5) == false)
-			throw new PositionException(ErrorCode.FILE_MODIFIED, "Stale position: " + pathArgument
-					+ " has changed since this position was produced - its content no longer signs as " + md5);
+		final String currentAbbreviated = Position.abbreviate(currentMd5);
+		if (md5 != null && currentAbbreviated.equals(md5) == false)
+			throw new PositionException(ErrorCode.FILE_MODIFIED,
+					"Stale position: " + pathArgument
+							+ " has changed since this position was produced - its content no longer signs as " + md5,
+					staleHint(projectRoot, file, currentMd5, md5, notation));
 
 		final int line = Integer.parseInt(notation.group(3));
 		final int column = Integer.parseInt(notation.group(4));
@@ -107,7 +119,8 @@ public final class PositionParser {
 
 		checkNameAtColumn(lines.get(line - 1), line, column, name, pathArgument);
 
-		return new Position(currentMd5, projectRoot.relativize(file).toString(), line, column, name);
+		return new Position(Position.abbreviate(currentMd5), projectRoot.relativize(file).toString(), line, column,
+				name);
 	}
 
 	/**
@@ -131,6 +144,82 @@ public final class PositionParser {
 	}
 
 	/**
+	 * A best-effort hint for a FILE_MODIFIED refusal: a freshly re-derived,
+	 * already-checked &lt;position&gt; for the same name, offered only when there is
+	 * real evidence - not a guess - that it still names the right spot.
+	 *
+	 * This is not the workaround FILE_MODIFIED's ErrorCode javadoc warns against
+	 * (handing back the file's current md5 so a stale token can be patched and
+	 * resubmitted, which would just let a client bypass the check it just
+	 * failed). What this returns, when it returns anything, is a *new* position -
+	 * its own fresh md5, line and column - built the same way find_symbol or any
+	 * other command would build one, then handed out only because the specific
+	 * evidence below held. A client pasting it back is not evading a stale
+	 * check; it is using a correct one.
+	 *
+	 * The evidence: staleMd5 names an old blob still sitting in Md5Repository's
+	 * store (see Md5Repository.md5WithPrefix() - not guaranteed, since nothing
+	 * files a blob outside a rebuild). If found, the *exact text* of the old line
+	 * the token named is read back from it, and the current file is searched for
+	 * that same text, byte for byte. Only when it turns up in exactly one place -
+	 * not zero, not several - is there anything worth trusting: name is then
+	 * looked up on that one line, and only a single unambiguous column completes
+	 * the hint.
+	 *
+	 * Every one of those steps has a way to come up empty - the blob was never
+	 * filed, the line changed too, the same line text reads twice in the file, the
+	 * name isn't on it, the name reads twice on it - and every one of them means
+	 * silently returning null, never a half-confident guess. In practice this
+	 * hint appears far less often than it does not: any edit at all to the line
+	 * itself - reindenting it, adding a trailing comment - defeats the exact-text
+	 * search that is the whole safeguard against a wrong answer. What it catches
+	 * is narrower and still worth having: a name that moved because code was
+	 * inserted or deleted *elsewhere* in the file, leaving the line itself
+	 * untouched.
+	 */
+	private static String staleHint(final Path projectRoot, final Path file, final String currentMd5,
+			final String staleMd5, final Matcher notation) {
+		try {
+			final Md5Repository blobs = new Md5Repository(projectRoot);
+			final String fullOldMd5 = blobs.md5WithPrefix(staleMd5);
+			if (fullOldMd5 == null)
+				return null;
+
+			final List<String> oldLines = blobs.readLines(fullOldMd5);
+			final int oldLine = Integer.parseInt(notation.group(3));
+			if (oldLine < 1 || oldLine > oldLines.size())
+				return null;
+			final String oldLineText = oldLines.get(oldLine - 1);
+
+			final List<String> currentLines = Files.readAllLines(file, StandardCharsets.UTF_8);
+			int matchAt = -1;
+			for (int i = 0; i < currentLines.size(); i++) {
+				if (currentLines.get(i).equals(oldLineText) == false)
+					continue;
+				if (matchAt != -1)
+					return null; // a second identical line makes the first just as unusable
+
+				matchAt = i;
+			}
+			if (matchAt == -1)
+				return null;
+
+			final String name = notation.group(5);
+			final List<Integer> columns = wholeWordColumns(currentLines.get(matchAt), name);
+			if (columns.size() != 1)
+				return null;
+
+			final String fresh = Position.notation(Position.abbreviate(currentMd5),
+					projectRoot.relativize(file).toString(), matchAt + 1, columns.get(0), name);
+			return "'" + name + "' is unchanged elsewhere in the file - now at " + fresh;
+		} catch (final IOException | RuntimeException e) {
+			// best-effort: any failure here means no hint, never a different error than
+			// the FILE_MODIFIED already being reported
+			return null;
+		}
+	}
+
+	/**
 	 * Refuses a token whose md5 is right in every way but its case, rather than
 	 * letting it degrade into a confusing FILE_NOT_FOUND.
 	 *
@@ -146,7 +235,7 @@ public final class PositionParser {
 
 		throw new PositionException(ErrorCode.MALFORMED_POSITION,
 				"Invalid position '" + token + "' - '" + miscased.group(1)
-						+ "' is 32 hexadecimal characters, so it reads as a <file-content-md5>, "
+						+ "' is hexadecimal and long enough to read as a <file-content-md5>, "
 						+ "but one is written lowercase as clide prints it");
 	}
 
@@ -176,7 +265,8 @@ public final class PositionParser {
 		// told its file does not exist.
 		if (md5 != null && Position.isMd5(md5) == false)
 			throw new PositionException(ErrorCode.MALFORMED_POSITION, "Invalid <file-content-md5> '" + md5
-					+ "' - expected 32 lowercase hexadecimal characters, as clide prints them");
+					+ "' - expected " + Position.MD5_LENGTH + " lowercase hexadecimal characters, "
+					+ "as clide prints them");
 
 		return parse(filesRepository, Position.notation(md5, path, line, column, name));
 	}

@@ -155,7 +155,7 @@ class PositionCodesTest {
 		// La forme courte entre, la forme longue sort : c'est toute l'asymétrie de
 		// la notation, et ce qui fait qu'un résultat recopié tel quel porte la
 		// signature même quand le token qui l'a produit ne la portait pas.
-		assertEquals(Md5Repository.md5Of(file) + ":Foo.java:1:7:Foo",
+		assertEquals(Position.abbreviate(Md5Repository.md5Of(file)) + ":Foo.java:1:7:Foo",
 				PositionParser.parse(filesRepository, "Foo.java:1:7:Foo").toString());
 	}
 
@@ -168,11 +168,11 @@ class PositionCodesTest {
 	void matchingMd5IsAccepted(@TempDir final Path root) throws IOException {
 		final Path file = write(root, "Foo.java", "class Foo {", "}");
 		final FilesRepository filesRepository = new FilesRepository(root, null);
+		final String md5 = Position.abbreviate(Md5Repository.md5Of(file));
 
-		final Position position = PositionParser.parse(filesRepository,
-				Md5Repository.md5Of(file) + ":Foo.java:1:7:Foo");
+		final Position position = PositionParser.parse(filesRepository, md5 + ":Foo.java:1:7:Foo");
 
-		assertEquals(Md5Repository.md5Of(file), position.md5());
+		assertEquals(md5, position.md5());
 		assertEquals("Foo.java", position.path());
 		assertEquals(7, position.column());
 	}
@@ -181,7 +181,7 @@ class PositionCodesTest {
 	@DisplayName("un md5 périmé est FILE_MODIFIED, même si ligne, colonne et nom sont encore justes")
 	void staleMd5IsRejected(@TempDir final Path root) throws IOException {
 		final Path file = write(root, "Foo.java", "class Foo {", "}");
-		final String before = Md5Repository.md5Of(file);
+		final String before = Position.abbreviate(Md5Repository.md5Of(file));
 
 		// Le commentaire ajouté en tête décale tout d'une ligne, mais on interroge
 		// la ligne où "Foo" se trouve *maintenant* : sans le md5, ce token passerait
@@ -195,22 +195,25 @@ class PositionCodesTest {
 	@DisplayName("FILE_MODIFIED ne donne pas le md5 courant - ce serait livrer le contournement avec l'erreur")
 	void staleMd5GivesNoWayToPatchTheToken(@TempDir final Path root) throws IOException {
 		final Path file = write(root, "Foo.java", "class Foo {", "}");
-		final String before = Md5Repository.md5Of(file);
+		final String before = Position.abbreviate(Md5Repository.md5Of(file));
 		write(root, "Foo.java", "// ajouté", "class Foo {", "}");
 		final FilesRepository filesRepository = new FilesRepository(root, null);
 
+		// Rien n'a été classé dans Md5Repository (pas de register()) : le hint n'a
+		// aucune preuve à exploiter, donc aucune chance de faire fuiter le md5
+		// courant par cette voie non plus.
 		final PositionException thrown = assertThrows(PositionException.class,
 				() -> PositionParser.parse(filesRepository, before + ":Foo.java:2:7:Foo"));
 
 		assertEquals("", thrown.getHint());
-		assertFalse(thrown.getMessage().contains(Md5Repository.md5Of(file)));
+		assertFalse(thrown.getMessage().contains(Position.abbreviate(Md5Repository.md5Of(file))));
 	}
 
 	@Test
 	@DisplayName("le md5 est vérifié avant la ligne et le nom - la cause, pas le symptôme")
 	void md5IsCheckedBeforeLineAndName(@TempDir final Path root) throws IOException {
 		final Path file = write(root, "Foo.java", "class Foo {", "}");
-		final String before = Md5Repository.md5Of(file);
+		final String before = Position.abbreviate(Md5Repository.md5Of(file));
 		write(root, "Foo.java", "class Bar {", "}");
 
 		// Sur le fichier tel qu'il est, la ligne 99 n'existe pas et "Foo" n'est plus
@@ -227,7 +230,7 @@ class PositionCodesTest {
 
 		final Position position = PositionParser.parse(filesRepository, "Foo.java:1:7:Foo");
 
-		assertEquals(Md5Repository.md5Of(file), position.md5());
+		assertEquals(Position.abbreviate(Md5Repository.md5Of(file)), position.md5());
 	}
 
 	@Test
@@ -235,7 +238,7 @@ class PositionCodesTest {
 	void uppercaseMd5IsRejected(@TempDir final Path root) throws IOException {
 		final Path file = write(root, "Foo.java", "class Foo {", "}");
 		final FilesRepository filesRepository = new FilesRepository(root, null);
-		final String upper = Md5Repository.md5Of(file).toUpperCase(Locale.ROOT);
+		final String upper = Position.abbreviate(Md5Repository.md5Of(file)).toUpperCase(Locale.ROOT);
 
 		final PositionException thrown = assertThrows(PositionException.class,
 				() -> PositionParser.parse(filesRepository, upper + ":Foo.java:1:7:Foo"));
@@ -299,14 +302,14 @@ class PositionCodesTest {
 
 		final Position position = PositionParser.of(filesRepository, null, "Foo.java", 1, 7, "Foo");
 
-		assertEquals(Md5Repository.md5Of(file), position.md5());
+		assertEquals(Position.abbreviate(Md5Repository.md5Of(file)), position.md5());
 	}
 
 	@Test
 	@DisplayName("of() avec un md5 périmé refuse, comme le token qui l'épellerait")
 	void ofRejectsAStaleMd5(@TempDir final Path root) throws IOException {
 		final Path file = write(root, "Foo.java", "class Foo {", "}");
-		final String before = Md5Repository.md5Of(file);
+		final String before = Position.abbreviate(Md5Repository.md5Of(file));
 		write(root, "Foo.java", "// ajouté", "class Foo {", "}");
 		final FilesRepository filesRepository = new FilesRepository(root, null);
 
@@ -322,6 +325,84 @@ class PositionCodesTest {
 		final FilesRepository filesRepository = new FilesRepository(root, null);
 
 		assertThrows(IllegalArgumentException.class, () -> PositionParser.parse(filesRepository, "Absent.java:1:1:bar"));
+	}
+
+	// ------------------------------------------------------------------
+	// FILE_MODIFIED hint : le rattrapage via Md5Repository, jamais un pari
+	// ------------------------------------------------------------------
+
+	@Test
+	@DisplayName("FILE_MODIFIED donne un hint quand la ligne visée existe intacte ailleurs dans le fichier")
+	void hintFindsAnUnmovedLine(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "\tvoid calculer() {", "\t}", "}");
+		// register() est ce qu'un rebuild fait à chaque fichier : c'est ce qui classe
+		// le contenu d'origine dans Md5Repository et rend le hint possible plus bas.
+		final String before = Position.abbreviate(new Md5Repository(root).register(file));
+
+		// Une ligne insérée en tête décale "calculer" de la ligne 2 à la ligne 3, sans
+		// toucher au texte de la ligne elle-même.
+		write(root, "Foo.java", "// ajouté", "class Foo {", "\tvoid calculer() {", "\t}", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		final PositionException thrown = assertThrows(PositionException.class,
+				() -> PositionParser.parse(filesRepository, before + ":Foo.java:2:7:calculer"));
+
+		assertEquals(ErrorCode.FILE_MODIFIED, thrown.getCode());
+		assertTrue(thrown.getHint().contains(":Foo.java:3:7:calculer"));
+
+		// et le hint pointe une position fraîche, elle-même acceptée sans détour
+		final String hintPosition = thrown.getHint().substring(thrown.getHint().indexOf("now at ") + "now at ".length());
+		final Position resolved = PositionParser.parse(filesRepository, hintPosition);
+		assertEquals(3, resolved.line());
+		assertEquals(7, resolved.column());
+	}
+
+	@Test
+	@DisplayName("pas de hint si la ligne visée a elle-même changé - le texte exact ne se retrouve nulle part")
+	void noHintWhenTheLineItselfChanged(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "\tvoid calculer() {", "\t}", "}");
+		final String before = Position.abbreviate(new Md5Repository(root).register(file));
+
+		write(root, "Foo.java", "class Foo {", "\tvoid calculerTout() {", "\t}", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		final PositionException thrown = assertThrows(PositionException.class,
+				() -> PositionParser.parse(filesRepository, before + ":Foo.java:2:7:calculer"));
+
+		assertEquals(ErrorCode.FILE_MODIFIED, thrown.getCode());
+		assertEquals("", thrown.getHint());
+	}
+
+	@Test
+	@DisplayName("pas de hint si la ligne visée apparaît deux fois dans le nouveau fichier - ambigu")
+	void noHintWhenTheLineAppearsTwice(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "\tvoid calculer() {", "\t}", "}");
+		final String before = Position.abbreviate(new Md5Repository(root).register(file));
+
+		write(root, "Foo.java", "class Foo {", "\tvoid calculer() {", "\t}", "\tvoid calculer() {", "\t}", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		final PositionException thrown = assertThrows(PositionException.class,
+				() -> PositionParser.parse(filesRepository, before + ":Foo.java:2:7:calculer"));
+
+		assertEquals(ErrorCode.FILE_MODIFIED, thrown.getCode());
+		assertEquals("", thrown.getHint());
+	}
+
+	@Test
+	@DisplayName("pas de hint si le nom du token n'est pas sur la ligne retrouvée")
+	void noHintWhenNameIsNotOnTheRecoveredLine(@TempDir final Path root) throws IOException {
+		final Path file = write(root, "Foo.java", "class Foo {", "\tvoid calculer() {", "\t}", "}");
+		final String before = Position.abbreviate(new Md5Repository(root).register(file));
+
+		write(root, "Foo.java", "// ajouté", "class Foo {", "\tvoid calculer() {", "\t}", "}");
+		final FilesRepository filesRepository = new FilesRepository(root, null);
+
+		final PositionException thrown = assertThrows(PositionException.class,
+				() -> PositionParser.parse(filesRepository, before + ":Foo.java:2:7:absent"));
+
+		assertEquals(ErrorCode.FILE_MODIFIED, thrown.getCode());
+		assertEquals("", thrown.getHint());
 	}
 
 }
