@@ -225,6 +225,25 @@ final class JdtlsResponses {
 		return params.build();
 	}
 
+	/**
+	 * textDocument/rename request params: a position, plus the name to rename to.
+	 * Its own builder rather than an extra argument on positionParams(), because
+	 * "newName" sits beside "position" at the top level of the request and not
+	 * inside it - and because keeping the -1 to LSP's 0-based offsets in one file
+	 * only works if every request shape is built in that file.
+	 */
+	static Monomorphic renameParams(final Path file, final int oneBasedLine, final int oneBasedColumn,
+			final String newName) {
+		return Monomorphic.mapBuilder() //
+				.put("textDocument", Monomorphic.mapBuilder().putString("uri", file.toUri().toString()).build()) //
+				.put("position", Monomorphic.mapBuilder() //
+						.putNumber("line", oneBasedLine - 1) //
+						.putNumber("character", oneBasedColumn - 1) //
+						.build()) //
+				.putString("newName", newName) //
+				.build();
+	}
+
 	/** Raw textDocument/documentSymbol tree for uri - empty on any error. */
 	static List<Monomorphic> documentSymbols(final LspClient client, final String uri)
 			throws IOException, InterruptedException, LspClient.TimeoutException {

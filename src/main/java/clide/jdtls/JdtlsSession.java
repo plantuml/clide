@@ -19,6 +19,7 @@ import clide.core.Md5Repository;
 import clide.core.Monomorphic;
 import clide.core.PositionException;
 import clide.core.Snapshot;
+import clide.edit.WorkspaceEdit;
 import clide.model.CodeLocation;
 import clide.model.Diagnostic;
 import clide.model.DiagnosticsReport;
@@ -251,6 +252,59 @@ public class JdtlsSession {
 			throw new IOException("textDocument/hover failed: " + error);
 
 		return formatHover(response.getOrNull("result"));
+	}
+
+	/**
+	 * textDocument/prepareRename: whether jdtls will rename the symbol at
+	 * position at all, asked before anything is computed.
+	 *
+	 * Worth its own round trip rather than being folded into rename(). A rename
+	 * jdtls declines comes back from textDocument/rename as an *empty*
+	 * WorkspaceEdit - indistinguishable, at that point, from a symbol that
+	 * genuinely has no occurrence to change. prepareRename separates the two
+	 * while it is still cheap to say so, which is the difference between "clide
+	 * refuses to rename a keyword" and "clide renamed a keyword, 0 files
+	 * changed".
+	 *
+	 * Both ways of declining are treated the same: jdtls answers a JSON-RPC
+	 * error for some non-renameable spots and a null result for others, and the
+	 * distinction is not one a caller could act on.
+	 */
+	public boolean canRename(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Monomorphic response = client.request("textDocument/prepareRename",
+				JdtlsResponses.positionParams(fileOf(position), position.line(), position.column()), 30);
+		if (JdtlsResponses.errorOf(response) != null)
+			return false;
+
+		return response.getOrNull("result").isMap();
+	}
+
+	/**
+	 * textDocument/rename: what would have to change, everywhere in the project,
+	 * for the symbol at position to be called newName instead.
+	 *
+	 * Computes and returns; writes nothing. Applying is
+	 * WorkspaceEdit.applyTo()'s job, and keeping the two apart is what lets a
+	 * caller refuse the whole thing after seeing it - a rename that touches a
+	 * file it should not, or an edit clide cannot read, costs nothing to
+	 * discard here.
+	 *
+	 * jdtls answers against the model of the last build(). Nothing in this
+	 * method checks that the model still matches the disk, and it cannot: the
+	 * question is about every file at once, not about the one position it was
+	 * given. The caller establishes that first (see Snapshot), or the edit
+	 * returned is a precise description of a project that no longer exists.
+	 */
+	public WorkspaceEdit rename(final Position position, final String newName)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Monomorphic response = client.request("textDocument/rename",
+				JdtlsResponses.renameParams(fileOf(position), position.line(), position.column(), newName), 60);
+		final Monomorphic error = JdtlsResponses.errorOf(response);
+		if (error != null)
+			throw new IOException("textDocument/rename failed: " + error);
+
+		return WorkspaceEdits.parse(response.getOrNull("result"), filesRepository.getProjectRoot());
 	}
 
 	/**

@@ -138,6 +138,20 @@ class JdtlsResponsesTest {
 	}
 
 	@Test
+	@DisplayName("renameParams() encode la position en 0-based et pose newName à côté, pas dedans")
+	void renameParamsEncodesZeroBasedPositionAndPutsNewNameBesideIt(@TempDir final Path dir) throws IOException {
+		final Path file = Files.createFile(dir.resolve("A.java"));
+
+		final Monomorphic params = JdtlsResponses.renameParams(file, 5, 12, "Rectangle");
+
+		assertEquals(4, params.getOrNull("position").getOrNull("line").longOrDefault(-1), "ligne 1-based 5 -> 0-based 4");
+		assertEquals(11, params.getOrNull("position").getOrNull("character").longOrDefault(-1),
+				"colonne 1-based 12 -> 0-based 11");
+		assertEquals("Rectangle", params.getOrNull("newName").stringOrNull());
+		assertTrue(params.getOrNull("position").getOrNull("newName").isNull(), "newName est au premier niveau");
+	}
+
+	@Test
 	@DisplayName("lineOf()/characterOf() rendent -1 quand le champ manque, jamais 0")
 	void rawCoordinatesReportAbsenceRatherThanZero() {
 		final Monomorphic start = Monomorphic.mapBuilder().putNumber("line", 3).putNumber("character", 17).build();
