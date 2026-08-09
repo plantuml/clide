@@ -12,6 +12,7 @@ import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
+import clide.core.ModelSync;
 import clide.core.Command;
 
 /**
@@ -69,6 +70,11 @@ public class RestoreFileCommand extends Command {
 		} catch (final IllegalArgumentException e) {
 			return CommandResult.error(ErrorCode.TRANSACTION_REFUSED, e.getMessage());
 		}
+
+		// Same as rollback_transaction: a file was just put back to earlier content
+		// that jdtls has no other way of hearing about - see ModelSync.afterRestore().
+		ModelSync.afterRestore(context);
+
 		return CommandResult.ok(
 				new CommandPayload.Transaction(id, CommandPayload.Transaction.Action.FILE_RESTORED, filePath));
 	}

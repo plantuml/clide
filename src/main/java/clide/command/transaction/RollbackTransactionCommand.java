@@ -12,6 +12,7 @@ import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
+import clide.core.ModelSync;
 import clide.core.Command;
 
 /**
@@ -66,6 +67,13 @@ public class RollbackTransactionCommand extends Command {
 		} catch (final IllegalArgumentException e) {
 			return CommandResult.error(ErrorCode.TRANSACTION_REFUSED, e.getMessage());
 		}
+
+		// Rolling back rewrites files behind jdtls' back, exactly like an edit made
+		// outside clide. Telling it now, rather than leaving it to the next command,
+		// is what makes print_diagnostics describe the state the rollback restored -
+		// which may well not compile - instead of the state it just undid.
+		ModelSync.afterRestore(context);
+
 		return CommandResult
 				.ok(new CommandPayload.Transaction(id, CommandPayload.Transaction.Action.ROLLED_BACK, ""));
 	}

@@ -138,6 +138,34 @@ public enum ErrorCode {
 	BUILD_FAILED,
 
 	// ------------------------------------------------------------------
+	// Modifying commands
+	// ------------------------------------------------------------------
+
+	/**
+	 * A .java file changed on disk since the last build, so jdtls' model no
+	 * longer describes the project a modifying command is about to change - the
+	 * message names the files.
+	 *
+	 * Not the same guarantee as FILE_MODIFIED, and not obtainable from it.
+	 * FILE_MODIFIED protects <i>one position</i>, through the md5 the position
+	 * carries; this protects <i>the whole project</i>, because a refactoring
+	 * reads and rewrites files the caller never named. A reference added to some
+	 * other file since the last build is invisible to a per-position check, and
+	 * jdtls does not catch it either - it simply would not be renamed, silently.
+	 * See RenameCommand.
+	 */
+	STALE_MODEL,
+
+	/** jdtls will not rename the symbol at this position - a keyword, a literal, something read-only. */
+	NOT_RENAMEABLE,
+
+	/** A name a modifying command was given is not a usable Java identifier. */
+	INVALID_JAVA_NAME,
+
+	/** The edit jdtls computed could not be applied as given - see EditApplicationException. */
+	EDIT_NOT_APPLICABLE,
+
+	// ------------------------------------------------------------------
 	// Transactions
 	// ------------------------------------------------------------------
 

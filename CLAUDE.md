@@ -158,7 +158,9 @@ hint: find_symbol Foo locates it
   `TEST_CLASS_NOT_COMPILED`, `TEST_TIMEOUT`, `TEST_RUNNER_BROKEN`,
   `MULTI_MODULE_PROJECT`, `NO_OUTPUT_FOLDER`, `CLASSPATH_UNAVAILABLE`,
   `TERMINATE_REFUSED`, `NO_OPEN_TRANSACTION`, `TRANSACTION_REFUSED`,
-  `TRANSACTION_IO_FAILED`, `IO_FAILED`. This replaces the old
+  `TRANSACTION_IO_FAILED`, `IO_FAILED`,
+  `STALE_MODEL`, `NOT_RENAMEABLE`, `INVALID_JAVA_NAME`,
+  `EDIT_NOT_APPLICABLE`. This replaces the old
   `?SYNTAX ERROR` / `Error:` pair, which said only *that* something was wrong.
 
   A `hint:` line may follow, and usually does not. It appears only when clide
@@ -358,11 +360,44 @@ is.
 
 ## Staying up to date after an edit: `rebuild`
 
-clide does not detect on its own files modified outside of it (with
-direct editing tools rather than a clide command). After any such
-modification, call `rebuild <all|errors>` before continuing to query the
-project — otherwise `print_diagnostics`, the `find_*` commands, and
-`hover` will silently answer against a stale state.
+**clide now notices, on its own, files modified outside of it** — and tells
+jdtls about them before answering. Before running any command that questions
+jdtls, it compares the project on disk against the tree jdtls was last told
+about, and sends over whatever moved. Nothing to remember, nothing to call
+first:
+
+```
+[a file is created outside clide, using Square]
+find_reference method src/main/java/demo/Square.java:3:14:Square
+→ find_reference: 5 location(s)
+  ...:src/main/java/demo/Encore.java:5:14:Square return new Square(9).area() ...
+```
+
+That covers every `find_*`, `hover`, `list_members`, `run_test`, `run_tests`
+and `rename`. It costs one file scan per command — about 180 ms on a
+PlantUML-sized checkout, on the local filesystem — plus, only when something
+actually moved, the notification itself (about 1.5 s on that same checkout).
+
+Two commands skip the resynchronisation, because being about the last build
+is exactly their contract: `rebuild`, which resynchronises and builds on its
+own, and `print_diagnostics`, which re-displays what that build said without
+recompiling. In practice `print_diagnostics` still reads the current state,
+because whichever command ran before it resynchronised.
+
+**So what is `rebuild` still for?** Diagnostics that a plain resynchronisation
+did not produce, and a clean recompilation of the whole project when one is
+wanted. The resynchronisation refreshes both the semantic model and the
+diagnostics of the files that moved (measured — see `JDTLS.md`), so the
+routine "I edited, now let me ask" no longer needs it.
+
+**`?ERROR STALE_MODEL` still exists, and should now be almost unreachable.**
+It is what a caller sees when the resynchronisation itself failed — not when
+the project merely moved on.
+
+Rolling a transaction back, or restoring one file, also resynchronises: those
+put files back behind jdtls' back exactly like an outside edit, and the point
+is that `print_diagnostics` right afterwards describes the state the rollback
+restored — which may well not compile — rather than the state it just undid.
 
 `rebuild` recompiles the target project via jdtls, reports the number of
 files changed since the last build and the exact errors (file, line,
@@ -432,12 +467,12 @@ missing external dependencies (e.g. a system tool some tests call out to),
 `run_tests` may never finish in a reasonable time; prefer a targeted
 `run_test` in that case.
 
-### Transactions — for a future modification command
+### Transactions
 
-**No command modifies a file today.** The transaction mechanism below
-exists and works, but nothing uses it yet: for now, edit with your own
-tools (not through clide), then `rebuild`. Whenever an editing command
-exists, it will operate within this framework.
+**`rename` is the one command that modifies files** (see "Modifying the
+code", below), and it refuses to run outside an open transaction. Any
+other change is still made with your own tools, followed by a `rebuild`.
+Every future editing command will work within this same framework.
 
 | Command | Role |
 |---|---|
@@ -468,9 +503,9 @@ cascade is really just bookkeeping: `$refactor_foo`'s own snapshot was
 taken before `$refactor_foo$part1` ever existed, so rolling `$refactor_foo`
 back undoes `part1`'s changes too in the very same step, committed or not.
 
-**Editing outside clide while a transaction is open is the normal way to
-use one today.** With no file-modifying command of clide's own yet, the
-actual workflow is: `open_transaction`, edit with other tools, `exit` (the
+**Editing outside clide while a transaction is open still works.** For
+anything `rename` does not cover, the workflow is:
+`open_transaction`, edit with other tools, `exit` (the
 daemon and the open transaction survive — see below), then reconnect later
 to decide `commit_transaction` or `rollback_transaction`. A **human**
 connection that finds a still-open transaction with files modified since it
@@ -486,6 +521,61 @@ strict 1:1 correspondence between what it wrote and what it reads back. An
 AI client that wants to know whether a transaction it is reopening was
 touched from outside should call `list_modified_files` itself right after
 reconnecting. `--lua` script connections never see this either.
+
+### Modifying the code
+
+| Command | Role |
+|---|---|
+| `rename <position> <new name>` | Renames the symbol at `<position>` — class, interface, enum, method, field, parameter or local variable — everywhere it is *really* used, and writes the result. |
+
+One command for every kind of symbol, not one per kind: `textDocument/rename`
+is a single request and jdtls resolves for itself what is at that position, so
+a `<what>` parameter would only be a second, redundant way of saying what the
+`<position>` already says. What actually differs between the kinds shows up in
+the answer, not in the call.
+
+Semantic, not textual — that is the whole point. An unrelated symbol of the
+same name elsewhere is left alone, and so is a mention inside a comment or a
+javadoc; renaming `oneBased` in clide's own sources touched 5 files and left
+the two javadoc "see oneBased()" alone, which is exactly what a
+search-and-replace cannot do.
+
+Four things are worth knowing before calling it:
+
+- **It requires an open transaction** and refuses without one
+  (`NO_OPEN_TRANSACTION`). Nothing is committed: `diff_transaction` shows any
+  one file, then `commit_transaction` or `rollback_transaction` decides.
+  Rolling back also undoes a file rename.
+- **It is run against a model brought up to date first** — like every other
+  command that questions jdtls, see "Staying up to date after an edit" above —
+  and `rename` is where that turned out to be necessary rather than merely
+  prudent. jdtls computes the edit against the workspace it last saw: a file
+  *created* since then, or simply *edited* to add a reference, is one jdtls has
+  no reason to touch, so it would rename nothing there and report no problem,
+  leaving a project where one file still says `Square` and every other says
+  `Rectangle`.
+- **It tells jdtls about its own edit immediately**, and the answer ends with
+  the resulting error count, so a rename that broke the build says so on the
+  spot. `print_diagnostics` prints the detail. A notification is enough here
+  too, which is why this costs about 1.5 s rather than the 14.5 s a forced
+  full build would have added to every rename.
+- **The answer gives the renamed symbol's fresh `<position>`**, already
+  re-derived and re-checked against the file on disk, so the next command
+  needs no `find_symbol`. Omitted rather than guessed when clide could not
+  derive one it had verified.
+
+**What the answer deliberately does not give is an occurrence count.** jdtls
+does not return one edit per occurrence: two occurrences on neighbouring lines
+come back as a single edit spanning both, whose replacement text reproduces
+everything in between. Any count derived from that would look like an
+occurrence count without being one. Files are counted instead — and
+`find_reference`, on the fresh position `rename` just returned, gives the
+occurrences and gives them right.
+
+A renamed public type also has its file renamed (`Square.java` →
+`Rectangle.java`), reported on its own line. That is only possible because
+clide declares `workspace.workspaceEdit.resourceOperations` during
+`initialize` — see the note on `WorkspaceEdit` under "Known limitations".
 
 ### Help and session
 
@@ -596,5 +686,5 @@ one. `--lua` and `--human` cannot be combined.
   (`WorkspaceEdit`, `TextEdit`, `ResourceOperation`) is the model, and
   `WorkspaceEdit.applyTo()` applies it: operations front to back, edits
   within one file back to front, splicing by character offset so line
-  endings and a missing trailing newline survive untouched. No command uses
-  it yet — see "Transactions", above.
+  endings and a missing trailing newline survive untouched. `rename` is
+  what uses it — see "Modifying the code", above.

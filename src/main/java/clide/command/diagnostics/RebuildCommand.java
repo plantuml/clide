@@ -48,7 +48,8 @@ public class RebuildCommand extends Command {
 				being asked is a single one ("did my change compile?") and
 				splitting it over two round trips only costs a round trip.
 
-				Files modified on disk since the last build are picked up:
+				Files modified on disk since jdtls last looked are
+				picked up:
 				jdtls is told what changed before the build runs, so an edit
 				made from outside clide counts just as much as one made
 				through it. Deleted and newly created .java files count too.
@@ -70,6 +71,15 @@ public class RebuildCommand extends Command {
 			""")
 	public RebuildCommand() {
 
+	}
+
+	/**
+	 * The cure, so never the patient: refusing rebuild on a stale model would
+	 * leave no way at all of becoming un-stale - see Command.needsFreshModel().
+	 */
+	@Override
+	public boolean needsFreshModel() {
+		return false;
 	}
 
 	@Override
@@ -98,7 +108,7 @@ public class RebuildCommand extends Command {
 	public String render(final CommandResult result, final PrintMode printMode) {
 		return switch (result.payload()) {
 		case CommandPayload.Rebuild built -> "rebuild: " + built.changedFiles()
-				+ " file(s) changed since the last build, rebuilt in " + built.elapsedMillis() + " ms\n"
+				+ " file(s) changed since jdtls last looked, rebuilt in " + built.elapsedMillis() + " ms\n"
 				+ DiagnosticsRendering.render(built.report());
 		default -> ResultEnvelope.unexpectedPayload(getKeyword(), result.payload());
 		};

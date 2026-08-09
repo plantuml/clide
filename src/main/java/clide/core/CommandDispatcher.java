@@ -14,11 +14,13 @@ import clide.jdtls.JdtlsSession;
  * line-oriented text protocol (see ClideDaemon.runSession()) and the Lua bridge
  * (see LuaBridge) both come through here.
  *
- * <b>Why this is not just a call to Command.executeCommand().</b> Three checks
+ * <b>Why this is not just a call to Command.executeCommand().</b> Four checks
  * stand between a client's request and a command running, and none of them
  * lives inside the command: every parameter has to pass its ParamType's surface
- * check, a command that modifies files has to find a transaction open, and a
- * command that queries jdtls has to find a session up (or get one restarted).
+ * check, a command that modifies files has to find a transaction open, a
+ * command that queries jdtls has to find a session up (or get one restarted),
+ * and jdtls has to have been told about whatever moved on disk since it last
+ * looked (see ModelSync).
  * Left in the daemon's read loop, as they were, they would have guarded the
  * text protocol only - a Lua script calling executeCommand() directly could
  * have edited a file outside any transaction, or passed a position nobody ever
@@ -62,6 +64,13 @@ public final class CommandDispatcher {
 			final CommandResult restartFailure = ensureSessionReady(context, notice);
 			if (restartFailure != null)
 				return restartFailure;
+
+			// After ensureSessionReady(), never before: restarting a stopped session
+			// runs a build of its own, so there is nothing left to resynchronise and
+			// doing it first would pay a full-project scan for nothing.
+			final CommandResult stale = ModelSync.beforeCommand(context, command);
+			if (stale != null)
+				return stale;
 		}
 
 		return command.executeCommand(context, params);

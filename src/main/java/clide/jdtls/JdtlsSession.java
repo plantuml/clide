@@ -51,7 +51,12 @@ public class JdtlsSession {
 	private EclipseProjectFiles eclipseFiles;
 	private final Map<String, List<Monomorphic>> diagnosticsByUri = new ConcurrentHashMap<>();
 
-	private Snapshot snapshot = Snapshot.empty();
+	/**
+	 * The tree as jdtls was last told it stands - moved by a build and by a
+	 * plain notification alike (see refreshChangedFiles()), which is why it is
+	 * named after synchronisation rather than after builds.
+	 */
+	private Snapshot syncedSnapshot = Snapshot.empty();
 
 	public JdtlsSession(final JdtlsLauncher launcher, final FilesRepository filesRepository) {
 		this.launcher = launcher;
@@ -115,7 +120,7 @@ public class JdtlsSession {
 		// Snapshotted before the build, not after: a file edited while the build
 		// is running would otherwise be recorded with its new content and
 		// counted as already built, and the next rebuild would skip it.
-		snapshot = Snapshot.build(filesRepository);
+		syncedSnapshot = Snapshot.build(filesRepository);
 		diagnosticsByUri.clear();
 		final Monomorphic response = client.request("java/buildWorkspace", Monomorphic.createBoolean(true), 300);
 		final Monomorphic error = JdtlsResponses.errorOf(response);
@@ -128,54 +133,81 @@ public class JdtlsSession {
 	}
 
 	/**
-	 * Tells jdtls which .java files changed on disk since the last build, so the
-	 * build that follows compiles what is actually there now. Returns how many
-	 * files were reported.
+	 * Every .java file that reads differently now than it did the last time
+	 * jdtls was told about the tree - what its model does <i>not</i> know about
+	 * the project as it currently stands on disk.
 	 *
-	 * Needed because jdtls' model is not a view of the filesystem: it is an Eclipse
-	 * workspace, which only learns of a change made outside its own editing session
-	 * when someone tells it. clide never opens files (textDocument/didOpen) - it
-	 * builds the whole project instead, on purpose, because opening PlantUML's 3600
-	 * files one by one takes minutes (see JDTLS.md), so nothing else here would
-	 * ever tell jdtls a file moved on.
+	 * "Since the last sync", not "since the last build", and the distinction is
+	 * the point: the model is brought back in step by a plain
+	 * workspace/didChangeWatchedFiles notification as well as by a build (see
+	 * refreshChangedFiles()), and both move the mark. Naming this after builds
+	 * only would make every notified-but-unbuilt change look outstanding
+	 * forever.
 	 *
-	 * Measured on PlantUML, what a forced java/buildWorkspace does and does not
-	 * catch on its own, without this notification:
+	 * Costs one full-project file scan - md5 over every .java file, the same
+	 * scan a rebuild pays; about 180 ms on the PlantUML checkout, cache-warm, on
+	 * two cores. Reads nothing back from jdtls.
+	 */
+	public Delta changesSinceLastSync() throws IOException {
+		return Snapshot.build(filesRepository).compareWithPreviousSnapshot(syncedSnapshot);
+	}
+
+	/**
+	 * Brings jdtls' model back in step with the tree on disk, and returns how
+	 * many files had to be reported. Zero means there was nothing to say.
 	 *
-	 * - an edit to a file that already existed at the last build: caught. The
-	 * forced build re-reads it. - a newly created .java file: NOT caught. A new
-	 * file that doesn't compile at all was reported as "0 errors" - the worst
-	 * possible answer, since it reads exactly like success.
+	 * Needed because jdtls' model is not a view of the filesystem: it is an
+	 * Eclipse workspace, which only learns of a change made outside its own
+	 * editing session when someone tells it. clide never opens files
+	 * (textDocument/didOpen) - it builds the whole project instead, on purpose,
+	 * because opening PlantUML's 3600 files one by one takes minutes (see
+	 * JDTLS.md), so nothing else here would ever tell jdtls a file moved on.
 	 *
-	 * So this exists for the second case (and symmetrically for deletions, whose
-	 * diagnostics would otherwise linger after the file is gone). Sending events
-	 * for edits too costs nothing and keeps one code path.
+	 * <b>This notification alone is enough</b>, and that is worth stating
+	 * plainly because it was not obvious and had to be measured (see JDTLS.md).
+	 * Sending it, with no build of any kind afterwards, was verified to make
+	 * jdtls answer correctly about a file created since the last build, an
+	 * existing file edited to gain a reference, and a deleted file; to lift the
+	 * "Resource ... is out of sync with file system" refusal textDocument/rename
+	 * answers otherwise; and to refresh the <i>diagnostics</i> too, in both
+	 * directions - an error introduced after the build shows up, and the same
+	 * error corrected disappears - because Eclipse auto-builds what a resource
+	 * change touches and publishes the result on its own.
 	 *
-	 * Which files those are is Snapshot's own business: the snapshot taken by the
-	 * last build(), compared with one taken of the tree as it stands now, yields
-	 * the events to send - see Snapshot.fileEventsTo(). All that is left here is
-	 * sending them and waiting for jdtls to catch up.
+	 * Which files to report is Snapshot's business: the snapshot of the last
+	 * sync, compared with one of the tree as it stands now. That fresh snapshot
+	 * then <i>becomes</i> the sync mark, which is what keeps the next caller
+	 * from reporting the very same files again.
 	 */
 	public int refreshChangedFiles() throws IOException {
-		final Delta delta = Snapshot.build(filesRepository).compareWithPreviousSnapshot(snapshot);
-
+		final Snapshot live = Snapshot.build(filesRepository);
+		final Delta delta = live.compareWithPreviousSnapshot(syncedSnapshot);
 		if (delta.size() == 0)
 			return 0;
 
-		final List<Monomorphic> events = delta.fileEvents();
+		client.notify("workspace/didChangeWatchedFiles",
+				Monomorphic.mapBuilder().putList("changes", delta.fileEvents()).build());
 
-		client.notify("workspace/didChangeWatchedFiles", Monomorphic.mapBuilder().putList("changes", events).build());
+		// Recorded only once the notification is actually out: a throw above must
+		// leave the mark where it was, or the files jdtls was never told about
+		// would count as synced and never be reported again.
+		syncedSnapshot = live;
 
-		// One-way notification: jdtls refreshes the affected resources when it
-		// gets to it, and says nothing when it's done. Without this pause the
-		// build below can start against the model as it was.
+		// A one-way notification: jdtls says nothing when it is done. Measured,
+		// though, on PlantUML and on a toy project alike: the first request sent
+		// after this one comes back with the *new* answer, taking three to five
+		// times longer than the requests after it - jdtls holds it behind the
+		// resource refresh rather than answering against the old model. So what
+		// protects the next command is the ordering, not this pause; it is kept
+		// short, as a margin against a scheduling that observation cannot promise
+		// will always work out that way.
 		try {
-			Thread.sleep(1000);
+			Thread.sleep(200);
 		} catch (final InterruptedException e) {
 			Thread.currentThread().interrupt();
 		}
 
-		return events.size();
+		return delta.size();
 	}
 
 	/**

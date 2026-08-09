@@ -219,6 +219,65 @@ l'absence de `.clide/` (cas de clide lui-même) ne casse rien.
   Les deux autres formes (`String` seule, liste mélangée) restent seulement
   vérifiées par réflexion (voir plus haut) — pas encore vues en vrai.
 
+## 2bis. Resynchroniser le modèle : mesures
+
+Le modèle de jdtls est un workspace Eclipse, pas une vue du disque : il
+n'apprend une modification faite en dehors de sa propre session d'édition que
+si on la lui dit. clide n'ouvre jamais de document (`textDocument/didOpen`),
+donc la seule chose qui le lui dise est la notification
+`workspace/didChangeWatchedFiles` envoyée par
+`JdtlsSession.refreshChangedFiles()`.
+
+**Testé de bout en bout** (jdtls bundlé, projet jouet et checkout PlantUML —
+3633 sources) :
+
+- **La notification seule suffit**, sans build d'aucune sorte. Vérifié sur
+  un fichier *créé* après le build et utilisant le symbole, sur un fichier
+  *existant modifié* pour y ajouter une référence, et sur un fichier
+  *supprimé* : dans les trois cas `textDocument/references` répond
+  correctement après la seule notification, et pas du tout sans elle.
+- **Elle lève aussi le refus « out of sync »** que `textDocument/rename`
+  renvoie (`-32600 Resource ... is out of sync with file system`) quand un
+  fichier qu'il s'apprête à réécrire a bougé sur le disque.
+- **Elle rafraîchit aussi les diagnostics**, dans les deux sens : un fichier
+  qui ne compile pas, créé après le build, est rapporté en erreur après la
+  seule notification ; le même fichier corrigé repasse à zéro. Eclipse
+  auto-builde ce qu'une modification de ressource touche et publie ses
+  `publishDiagnostics` de lui-même.
+- **Pas de fenêtre de réponse fausse.** La première requête envoyée après la
+  notification rend déjà la nouvelle réponse, en mettant trois à cinq fois
+  plus longtemps que les suivantes (627 ms puis 227/260/143/126/117 ms sur
+  PlantUML) : jdtls la fait attendre derrière son rafraîchissement au lieu de
+  répondre sur l'ancien modèle. C'est l'ordre des messages qui protège
+  l'appelant, pas l'attente côté clide — laquelle est descendue de 1000 ms à
+  200 ms, gardée comme simple marge.
+
+Coûts mesurés sur PlantUML, un fichier modifié, à chaud, sur deux cœurs :
+
+| opération | coût |
+|---|---|
+| scan md5 complet (la détection seule) | ~180 ms |
+| notification (scan + attente) | ~1,5 s |
+| notification + `java/buildWorkspace(false)` | ~3,9 s |
+| notification + `java/buildWorkspace(true)` | ~14,6 s |
+
+### Le build incrémental est un piège — ne pas l'utiliser
+
+`java/buildWorkspace` prend un booléen « build complet ». Passer `false`
+paraît être le bon compromis ; **ça ne l'est pas, en l'état du code de
+clide**. Mesuré : un fichier qui ne compile pas, créé après le build, donne
+
+- notification seule → **1 erreur** rapportée, correct ;
+- notification + `buildWorkspace(false)` → **0 erreur**, faux.
+
+Parce que `JdtlsSession.build()` vide `diagnosticsByUri` au début, et que le
+build incrémental n'a alors plus rien à recompiler — Eclipse a déjà
+auto-buildé en réaction à la notification — donc il ne republie aucun
+diagnostic. clide se retrouve avec une carte vide et annonce « 0 erreur » sur
+un projet cassé : le pire mode de défaillance possible, puisqu'il se lit
+exactement comme un succès. `rebuild` garde donc le build complet, et rien
+d'autre n'a besoin de builder du tout.
+
 ## 3. Modifications outillées (utile, mais secondaire)
 
 - **`textDocument/codeAction`** — quick fixes proposés par Eclipse (import
