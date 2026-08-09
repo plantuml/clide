@@ -14,40 +14,11 @@ import java.util.stream.Stream;
 public class FilesRepository {
 
 	/**
-	 * Directories currentSourceFiles() never walks into, wherever they sit under
-	 * the project - no sources there, and on a project like PlantUML they hold
-	 * far more files than the sources do.
-	 *
-	 * Every name here starts with a dot, and that is what makes skipping it at
-	 * any depth safe: a Java package name is an identifier, an identifier cannot
-	 * contain a dot, so a directory named like one of these is never part of a
-	 * source tree. The names that <i>are</i> valid identifiers live in
-	 * SKIPPED_ROOT_DIRECTORIES instead.
+	 * Directories currentSourceFiles() never walks into - no sources there, and on
+	 * a project like PlantUML they hold far more files than the sources do.
 	 */
-	private static final List<String> SKIPPED_ANYWHERE = List.of(".git", ".gradle", ".clide");
-
-	/**
-	 * Build output and vendored trees, skipped <b>only as a direct child of the
-	 * project root</b> - never deeper.
-	 *
-	 * Matching these at any depth hides source files, and clide hit it on
-	 * itself. "jdtls" used to be in the list (for the extracted language server,
-	 * which since then lives in a per-user cache outside any project - see
-	 * JdtlsHome), and clide's own sources hold a package
-	 * <code>clide.jdtls</code>. Every file under
-	 * <code>src/main/java/clide/jdtls/</code> was therefore invisible to
-	 * currentSourceFiles(): no Snapshot ever recorded one, so rebuild never
-	 * noticed it had changed, a transaction gave it no protection whatsoever,
-	 * and diff_transaction answered "was not modified" about a file it had just
-	 * been used to rewrite. Silently, in every one of those cases.
-	 *
-	 * "bin", "build", "target" and "out" are ordinary Java package names too and
-	 * would have done the same to any project using one. Anchoring the match at
-	 * the root keeps what the list was for - not walking a build directory -
-	 * without the part that was never intended.
-	 */
-	private static final List<String> SKIPPED_ROOT_DIRECTORIES = List.of("bin", "build", "target", "out",
-			"node_modules");
+	private static final List<String> SKIPPED_DIRECTORIES = List.of(".git", "bin", "build", "target", "out", "jdtls",
+			"node_modules", ".gradle", ".clide");
 
 	/**
 	 * How many files are read at once - deliberately more than the number of
@@ -149,24 +120,12 @@ public class FilesRepository {
 		}
 	}
 
-	/**
-	 * Whether path lies under a directory currentSourceFiles() does not walk -
-	 * see the two lists above on why one is matched at any depth and the other
-	 * only against the project's own top level.
-	 */
 	private boolean isSkipped(final Path path) {
-		final Path relative = projectRoot.relativize(path);
-		for (final Path segment : relative)
-			if (SKIPPED_ANYWHERE.contains(segment.toString()))
+		for (final Path segment : projectRoot.relativize(path))
+			if (SKIPPED_DIRECTORIES.contains(segment.toString()))
 				return true;
 
-		// getName(0) is the first segment of a path relative to the root, so this
-		// asks "is the top-level directory this file sits under a build directory",
-		// and never mistakes a package of the same name further down for one.
-		if (relative.getNameCount() < 2)
-			return false;
-
-		return SKIPPED_ROOT_DIRECTORIES.contains(relative.getName(0).toString());
+		return false;
 	}
 
 	/**

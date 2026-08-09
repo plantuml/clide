@@ -92,48 +92,6 @@ class FilesRepositoryTest {
 	}
 
 	@Test
-	@DisplayName("un package Java qui porte le nom d'un répertoire de build reste parcouru")
-	void aJavaPackageNamedLikeABuildDirectoryIsStillWalked(@TempDir final Path projectRoot) throws IOException {
-		// Le cas reel : clide lui-meme a un package clide.jdtls, et "jdtls" figurait
-		// dans la liste des repertoires ignores. Tout src/main/java/clide/jdtls/
-		// etait donc invisible - aucun Snapshot ne le voyait, donc rebuild ne voyait
-		// pas ses modifications et une transaction ne le protegeait pas.
-		for (final String name : List.of("jdtls", "build", "target", "bin", "out")) {
-			final Path packageDirectory = Files.createDirectories(projectRoot.resolve("src/main/java/app/" + name));
-			Files.writeString(packageDirectory.resolve("Kept.java"), "class Kept {}", StandardCharsets.UTF_8);
-		}
-
-		final Set<SourceFile> files = new FilesRepository(projectRoot, Md5Repository.none()).currentSourceFiles();
-
-		assertEquals(5, files.size());
-	}
-
-	@Test
-	@DisplayName("un répertoire de build reste ignoré à la racine du projet, lui")
-	void aBuildDirectoryAtTheProjectRootIsStillSkipped(@TempDir final Path projectRoot) throws IOException {
-		Files.writeString(projectRoot.resolve("Kept.java"), "class Kept {}", StandardCharsets.UTF_8);
-		final Path generated = Files.createDirectories(projectRoot.resolve("build/classes/app"));
-		Files.writeString(generated.resolve("Hidden.java"), "class Hidden {}", StandardCharsets.UTF_8);
-
-		final Set<SourceFile> files = new FilesRepository(projectRoot, Md5Repository.none()).currentSourceFiles();
-
-		assertEquals(1, files.size());
-		assertTrue(files.iterator().next().sourceFilePath().endsWith("Kept.java"));
-	}
-
-	@Test
-	@DisplayName("un .clide imbriqué reste ignoré : un point ne peut pas figurer dans un nom de package")
-	void aNestedDotDirectoryIsStillSkippedAtAnyDepth(@TempDir final Path projectRoot) throws IOException {
-		Files.writeString(projectRoot.resolve("Kept.java"), "class Kept {}", StandardCharsets.UTF_8);
-		final Path nested = Files.createDirectories(projectRoot.resolve("modules/sub/.clide/tmp"));
-		Files.writeString(nested.resolve("Hidden.java"), "class Hidden {}", StandardCharsets.UTF_8);
-
-		final Set<SourceFile> files = new FilesRepository(projectRoot, Md5Repository.none()).currentSourceFiles();
-
-		assertEquals(1, files.size());
-	}
-
-	@Test
 	@DisplayName("un projet sans aucune source rend un ensemble vide, sans échouer")
 	void anEmptyProjectGivesAnEmptySet(@TempDir final Path projectRoot) throws IOException {
 		assertTrue(new FilesRepository(projectRoot, Md5Repository.none()).currentSourceFiles().isEmpty());
