@@ -50,12 +50,18 @@ public class RebuildCommand extends Command {
 
 				Files modified on disk since jdtls last looked are
 				picked up:
-				jdtls is told what changed before the build runs, so an edit
-				made from outside clide counts just as much as one made
-				through it. Deleted and newly created .java files count too.
+				jdtls is told what changed before deciding whether to build,
+				so an edit made from outside clide counts just as much as one
+				made through it. Deleted and newly created .java files count
+				too. When nothing changed, no build runs at all: the tree
+				reads exactly as it did last time, so the diagnostics from
+				then still describe it now, and rebuild reports those instead
+				of paying for a java/buildWorkspace round trip that could
+				only answer the same way.
 
 				Use print_diagnostics instead to re-read the last build's
-				diagnostics without paying for a build.
+				diagnostics without paying for a build, unconditionally
+				rather than only when nothing changed.
 
 			ERRORS
 				As with print_diagnostics, only the exact literal "errors"
@@ -90,7 +96,18 @@ public class RebuildCommand extends Command {
 		final int refreshed;
 		try {
 			refreshed = session.refreshChangedFiles();
-			session.build();
+			// Nothing to build when nothing moved: refreshed == 0 means the tree on
+			// disk reads exactly as it did the last time jdtls was told about it -
+			// same content, same diagnostics, whether that last sync point was a
+			// build() or (per refreshChangedFiles()'s own doc, measured on PlantUML)
+			// just another notification that left the model in step without one. A
+			// java/buildWorkspace round trip would only re-derive what
+			// diagnosticsReport() below can already answer from last time, at the
+			// cost of that request plus its fixed 2s settle time in build(). See
+			// print_diagnostics, which already made exactly this trade for its own,
+			// always-skip-the-build case.
+			if (refreshed > 0)
+				session.build();
 		} catch (final Exception e) {
 			// The build itself broke, as opposed to succeeding while reporting compile
 			// errors - the previous build's diagnostics are left untouched, so
