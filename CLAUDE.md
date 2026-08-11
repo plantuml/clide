@@ -70,6 +70,20 @@ staying alive across multiple launches. There's no separate command to
 launch builds the project automatically; subsequent launches are fast
 (~0.25 s per session once the daemon is up).
 
+**`clide.py <project-path>` is a faster stand-in for that "subsequent
+launch" case** — same protocol, same output, but a CPython process instead of
+a fresh JVM to reach it, so a warm-daemon round trip lands closer to 40ms than
+150ms. It only knows how to do that one thing: connect to an already-live
+daemon in plain AI mode and relay stdin/stdout. Anything else - no daemon
+yet, a dead one, `--human`, `--lua`, `--require-live-daemon` - it hands off
+to `java -jar clide.jar` itself (an `exec`, not a wrapper around it), so
+every one of those cases still behaves exactly as documented here, just
+served by the jar instead. Swap it in wherever a target project's own wrapper
+script currently calls `java -jar clide.jar` and every repeated call in a
+session gets faster; nothing about the protocol or the commands changes.
+Needs `clide.jar` sitting next to it (the layout `ant dist` produces at the
+repository root) and nothing beyond Python's own standard library.
+
 `clide --human <project-path>` opens that same session in HUMAN print mode:
 `> READY` before each command, then one `> <parameter> ?` prompt per
 parameter being read. Without the flag a session runs in AI mode, which
