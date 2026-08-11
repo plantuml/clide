@@ -31,6 +31,13 @@ import clide.daemon.ConnectionMode;
  * LuaBridge). This process does for a script exactly what it does for a
  * keyboard - find or start the daemon, then relay - and the script is simply
  * what it relays.
+ *
+ * "clide --require-live-daemon &lt;project path&gt;" (combinable with either of the
+ * above) refuses to silently start a fresh daemon in place of one that used to
+ * be running for this project and has since stopped answering - see
+ * ClideClient.REQUIRE_LIVE_DAEMON_FLAG and DaemonLock.State.DEAD. A project
+ * that has never had a daemon still gets one started as usual: only a dead one
+ * is refused, not an absent one.
  */
 public class Main {
 
@@ -43,14 +50,16 @@ public class Main {
 	private static final Path NOT_A_SCRIPT_RUN = Paths.get("");
 
 	public static void main(final String[] args) throws IOException, InterruptedException {
+		final boolean requireLiveDaemon = parseRequireLiveDaemon(args);
+
 		final Path scriptPath = parseScriptPath(args);
 		if (scriptPath == NOT_A_SCRIPT_RUN) {
 			final PrintMode printMode = parsePrintMode(args);
-			final Path projectRoot = parseProjectRoot(withoutPrintModeFlag(args));
+			final Path projectRoot = parseProjectRoot(withoutRequireLiveDaemonFlag(withoutPrintModeFlag(args)));
 			if (projectRoot == null)
 				return;
 
-			new ClideClient(projectRoot, printMode).run();
+			new ClideClient(projectRoot, printMode, requireLiveDaemon).run();
 			return;
 		}
 
@@ -66,11 +75,11 @@ public class Main {
 			return;
 		}
 
-		final Path projectRoot = parseProjectRoot(withoutScriptFlag(args));
+		final Path projectRoot = parseProjectRoot(withoutRequireLiveDaemonFlag(withoutScriptFlag(args)));
 		if (projectRoot == null)
 			return;
 
-		new ClideClient(projectRoot, scriptPath).run();
+		new ClideClient(projectRoot, scriptPath, requireLiveDaemon).run();
 	}
 
 	/**
@@ -148,6 +157,31 @@ public class Main {
 	}
 
 	/**
+	 * True as soon as ClideClient.REQUIRE_LIVE_DAEMON_FLAG appears among args,
+	 * false otherwise - false being the flag's absence, exactly as AI is
+	 * PrintMode's. Positional-free for the same reason parsePrintMode() is: at
+	 * most one other argument (--human/--lua notwithstanding) to confuse it
+	 * with.
+	 */
+	private static boolean parseRequireLiveDaemon(final String[] args) {
+		for (final String arg : args)
+			if (arg.equals(ClideClient.REQUIRE_LIVE_DAEMON_FLAG))
+				return true;
+
+		return false;
+	}
+
+	/**
+	 * args minus every ClideClient.REQUIRE_LIVE_DAEMON_FLAG occurrence - see
+	 * withoutPrintModeFlag(), which this mirrors for the same reason: what's left
+	 * is what parseProjectRoot() (or parseScriptPath()) expects to count.
+	 */
+	private static String[] withoutRequireLiveDaemonFlag(final String[] args) {
+		return Arrays.stream(args).filter(arg -> arg.equals(ClideClient.REQUIRE_LIVE_DAEMON_FLAG) == false)
+				.toArray(String[]::new);
+	}
+
+	/**
 	 * Parses and validates the single "clide &lt;project path&gt;" argument shared
 	 * by both of clide's entry points - this class (the client) and
 	 * ClideDaemon.main() (the daemon, re-exec'd by ClideClient - see
@@ -157,7 +191,8 @@ public class Main {
 	 */
 	public static Path parseProjectRoot(final String[] args) {
 		if (args.length != 1) {
-			System.out.println("Usage: clide [--human] [--lua <script path>] <project path>");
+			System.out.println(
+					"Usage: clide [--human] [--lua <script path>] [--require-live-daemon] <project path>");
 			return null;
 		}
 

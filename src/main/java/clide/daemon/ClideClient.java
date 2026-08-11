@@ -51,24 +51,51 @@ public final class ClideClient {
 	private static final int BOOT_TIMEOUT_SECONDS = 300; // generous - see JdtlsSession's own handshake/build budget
 	private static final int POLL_INTERVAL_MILLIS = 500;
 
+	/**
+	 * Both the command-line flag and, indirectly, the policy it selects: refuse
+	 * to boot a fresh daemon in place of one that used to answer here and no
+	 * longer does (DaemonLock.State.DEAD), rather than silently paying its full
+	 * startup/build cost again. Positional-free, like PrintMode.HUMAN_FLAG -
+	 * "clide --require-live-daemon &lt;project&gt;" and
+	 * "clide &lt;project&gt; --require-live-daemon" both work.
+	 *
+	 * Deliberately does not touch the ABSENT case: a project that has never had
+	 * a daemon, or whose lock was removed cleanly, still boots one exactly as
+	 * before. Only DEAD - a daemon that stopped answering without saying so -
+	 * is refused, since that is the one case where continuing on is masking a
+	 * question ("why did it die?") instead of answering it.
+	 */
+	public static final String REQUIRE_LIVE_DAEMON_FLAG = "--require-live-daemon";
+
 	private final Path projectRoot;
 	private final PrintMode printMode;
+	private final boolean requireLiveDaemon;
 
 	/** The Lua script to send, or null for an ordinary command session. */
 	private final Path scriptPath;
 
 	public ClideClient(final Path projectRoot, final PrintMode printMode) {
-		this(projectRoot, printMode, null);
+		this(projectRoot, printMode, false);
+	}
+
+	public ClideClient(final Path projectRoot, final PrintMode printMode, final boolean requireLiveDaemon) {
+		this(projectRoot, printMode, requireLiveDaemon, null);
 	}
 
 	/** "clide --lua &lt;script&gt; &lt;project&gt;" - see announceMode()/relay(). */
 	public ClideClient(final Path projectRoot, final Path scriptPath) {
-		this(projectRoot, PrintMode.AI, scriptPath);
+		this(projectRoot, scriptPath, false);
 	}
 
-	private ClideClient(final Path projectRoot, final PrintMode printMode, final Path scriptPath) {
+	public ClideClient(final Path projectRoot, final Path scriptPath, final boolean requireLiveDaemon) {
+		this(projectRoot, PrintMode.AI, requireLiveDaemon, scriptPath);
+	}
+
+	private ClideClient(final Path projectRoot, final PrintMode printMode, final boolean requireLiveDaemon,
+			final Path scriptPath) {
 		this.projectRoot = projectRoot;
 		this.printMode = printMode;
+		this.requireLiveDaemon = requireLiveDaemon;
 		this.scriptPath = scriptPath;
 	}
 
@@ -110,9 +137,12 @@ public final class ClideClient {
 	}
 
 	private DaemonLock ensureDaemon() throws IOException, InterruptedException {
-		final DaemonLock existing = DaemonLock.readIfLive(projectRoot);
-		if (existing != null)
-			return existing;
+		final DaemonLock probed = DaemonLock.probe(projectRoot);
+		if (probed.state() == DaemonLock.State.LIVE)
+			return probed;
+
+		if (probed.state() == DaemonLock.State.DEAD && requireLiveDaemon)
+			throw new IOException(deadDaemonRefusal(probed));
 
 		// Same directory as .clide.lock (EclipseProjectFiles.STAGING_DIR) - created
 		// here since it must exist before the Redirect.appendTo() below can work,
@@ -128,16 +158,32 @@ public final class ClideClient {
 	}
 
 	/**
-	 * Deletes any leftover .clide.lock (stale - readIfLive() above already ruled
+	 * The message a DEAD probe plus --require-live-daemon refuses with: the pid
+	 * that used to answer here, and where to look next. Deliberately one line
+	 * and led with "clide daemon for &lt;project&gt;", matching every other
+	 * IOException this class throws (see deleteOrFail(), awaitDaemon()), so a
+	 * script or a person grepping a batch of runs for failures sees one
+	 * consistent shape regardless of which of them fired.
+	 */
+	private String deadDaemonRefusal(final DaemonLock probed) {
+		final Path logFile = EclipseProjectFiles.stagingDir(projectRoot).resolve(".clide-daemon.log");
+		return "clide daemon for " + projectRoot + " is dead (last pid " + probed.pid() + ", was on port "
+				+ probed.port() + ") and " + REQUIRE_LIVE_DAEMON_FLAG + " forbids starting a replacement - see "
+				+ logFile + " for why it stopped, or drop " + REQUIRE_LIVE_DAEMON_FLAG
+				+ " to let clide restart it automatically";
+	}
+
+	/**
+	 * Deletes any leftover .clide.lock (stale - the probe() above already ruled
 	 * out a live one) and .clide-daemon.log from a previous daemon, before
 	 * booting a fresh one. The log in particular must go: it's opened in append
 	 * mode (see startDetachedDaemon()) and awaitDaemon()'s tailing always starts
 	 * reading at byte 0, so a leftover log from earlier runs would otherwise get
 	 * replayed in full on every fresh start. Unlike a stale lock (harmless to
-	 * leave behind - the next readIfLive() call would just find it unreachable
-	 * and ignore it), failing to delete here is fatal: silently starting a fresh
-	 * daemon on top of leftover files isn't safe, so this throws instead of
-	 * swallowing the error.
+	 * leave behind - the next probe() call would just find it DEAD and ignore
+	 * it), failing to delete here is fatal: silently starting a fresh daemon on
+	 * top of leftover files isn't safe, so this throws instead of swallowing the
+	 * error.
 	 */
 	private void deleteStaleFiles(final Path logFile) throws IOException {
 		deleteOrFail(DaemonLock.file(projectRoot));
@@ -191,10 +237,10 @@ public final class ClideClient {
 		while (System.currentTimeMillis() < deadline) {
 			logBytesRead = tailLog(logFile, logBytesRead);
 
-			final DaemonLock lock = DaemonLock.readIfLive(projectRoot);
-			if (lock != null) {
+			final DaemonLock probed = DaemonLock.probe(projectRoot);
+			if (probed.state() == DaemonLock.State.LIVE) {
 				tailLog(logFile, logBytesRead); // catch "Daemon ready on port ..." - printed right after the lock file
-				return lock;
+				return probed;
 			}
 
 			if (daemonProcess.isAlive() == false)
