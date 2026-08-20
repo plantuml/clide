@@ -1,7 +1,7 @@
 # LUA.md — Scripter clide en Lua
 
 Ce que le pont Lua doit devenir. `CLAUDE.md` décrit ce qui marche
-aujourd'hui — `clide --lua`, les fonctions bindées, ce qu'un script voit ;
+aujourd'hui — `python3 clide.py --lua`, les fonctions bindées, ce qu'un script voit ;
 ce document ne garde que ce qui reste à construire par-dessus, les conventions
 encore à figer et les pièges à ne pas redécouvrir en route.
 
@@ -28,7 +28,7 @@ l'autre.
 
 Cet exemple n'appelle **que des commandes enregistrées dans
 `CommandRepository`** — ni transaction, ni écriture. Il tourne
-(`clide --lua phase1.lua <projet>`), et sert de test d'acceptation du pont :
+(`python3 clide.py --lua phase1.lua <projet>`, le daemon déjà démarré au préalable), et sert de test d'acceptation du pont :
 c'est lui qui dit si les fonctions bindées, la conversion des payloads et la
 validation des positions tiennent ensemble.
 
@@ -226,7 +226,7 @@ place où les commandes ont une `JdtlsSession` et un projet à interroger.
 
 ## Là où le pont en est
 
-Un script tourne : `clide --lua <script> <projet>` envoie le fichier au daemon,
+Un script tourne : `python3 clide.py --lua <script> <projet>` envoie le fichier au daemon déjà démarré,
 qui le lit jusqu'à EOF et l'exécute avec chaque commande bindée comme fonction
 de même nom (`clide.lua.LuaBridge`, `ConnectionMode.SCRIPT`) — voir
 « Scripting a session » dans `CLAUDE.md` pour ce qu'un script voit. Les

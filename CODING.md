@@ -1,8 +1,9 @@
 # CODING.md — Conventions de code pour le source de clide
 
-Règles de style pour qui écrit ou modifie le code Java de clide lui-même
-(humain ou IA) — sans rapport avec l'utilisation de clide comme outil, voir
-`CLAUDE.md` pour ça.
+Règles de style pour qui écrit ou modifie le code de clide lui-même (humain
+ou IA) — sans rapport avec l'utilisation de clide comme outil, voir
+`CLAUDE.md` pour ça. Le gros de ce document parle du daemon, en Java ; la
+dernière section, en bas, parle du client, `clide.py`, en Python.
 
 ## Construire et vérifier : `ant`, et rien d'autre
 
@@ -71,3 +72,23 @@ hors `ant` ne vaut rien, y compris quand elle est rassurante.
   la doc que l'appelant a déjà ?* Si oui, ce n'est pas un hint, c'est du bruit.
   Si le hint ne fait que reformuler le message à l'impératif, c'est que sa
   place est dans le message.
+
+## `clide.py` — le client, en Python
+
+Pas de build : `python3 clide.py <project>` s'exécute tel quel, sans
+dépendance hors de la bibliothèque standard (pas de `pip install`, pas
+d'environnement virtuel) — c'est une partie de ce que ce script apporte,
+inutile de la perdre en y ajoutant une dépendance externe pour confort.
+Vérifier une modification avec `python3 -m py_compile clide.py` au minimum ;
+un smoke test réel (démarrer un daemon sur un petit projet, s'y connecter,
+envoyer `help`/`exit`) avant de considérer un changement terminé.
+
+Même règle d'indentation que le Java : tabulations, pas d'espaces — ce
+fichier la suivait déjà avant ce document, pas de raison d'en changer
+maintenant. Pour le reste, le style Python usuel (PEP 8) sur ce que
+l'indentation ne couvre pas.
+
+Ce script ne doit jamais retomber sur `clide.jar` pour quoi que ce soit —
+ni fallback, ni auto-start du daemon. Le jour où un cas n'est pas couvert,
+la bonne réponse est un message d'erreur clair, jamais un `exec`/`subprocess`
+vers Java.

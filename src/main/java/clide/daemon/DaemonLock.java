@@ -12,25 +12,36 @@ import java.util.List;
 import clide.jdtls.EclipseProjectFiles;
 
 /**
- * Reads and writes .clide/tmp/.clide.lock, the file a fresh clide invocation
- * checks before doing anything else to find out whether a daemon is already
- * running for a given project - see ClideClient/ClideDaemon. Holds exactly
- * what a client needs to reach that daemon: the local TCP port it listens on,
- * plus its PID for diagnostics (not trusted alone to prove liveness - PIDs
- * get reused by the OS, see probe()). Lives under .clide/tmp/ (see
- * EclipseProjectFiles.STAGING_DIR) rather than at the project root, for the
- * same reason nothing else clide generates sits there either.
+ * Reads and writes .clide/tmp/.clide.lock, the file a client checks before
+ * doing anything else to find out whether a daemon is already running for a
+ * given project - written by ClideDaemon.run(), read by clide.py (see
+ * CLAUDE.md). Holds exactly what a client needs to reach that daemon: the
+ * local TCP port it listens on, plus its PID for diagnostics (not trusted
+ * alone to prove liveness - PIDs get reused by the OS, see probe()). Lives
+ * under .clide/tmp/ (see EclipseProjectFiles.STAGING_DIR) rather than at the
+ * project root, for the same reason nothing else clide generates sits there
+ * either.
+ *
+ * probe()/State are not read by any Java code today - clide.py has its own
+ * equivalent (see its read_lock()/probe()), since it is the one thing that
+ * ever needs to answer "is a daemon already running here" now that nothing on
+ * the Java side auto-starts one. Kept here anyway, alongside write()/delete()
+ * which ClideDaemon does still call, as the one place the lock file's own
+ * format and semantics are specified precisely enough to test - see
+ * DaemonLockTest.
  */
 public final class DaemonLock {
 
 	/**
 	 * What the last probe() found. ABSENT and DEAD both mean "nothing to
-	 * connect to", but a caller deciding whether to boot a fresh daemon may
-	 * need to tell them apart: ABSENT is the ordinary first-run-for-this-project
-	 * case, while DEAD means a daemon started here before and stopped answering
-	 * without cleaning up its lock (crash, kill, machine reboot) - see
-	 * ClideClient's --require-live-daemon handling, the reason this used to be
-	 * a single boolean-shaped readIfLive() and no longer is.
+	 * connect to", but a caller deciding what to tell the user needs to tell
+	 * them apart: ABSENT is the ordinary first-run-for-this-project case, while
+	 * DEAD means a daemon started here before and stopped answering without
+	 * cleaning up its lock (crash, kill, machine reboot) - worth saying so
+	 * explicitly rather than folding both into a single boolean, since nothing
+	 * on the Java side auto-starts a replacement either way anymore (see
+	 * clide.py's own probe(), the one place this distinction still drives a
+	 * decision).
 	 */
 	public enum State {
 		/** No lock file at all - nothing has ever written one, or it was removed cleanly. */

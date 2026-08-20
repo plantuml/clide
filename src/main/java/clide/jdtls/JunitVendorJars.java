@@ -33,8 +33,8 @@ import java.util.function.Function;
  * "junit.vendor.jars" patternset) into TARGET_DIR inside the target project,
  * idempotently, and leaves a self-contained .gitignore behind so none of it -
  * nor anything else EclipseProjectFiles.STAGING_DIR now holds (.clide.lock,
- * .clide-daemon.log, the staged .project/.classpath) - is ever seen by git in
- * a target project that commits .clide/. JdtlsSession.detectJarLibs() then
+ * the staged .project/.classpath) - is ever seen by git in a target project
+ * that commits .clide/. JdtlsSession.detectJarLibs() then
  * lists a project's own .clide/*.jar first, these vendored ones after: the
  * target's own choice of JUnit version wins if it already has one.
  */

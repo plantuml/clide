@@ -7,22 +7,18 @@ package clide;
  * being read. HUMAN prints both, so someone typing by hand can see what is
  * expected next instead of having to know each command's arity by heart.
  *
- * The mode belongs to one connection, not to the daemon: the client picks it
- * ("clide --human &lt;project&gt;") and announces it to the daemon as a handshake
- * line at the start of that connection - see ClideClient.announcePrintMode()
- * and ClideDaemon.runSession(). Two clients can therefore talk to the same
- * daemon in different modes, and nothing a human does leaks into the next AI
- * session. An AI session's byte stream is also exactly what it was before this
- * flag existed: the default mode announces nothing at all.
+ * The mode belongs to the daemon, not to one connection: it is chosen once,
+ * when the daemon starts ("java -jar clide.jar --human &lt;project&gt;" - see
+ * Main), and every client that connects afterward - clide.py relaying a
+ * keyboard, or relaying a --lua script - is served in that one mode for as
+ * long as the daemon stays up. It cannot be changed without restarting the
+ * daemon. (An earlier, Java-client architecture let each connection pick its
+ * own mode independently of any other connection to the same daemon; see
+ * HISTORY.md for that previous design.)
  */
 public enum PrintMode {
 	HUMAN, AI;
 
-	/**
-	 * Both the command-line flag that selects HUMAN mode and the handshake line
-	 * announcing it - deliberately the same string, and deliberately not a valid
-	 * command keyword, so a daemon reading it as the first line of a connection
-	 * can tell it apart from a command with no ambiguity.
-	 */
+	/** The command-line flag that selects HUMAN mode when starting the daemon - see Main. */
 	public static final String HUMAN_FLAG = "--human";
 }

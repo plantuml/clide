@@ -697,7 +697,8 @@ find_reference <What: method or type> <Position> - Finds every real usage of a s
 help - Lists every available command with its parameters - one line each, or an ASCII table under --human.
 ```
 
-Mode HUMAN (`clide --human`) : le même contenu en table ASCII à largeur fixe.
+Mode HUMAN (daemon démarré avec `java -jar clide.jar --human`) : le même
+contenu en table ASCII à largeur fixe.
 
 ### `Setting`
 

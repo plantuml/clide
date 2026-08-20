@@ -12,8 +12,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 
-import clide.CommandRepository;
-import clide.Main;
 import clide.PrintMode;
 import clide.annotation.ParamType;
 import clide.command.answer.CommandPayload;
@@ -35,24 +33,28 @@ import clide.lua.LuaBridge;
 
 /**
  * The long-lived side of clide: owns the single JdtlsSession for a project and
- * a local TCP ServerSocket, and keeps both alive across many separate clide
- * invocations instead of paying jdtls' handshake and full workspace build again
- * every time - see CLAUDE.md. This is also the daemon's own entry point (main()
- * below) - ClideClient re-execs "java ... clide.daemon.ClideDaemon
- * &lt;project&gt;" as a detached background process the first time a project is
- * opened (see ClideClient.startDetachedDaemon()); not meant to be typed by
- * hand. Every later "clide &lt;project&gt;" run just connects to it as a client
- * - see ClideClient/Main.
+ * a local TCP ServerSocket, and keeps both alive across many separate client
+ * connections instead of paying jdtls' handshake and full workspace build again
+ * every time - see CLAUDE.md. Main.main() is this class's only caller now:
+ * "java -jar clide.jar [--human] &lt;project&gt;" constructs and runs a
+ * ClideDaemon directly, in the foreground - see Main's class doc for what that
+ * changed from the previous, Java-client architecture (ClideClient no longer
+ * exists; the client is clide.py).
+ *
+ * printMode is fixed for this daemon's entire lifetime - decided once by
+ * whoever started it (see Main), never renegotiated by a connection. It is
+ * handed to the ClideContext this daemon serves every connection through (see
+ * run()), which is also where a command reads it back (ClideContext.getPrintMode()).
  *
  * Client connections are served one at a time (accept() loops sequentially):
  * jdtls itself only ever handles one request at a time anyway, and clide is a
  * single-user tool, so added concurrency here would buy nothing. A client
- * disconnecting (EOF on its socket, the normal end of a "clide" run) only ends
- * that connection - the daemon keeps running for the next one. "exit"/"quit"
- * (see DisconnectCommand) additionally stop the jdtls session itself but still
- * leave the daemon up - CommandDispatcher restarts it lazily the next time a
- * command actually needs it. Only "terminate" (see TerminateCommand) shuts the
- * whole daemon down.
+ * disconnecting (EOF on its socket, the normal end of a clide.py run) only
+ * ends that connection - the daemon keeps running for the next one.
+ * "exit"/"quit" (see DisconnectCommand) additionally stop the jdtls session
+ * itself but still leave the daemon up - CommandDispatcher restarts it lazily
+ * the next time a command actually needs it. Only "terminate" (see
+ * TerminateCommand) shuts the whole daemon down.
  *
  * A connection announcing "--lua" is served differently: it carries one Lua
  * script rather than a stream of commands - see runScript() and ConnectionMode.
@@ -60,24 +62,18 @@ import clide.lua.LuaBridge;
 public final class ClideDaemon {
 
 	private final Path projectRoot;
+	private final PrintMode printMode;
 	private final Collection<Command> commands;
 
-	public ClideDaemon(final Path projectRoot, Collection<Command> commands) {
+	public ClideDaemon(final Path projectRoot, final PrintMode printMode, final Collection<Command> commands) {
 		this.projectRoot = projectRoot;
+		this.printMode = printMode;
 		this.commands = commands;
 	}
 
-	/** Entry point for the daemon process itself - see the class doc above. */
-	public static void main(final String[] args) throws IOException, InterruptedException, TimeoutException {
-		final Path projectRoot = Main.parseProjectRoot(args);
-		if (projectRoot == null)
-			return;
-
-		new ClideDaemon(projectRoot, CommandRepository.commands).run();
-	}
-
 	public void run() throws IOException, InterruptedException, TimeoutException {
-		System.out.println("*** clide daemon starting for " + projectRoot);
+		System.out.println("*** clide daemon starting for " + projectRoot + " (mode: "
+				+ (printMode == PrintMode.HUMAN ? "--human" : "--ia") + ")");
 
 		System.out.print("(1/4) Checking for a leftover transaction state ...");
 		TransactionStack.refuseIfDirty(projectRoot);
@@ -120,6 +116,10 @@ public final class ClideDaemon {
 					+ "the project's own restored afterward - see .clide/tmp/ for what was actually used)");
 
 		final ClideContext context = new ClideContext(filesRepository, session, commands);
+		// Fixed for the daemon's whole lifetime - see this class's own doc and
+		// Main. Set once here, never touched again: unlike maxResults, printMode is
+		// deliberately left out of resetPerConnectionSettings().
+		context.setPrintMode(printMode);
 
 		final ServerSocket serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
 		DaemonLock.write(projectRoot, serverSocket.getLocalPort());
@@ -153,16 +153,14 @@ public final class ClideDaemon {
 	}
 
 	/**
-	 * Serves one client until it disconnects, in the mode its very first line
-	 * announced - see ConnectionMode. A script connection is handed straight to
-	 * runScript(); the other two read commands one by one, in the print mode that
-	 * client asked for.
-	 *
-	 * The mode is a local, not a field: it belongs to this one connection, so a
-	 * "clide --human" session and an AI one can be served in turn by the same
-	 * daemon without either seeing the other's prompts. It is also published to the
-	 * context, for the commands whose own output depends on it - see
-	 * ClideContext.setPrintMode() and HelpCommand.
+	 * Serves one client until it disconnects. Its very first line only ever
+	 * decides one thing now - see ConnectionMode: whether this connection carries
+	 * a Lua script (handed straight to runScript()) or a stream of commands, read
+	 * one by one below. Either way it is served in this daemon's own printMode
+	 * (context.getPrintMode(), fixed at startup - see run()) - a connection no
+	 * longer picks its own the way it could before "--human" became a daemon
+	 * startup flag instead of a per-connection one (see Main, ClideDaemon's class
+	 * doc).
 	 */
 	private void runSession(final BufferedReader reader, final PrintStream out, final ClideContext context)
 			throws IOException {
@@ -170,23 +168,23 @@ public final class ClideDaemon {
 		if (firstLine == null)
 			return; // this client disconnected without saying anything at all
 
+		final PrintMode printMode = context.getPrintMode();
 		final ConnectionMode mode = ConnectionMode.of(firstLine);
-		final PrintMode printMode = mode.printMode();
-		context.setPrintMode(printMode);
 
 		if (mode == ConnectionMode.SCRIPT) {
 			runScript(reader, out, context);
 			return; // a script connection carries one script and ends with it
 		}
 
-		// HUMAN only - never AI, see announceExternalChanges()'s own doc for why:
-		// a still-open transaction may have something worth saying before this
+		// Only for a daemon started --human, and on every one of its connections
+		// (not just the first) - see announceExternalChanges()'s own doc for why: a
+		// still-open transaction may have something worth saying before this
 		// connection's own first command is even read.
 		if (printMode == PrintMode.HUMAN)
 			announceExternalChanges(out, context);
 
-		// AI mode otherwise announces nothing, so in that mode firstLine is not a
-		// handshake but already this session's first command: it has to be
+		// A COMMANDS connection announces nothing (see ConnectionMode), so firstLine
+		// is not a handshake but already this session's first command: it has to be
 		// processed, not swallowed. carried holds it until the loop below consumes
 		// it.
 		String carried = mode.announced() ? null : firstLine;
@@ -291,8 +289,8 @@ public final class ClideDaemon {
 	 * line is one Lua script, read whole and run here - see LuaBridge and LUA.md.
 	 *
 	 * Read to EOF rather than to a terminator, because a script is the entire rest
-	 * of what this client has to say. The client sends the file and half-closes its
-	 * side (see ClideClient.relay(), which already ends that way), keeping the read
+	 * of what this client has to say. The client (clide.py's relay(), see its own
+	 * module doc) sends the file and half-closes its side, keeping the read
 	 * direction open for what the script prints - so EOF arrives without the client
 	 * having to invent a delimiter no line of Lua could ever collide with.
 	 *

@@ -19,7 +19,8 @@
         ant test-compile             -> compiles the unit tests only
         ant test                     -> runs every unit test under src/test/java
         ant test -Dtest=<FQCN>       -> runs a single test class
-        ant run -Dproject=<path>     -> builds and runs clide on <path> (interactive stdin)
+        ant run -Dproject=<path>     -> builds and starts the clide daemon on <path>, in the
+                                        foreground - connect to it with clide.py (see CLAUDE.md)
         ant clean                    -> removes the build directory and the jar
     ========================================================================
 -->
@@ -363,10 +364,18 @@
     </target>
 
 
-    <target name="run" depends="compile" description="Run clide on a project - requires -Dproject=&lt;path&gt;">
-        <fail unless="project" message="Usage: ant run -Dproject=&lt;path&gt;"/>
+    <target name="run" depends="compile"
+            description="Start the clide daemon on a project, in the foreground - requires -Dproject=&lt;path&gt;">
+        <fail unless="project" message="Usage: ant run -Dproject=&lt;path&gt; [-Dhuman=true]"/>
+        <!-- ${human} is usually unset ("${human}" left literal), and istrue on that is false, same
+             as -Dhuman=false would be - so human.arg defaults to "" with nothing else to declare. -->
+        <condition property="human.arg" value="--human" else="">
+            <istrue value="${human}"/>
+        </condition>
         <java classname="${main.class}" classpath="${classes.dir}" fork="true">
-            <!-- fork="true" so stdin is properly connected to the JVM's console -->
+            <!-- fork="true" so this blocks (the daemon serves clients until "terminate") without
+                 tying up Ant's own JVM, and so Ctrl-C here reaches the daemon, not Ant. -->
+            <arg line="${human.arg}"/>
             <arg value="${project}"/>
         </java>
     </target>
@@ -398,7 +407,11 @@ TARGETS
                   A failing test fails the build. These are clide's own
                   tests; the tests of a project clide has OPEN are run
                   from inside clide, with run_test and run_tests.
-  run             Build, then run clide on a project. Needs -Dproject.
+  run             Build, then start the clide daemon on a project, in the
+                  foreground - it blocks, serving clients, until one sends
+                  "terminate". Connect to it from another terminal with
+                  "python3 clide.py &lt;project&gt;" (see CLAUDE.md). Needs
+                  -Dproject; -Dhuman=true starts it in HUMAN print mode.
   clean           Delete ${build.dir} and ${jar.file}.
   help            Show this message.
 
@@ -415,8 +428,12 @@ OPTIONS
         Default: ascii.
 
   -Dproject=&lt;path&gt;
-        Required by "run": the project clide should open. Interactive - clide
-        reads its commands on standard input.
+        Required by "run": the project the clide daemon should open.
+
+  -Dhuman=true
+        With "run": starts the daemon in HUMAN print mode instead of the
+        default AI mode - see PrintMode, CLAUDE.md. Fixed for that daemon's
+        whole lifetime; there is no way to change it without restarting.
 
   Overridable paths, should the layout ever move: -Dsrc.dir, -Dtest.src.dir,
   -Dlib.dir, -Dbuild.dir, -Dclasses.dir, -Dtest.classes.dir,
@@ -432,7 +449,7 @@ ENVIRONMENT
 OUTPUT
   ${jar.file}
         Fat jar. Runnable two ways:
-          java -jar ${jar.file} &lt;project path&gt;
+          java -jar ${jar.file} [--human] &lt;project path&gt;   (starts the daemon)
           java -cp ${jar.file} org.junit.platform.console.ConsoleLauncher ...
   ${classes.dir}        main classes
   ${test.classes.dir}   test classes
@@ -443,7 +460,7 @@ EXAMPLES
   ant clean dist                           rebuild it from scratch
   ant test                                 run every unit test
   ant test -Dtest=clide.util.UnifiedDiffTest    run one test class
-  ant run -Dproject=C:\github\plantuml     open clide on PlantUML
+  ant run -Dproject=C:\github\plantuml     start the clide daemon on PlantUML (foreground)
   ant -p                                   short target list, from Ant itself</echo>
     </target>
 

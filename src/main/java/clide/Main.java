@@ -4,140 +4,56 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 
-import clide.daemon.ClideClient;
-import clide.daemon.ConnectionMode;
+import clide.daemon.ClideDaemon;
+import clide.jdtls.LspClient.TimeoutException;
 
 /**
- * Entry point for clide's client role: "clide &lt;project path&gt;" connects to
- * the daemon already running for that project if there is one, otherwise starts
- * one in the background first - see ClideClient. jdtls itself is only ever
- * started/built once per project this way, not on every clide run - see
- * ClideDaemon, which is the daemon's own separate entry point (an internal
- * re-exec ClideClient spawns; not meant to be typed by hand).
+ * Entry point for clide's daemon - clide.jar's only role now that the client
+ * lives entirely in Python (see clide.py at the repository root, and
+ * CLAUDE.md). There is no more "clide &lt;project&gt;" client mode in this
+ * jar: starting the daemon is the one thing running it does.
  *
- * "clide --human &lt;project path&gt;" opens that same session in HUMAN print mode
- * (a prompt between commands, and one per parameter being read) instead of the
- * default AI mode, which prints no prompt at all - see PrintMode. The flag
- * applies to this one session, never to the daemon it connects to.
+ * "java -jar clide.jar [--human] &lt;project path&gt;" starts the daemon for
+ * that project in the foreground: it blocks, serving clients on a local TCP
+ * port (see ClideDaemon, DaemonLock), until a connection sends "terminate".
+ * Backgrounding it - {@code nohup ... &}, a systemd unit, a screen/tmux
+ * session, whatever the caller prefers - is entirely the caller's job; clide
+ * itself no longer forks or detaches on its own the way the previous
+ * Java-client architecture's ClideClient used to (see HISTORY.md).
  *
- * "clide --lua &lt;script&gt; &lt;project path&gt;" submits one Lua script to that
- * same daemon instead of opening an interactive session - see parseScriptPath()
- * and LUA.md. The Lua runtime itself lives in the daemon, not here: only there
- * do commands have a jdtls session and a project to answer about (see
- * LuaBridge). This process does for a script exactly what it does for a
- * keyboard - find or start the daemon, then relay - and the script is simply
- * what it relays.
+ * The print mode - PrintMode.AI (default) or PrintMode.HUMAN, selected with
+ * --human - is read once here and fixed for the whole lifetime of this
+ * daemon process: every client that connects afterward - clide.py relaying a
+ * keyboard, or relaying a --lua script - is served in that one mode. It
+ * cannot be changed without restarting the daemon. (An earlier design let
+ * each connection pick its own mode independently of the daemon's; see
+ * HISTORY.md for that previous behavior.)
  *
- * "clide --require-live-daemon &lt;project path&gt;" (combinable with either of the
- * above) refuses to silently start a fresh daemon in place of one that used to
- * be running for this project and has since stopped answering - see
- * ClideClient.REQUIRE_LIVE_DAEMON_FLAG and DaemonLock.State.DEAD. A project
- * that has never had a daemon still gets one started as usual: only a dead one
- * is refused, not an absent one.
+ * If the daemon is not found running, clide.py fails with a message instead
+ * of starting one - starting the daemon, explicitly, in the mode wanted, is
+ * always this class's job now, never a side effect of connecting a client.
  */
 public class Main {
 
 	public static final String VERSION = "0.0.1";
 
-	/**
-	 * What parseScriptPath() returns when there is no --lua flag at all, which is
-	 * neither a script path nor a failure and so cannot be either null or a Path.
-	 */
-	private static final Path NOT_A_SCRIPT_RUN = Paths.get("");
-
-	public static void main(final String[] args) throws IOException, InterruptedException {
-		final boolean requireLiveDaemon = parseRequireLiveDaemon(args);
-
-		final Path scriptPath = parseScriptPath(args);
-		if (scriptPath == NOT_A_SCRIPT_RUN) {
-			final PrintMode printMode = parsePrintMode(args);
-			final Path projectRoot = parseProjectRoot(withoutRequireLiveDaemonFlag(withoutPrintModeFlag(args)));
-			if (projectRoot == null)
-				return;
-
-			new ClideClient(projectRoot, printMode, requireLiveDaemon).run();
-			return;
-		}
-
-		if (scriptPath == null)
-			return; // the flag was there, what followed it was not - already said why
-
-		if (parsePrintMode(args) == PrintMode.HUMAN) {
-			// The two contradict each other: HUMAN's prompts exist for someone typing,
-			// and a script reads none of them. Refused rather than quietly dropping
-			// one of the two flags somebody deliberately wrote.
-			System.out.println(
-					"--human and " + ConnectionMode.SCRIPT_FLAG + " cannot be combined: a script reads no prompt");
-			return;
-		}
-
-		final Path projectRoot = parseProjectRoot(withoutRequireLiveDaemonFlag(withoutScriptFlag(args)));
+	public static void main(final String[] args) throws IOException, InterruptedException, TimeoutException {
+		final PrintMode printMode = parsePrintMode(args);
+		final Path projectRoot = parseProjectRoot(withoutPrintModeFlag(args));
 		if (projectRoot == null)
 			return;
 
-		new ClideClient(projectRoot, scriptPath, requireLiveDaemon).run();
+		new ClideDaemon(projectRoot, printMode, CommandRepository.commands).run();
 	}
 
 	/**
-	 * The .lua file "clide --lua &lt;script&gt; &lt;project path&gt;" names;
-	 * NOT_A_SCRIPT_RUN when no --lua flag appears at all, which is not an error but
-	 * the ordinary case; null when the flag is there and what follows it is not
-	 * usable (nothing at all, or not a readable file), the reason already printed.
-	 *
-	 * Unlike --human, this flag is not positional-free: it takes the argument
-	 * immediately after it. A bare flag can be moved around because there is only
-	 * one other argument to confuse it with - a flag that consumes the next one
-	 * cannot.
-	 */
-	private static Path parseScriptPath(final String[] args) {
-		for (int i = 0; i < args.length; i++) {
-			if (args[i].equals(ConnectionMode.SCRIPT_FLAG) == false)
-				continue;
-
-			if (i + 1 >= args.length) {
-				System.out.println("Usage: clide " + ConnectionMode.SCRIPT_FLAG + " <script path> <project path>");
-				return null;
-			}
-
-			final Path scriptPath = Paths.get(args[i + 1]).toAbsolutePath().normalize();
-			if (Files.isRegularFile(scriptPath) == false) {
-				System.out.println("Not a file: " + scriptPath);
-				return null;
-			}
-
-			return scriptPath;
-		}
-
-		return NOT_A_SCRIPT_RUN;
-	}
-
-	/**
-	 * args minus the --lua flag and the script path it consumed, leaving just the
-	 * project path parseProjectRoot() counts.
-	 */
-	private static String[] withoutScriptFlag(final String[] args) {
-		final List<String> kept = new ArrayList<>();
-		for (int i = 0; i < args.length; i++) {
-			if (args[i].equals(ConnectionMode.SCRIPT_FLAG)) {
-				i++; // and the script path with it
-				continue;
-			}
-
-			kept.add(args[i]);
-		}
-		return kept.toArray(new String[0]);
-	}
-
-	/**
-	 * HUMAN as soon as PrintMode.HUMAN_FLAG appears among args, AI otherwise -
-	 * AI being the mode a session runs in unless it explicitly asks for the other
-	 * one. The flag is positional-free on purpose: "clide --human &lt;project&gt;"
-	 * and "clide &lt;project&gt; --human" both work, since there is only ever one
-	 * other argument to confuse it with.
+	 * HUMAN as soon as PrintMode.HUMAN_FLAG appears among args, AI otherwise - AI
+	 * being the mode the daemon starts in unless it explicitly asks for the other
+	 * one. The flag is positional-free on purpose: "java -jar clide.jar --human
+	 * &lt;project&gt;" and "java -jar clide.jar &lt;project&gt; --human" both
+	 * work, since there is only ever one other argument to confuse it with.
 	 */
 	public static PrintMode parsePrintMode(final String[] args) {
 		for (final String arg : args)
@@ -157,42 +73,14 @@ public class Main {
 	}
 
 	/**
-	 * True as soon as ClideClient.REQUIRE_LIVE_DAEMON_FLAG appears among args,
-	 * false otherwise - false being the flag's absence, exactly as AI is
-	 * PrintMode's. Positional-free for the same reason parsePrintMode() is: at
-	 * most one other argument (--human/--lua notwithstanding) to confuse it
-	 * with.
-	 */
-	private static boolean parseRequireLiveDaemon(final String[] args) {
-		for (final String arg : args)
-			if (arg.equals(ClideClient.REQUIRE_LIVE_DAEMON_FLAG))
-				return true;
-
-		return false;
-	}
-
-	/**
-	 * args minus every ClideClient.REQUIRE_LIVE_DAEMON_FLAG occurrence - see
-	 * withoutPrintModeFlag(), which this mirrors for the same reason: what's left
-	 * is what parseProjectRoot() (or parseScriptPath()) expects to count.
-	 */
-	private static String[] withoutRequireLiveDaemonFlag(final String[] args) {
-		return Arrays.stream(args).filter(arg -> arg.equals(ClideClient.REQUIRE_LIVE_DAEMON_FLAG) == false)
-				.toArray(String[]::new);
-	}
-
-	/**
-	 * Parses and validates the single "clide &lt;project path&gt;" argument shared
-	 * by both of clide's entry points - this class (the client) and
-	 * ClideDaemon.main() (the daemon, re-exec'd by ClideClient - see
-	 * ClideClient.startDetachedDaemon()). Takes args with any print-mode flag
-	 * already stripped (see withoutPrintModeFlag()). Prints a usage/error message
-	 * and returns null if args is invalid; never throws.
+	 * Parses and validates the single "java -jar clide.jar [--human] &lt;project
+	 * path&gt;" argument this entry point takes, with the print-mode flag already
+	 * stripped (see withoutPrintModeFlag()). Prints a usage/error message and
+	 * returns null if args is invalid; never throws.
 	 */
 	public static Path parseProjectRoot(final String[] args) {
 		if (args.length != 1) {
-			System.out.println(
-					"Usage: clide [--human] [--lua <script path>] [--require-live-daemon] <project path>");
+			System.out.println("Usage: java -jar clide.jar [--human] <project path>");
 			return null;
 		}
 
@@ -204,6 +92,5 @@ public class Main {
 
 		return projectRoot;
 	}
-
 
 }

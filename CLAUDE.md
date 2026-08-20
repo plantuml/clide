@@ -42,17 +42,22 @@ Three things matter, in priority order, and all three are covered:
 
 ## Getting started
 
-**Build clide with `ant` only, never with `gradlew`/Gradle.** The Gradle
+clide has two parts, started separately, in order: a Java **daemon**, one per
+project, that owns the actual jdtls session and does all the work; and a
+Python **client**, `clide.py`, that connects to an already-running daemon and
+relays commands to it. There is no Java client anymore — starting the daemon
+and talking to it are two distinct, deliberate steps, never one command that
+does both.
+
+**Build the daemon with `ant` only, never with `gradlew`/Gradle.** The Gradle
 wrapper downloads its distribution from `services.gradle.org`, a domain
 not reachable from a Claude sandbox (403 verified) — `gradlew`/
 `gradlew.bat` will therefore always fail in this environment. `ant`
-compiles and packages `clide.jar` with no network access needed. `ant run`
-starts an interactive session; type `help` at the prompt for the list of
-commands.
+compiles and packages `clide.jar` with no network access needed.
 
-**And run that jar** — `java -jar clide.jar <project>` — never the compiled
-classes with `lib/` on the classpath. `clide.jar` is not just a packaging
-convenience: it carries resources the code reads at runtime, and a
+**And run that jar** — `java -jar clide.jar [--human] <project>` — never the
+compiled classes with `lib/` on the classpath. `clide.jar` is not just a
+packaging convenience: it carries resources the code reads at runtime, and a
 classes-based run has none of them. jdtls itself is one
 (`resource/jdt-language-server-latest.zip`); the JUnit jars clide gives a
 target project so jdtls can compile its test sources are the other
@@ -63,34 +68,37 @@ shows up in the *opened project* instead: `rebuild` reports a wave of
 touched, which reads exactly like a project whose classpath is broken. It is
 not — the clide that was asked is.
 
-`clide <project-path>` opens (or joins, if already running) a daemon
-dedicated to that project — one per project, running in the background,
-staying alive across multiple launches. There's no separate command to
-"open" a project, and no notion of a current project to switch. The first
-launch builds the project automatically; subsequent launches are fast
-(~0.25 s per session once the daemon is up).
+**Step 1 — start the daemon.** `java -jar clide.jar <project-path>` starts a
+daemon dedicated to that project — one per project, building it the first
+time, staying alive across many later client connections so they don't pay
+that cost again. It runs in the **foreground** and blocks: backgrounding it
+(`nohup java -jar clide.jar <project-path> &`, a systemd unit, a screen/tmux
+session, whatever fits) is entirely up to whoever starts it — clide itself no
+longer forks or detaches on its own. `java -jar clide.jar --human
+<project-path>` starts that same daemon in HUMAN print mode instead of the
+default AI mode — see below. **The mode is fixed for the daemon's whole
+lifetime once it starts; there is no way to change it short of restarting
+the daemon**, and every client that connects afterward, whichever mode it
+relays, is served in that one mode.
 
-**`clide.py <project-path>` is a faster stand-in for that "subsequent
-launch" case** — same protocol, same output, but a CPython process instead of
-a fresh JVM to reach it, so a warm-daemon round trip lands closer to 40ms than
-150ms. It only knows how to do that one thing: connect to an already-live
-daemon in plain AI mode and relay stdin/stdout. Anything else - no daemon
-yet, a dead one, `--human`, `--lua`, `--require-live-daemon` - it hands off
-to `java -jar clide.jar` itself (an `exec`, not a wrapper around it), so
-every one of those cases still behaves exactly as documented here, just
-served by the jar instead. Swap it in wherever a target project's own wrapper
-script currently calls `java -jar clide.jar` and every repeated call in a
-session gets faster; nothing about the protocol or the commands changes.
-Needs `clide.jar` sitting next to it (the layout `ant dist` produces at the
-repository root) and nothing beyond Python's own standard library.
+**If the daemon is not already running, nothing starts it automatically —
+not the client, not anything else.** A client finding no daemon for a
+project fails with a message naming the `java -jar clide.jar` command to run
+first. This is deliberate: starting the daemon means picking `--ia` or
+`--human` for its whole lifetime, a choice nothing should make silently on a
+caller's behalf.
 
-`clide --human <project-path>` opens that same session in HUMAN print mode:
-`> READY` before each command, then one `> <parameter> ?` prompt per
-parameter being read. Without the flag a session runs in AI mode, which
-prints nothing but the commands' own output. The flag can go before or
-after the project path, and applies to that one connection only — never to
-the daemon, so a human session and an AI session can use the same daemon in
-turn without either ever seeing the other's prompts.
+**Step 2 — connect a client.** `python3 clide.py <project-path>` connects to
+the daemon already running for that project and relays this process' own
+stdin/stdout to it — a CPython process rather than a fresh JVM to reach an
+already-live daemon, so a round trip lands closer to 40ms than the ~150ms a
+JVM startup alone would add. It is the *only* client — there is no Java
+equivalent to fall back to, and no flags of its own change how a session is
+printed (that was moved to the daemon's own `--human`, above): every case
+this script does not recognize, or a daemon it cannot reach, ends in a
+message on stderr and a non-zero exit, never a silent substitute. Needs
+nothing beyond Python's own standard library, and no `clide.jar` sitting next
+to it — it never reads or execs one.
 
 Two levels of built-in help:
 
@@ -137,8 +145,8 @@ Three consequences worth knowing before sending anything:
 - **Nothing prompts for what is still missing.** In the default AI mode no
   `> READY` and no `> <parameter> ?` is ever printed, so each command's
   arity has to be known up front — `help` gives it for every command.
-  `clide --human` (see above) turns those prompts on: worth it when typing
-  by hand, only noise when piping.
+  Starting the daemon with `--human` (see above) turns those prompts on:
+  worth it when typing by hand, only noise when piping.
 - **A parameter containing spaces needs no quoting**, and must not be
   given any: the line *is* the value (trimmed), so quotes would end up
   inside it. `search_regex`'s content regex, typically, is written
@@ -601,14 +609,19 @@ clide declares `workspace.workspaceEdit.resourceOperations` during
 | `exit` / `quit` | Disconnects cleanly; the daemon and any open transactions survive. |
 | `terminate` | Stops the daemon; refuses if a transaction is still open. |
 
-## Scripting a session: `clide --lua <script> <project path>`
+## Scripting a session: `python3 clide.py --lua <script> <project path>`
 
-`clide --lua audit.lua <project>` sends one Lua script to the daemon instead of
-opening an interactive session, and prints back whatever the script printed.
-Everything else is unchanged: same daemon, same warm jdtls session, same
-project. Use it when the answer needs a loop — "which of this type's methods
-has no caller", "which of these files still match X after Y" — where the
-command-per-turn mode would spend a round trip per item.
+`python3 clide.py --lua audit.lua <project>` sends one Lua script to the
+daemon instead of opening an interactive session, and prints back whatever
+the script printed. The daemon it connects to must already be running (see
+"Getting started" above) — same rule as for an ordinary session, and for the
+same reason: nothing starts one automatically. Everything else is unchanged:
+same daemon, same warm jdtls session, same project, and the daemon's own
+print mode plays no part in it (a script connection renders no `> READY`/
+`> <parameter> ?` prompts whether the daemon was started `--ia` or
+`--human`). Use it when the answer needs a loop — "which of this type's
+methods has no caller", "which of these files still match X after Y" — where
+the command-per-turn mode would spend a round trip per item.
 
 Inside the script, **every command is a function of the same name**, taking its
 parameters in the order `help` lists them:

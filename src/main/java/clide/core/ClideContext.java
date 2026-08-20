@@ -27,11 +27,12 @@ import clide.jdtls.JdtlsSession;
  * connection; isShutdownRequested() is one-way and checked by both the
  * per-connection loop and the daemon's own accept loop.
  *
- * getPrintMode() is per-connection too, in the same sense: ClideDaemon sets it
- * from the handshake the moment a connection announces its mode, and it stays
- * that connection's mode until the next one overwrites it. Sharing one field
- * for that is safe because the daemon serves clients strictly one at a time
- * (see ClideDaemon's class doc) - never two connections at once.
+ * getPrintMode(), unlike everything else here, is not per-connection: it is
+ * set once, by ClideDaemon.run() right after this context is constructed, to
+ * whatever mode the daemon itself started in (see Main), and never touched
+ * again for the rest of this context's life - deliberately left out of
+ * resetPerConnectionSettings(). Every connection this daemon ever serves reads
+ * back the same value.
  */
 public class ClideContext {
 
@@ -132,18 +133,18 @@ public class ClideContext {
 
 
 	/**
-	 * The print mode of the connection currently being served - AI unless that
-	 * client announced otherwise (see ClideDaemon.readPrintMode()). A command
-	 * reads this when its output should differ for a human and for a machine;
-	 * HelpCommand is the one that does today.
+	 * This daemon's print mode - AI unless it was started with --human (see
+	 * Main). A command reads this when its output should differ for a human and
+	 * for a machine; HelpCommand is the one that does today.
 	 */
 	public PrintMode getPrintMode() {
 		return printMode;
 	}
 
 	/**
-	 * Set at the start of every new connection, once its handshake has been read
-	 * - see ClideDaemon.runSession().
+	 * Set once, right after this context is constructed - see ClideDaemon.run().
+	 * Not called again afterward: the daemon's print mode does not change for
+	 * the rest of its life.
 	 */
 	public void setPrintMode(final PrintMode printMode) {
 		this.printMode = printMode;

@@ -57,10 +57,10 @@ public final class EclipseProjectFiles {
 
 	/**
 	 * clide's scratch directory for a project - also where DaemonLock's
-	 * .clide.lock and ClideClient's .clide-daemon.log live, for the same reason
-	 * everything here does: keep the project root itself free of anything clide
-	 * did not find there already. Public so those two classes share this one
-	 * definition rather than each hard-coding ".clide/tmp" themselves.
+	 * .clide.lock lives, for the same reason everything here does: keep the
+	 * project root itself free of anything clide did not find there already.
+	 * Public so those two classes share this one definition rather than each
+	 * hard-coding ".clide/tmp" themselves.
 	 */
 	public static final String STAGING_DIR = ".clide/tmp";
 

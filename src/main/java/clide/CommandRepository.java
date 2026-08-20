@@ -30,16 +30,12 @@ import clide.command.transaction.RollbackTransactionCommand;
 import clide.core.Command;
 
 /**
- * Every command clide registers, as one place both of clide's entry points can
- * read from: Main.main() (the client) and ClideDaemon.main() (the daemon, a
- * second, entirely separate JVM entry point that never calls Main.main() - see
- * ClideDaemon's class doc).
+ * Every command clide registers - read by Main.main(), the daemon's one entry
+ * point, and handed to ClideDaemon's constructor.
  *
- * Used to be a static field on Main itself - which Main.main() never actually
- * read; only ClideDaemon did. That made ClideDaemon import a class about CLI
- * argument parsing purely to reach a shared registry that had nothing to do
- * with it. A dedicated class with no other responsibility is the honest home
- * for it.
+ * A dedicated class with no other responsibility, kept separate from Main
+ * itself: nothing about parsing CLI arguments belongs next to a static list of
+ * commands.
  *
  * Filled from a static initializer rather than a plain field initializer, so
  * the list is built with one add() per command - readable, easy to diff when

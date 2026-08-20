@@ -196,13 +196,18 @@ mkdir -p /tmp/demo/src/main/java/demo
 printf 'package demo;\npublic class Square {\n\tpublic double area() { return 4; }\n}\n' \
   > /tmp/demo/src/main/java/demo/Square.java
 cd /tmp/run
-printf 'help\nexit\n' | java -jar /tmp/clide/clide.jar /tmp/demo
+nohup java -jar /tmp/clide/clide.jar /tmp/demo > /tmp/demo-daemon.log 2>&1 &
+# attends "Daemon ready on port ..." dans /tmp/demo-daemon.log avant de continuer
+printf 'help\nexit\n' | python3 /tmp/clide/clide.py /tmp/demo
 ```
 
-Doit afficher les 4 étapes de démarrage (`(1/4)` … `(4/4) Building project
-… [OK]`) puis la liste des commandes. Démarrage à froid mesuré : ~22 s sur ce
-mini-projet (extraction de jdtls comprise), bien plus sur PlantUML.
-Reconnexion à un daemon déjà vivant : ~0,25 s.
+Le daemon (premier bloc) doit afficher les 4 étapes de démarrage (`(1/4)` …
+`(4/4) Building project … [OK]`) puis `Daemon ready on port …`. Démarrage à
+froid mesuré : ~22 s sur ce mini-projet (extraction de jdtls comprise), bien
+plus sur PlantUML — un coût payé une seule fois, pas à chaque connexion.
+Chaque appel suivant du client (`python3 clide.py /tmp/demo`) contre ce même
+daemon doit ensuite afficher la bannière de connexion puis la liste des
+commandes, en quelques dizaines de ms.
 
 Si `help` répond, le socle est bon.
 
@@ -221,19 +226,21 @@ Trois règles, à intégrer avant le premier test — la plupart des faux
 3. **Pas de quotes.** La ligne *est* la valeur (trimmée) ; des guillemets
    finiraient dans la valeur.
 
-Forme typique d'un test :
+Forme typique d'un test (le daemon pour `/tmp/plantuml` doit déjà tourner —
+voir 4.5) :
 
 ```bash
 printf 'find_reference\nmethod\nsrc/main/java/…/Foo.java:42:17:bar\nexit\n' \
-  | java -jar /tmp/clide/clide.jar /tmp/plantuml
+  | python3 /tmp/clide/clide.py /tmp/plantuml
 ```
 
 Utilise `help` (liste + arité de chaque commande) et **`man <commande>`**
 (page détaillée, sections ERRORS / SEE ALSO) : ils sont intégrés et font
 autorité sur `CLAUDE.md` en cas de désaccord — un désaccord entre les deux
-étant lui-même un résultat à rapporter. `clide --human <projet>` active les
-prompts `> READY` / `> <paramètre> ?`, utile pour explorer à la main, à
-éviter en pipe.
+étant lui-même un résultat à rapporter. Démarrer le daemon avec `--human`
+(`java -jar clide.jar --human <projet>`) active les prompts `> READY` /
+`> <paramètre> ?` pour toute la durée de vie de ce daemon, utile pour
+explorer à la main, à éviter en pipe — ça ne se choisit plus par connexion.
 
 Fin de session : `exit` (le daemon survit), `terminate` (arrête le daemon).
 
@@ -243,10 +250,13 @@ Fin de session : `exit` (le daemon survit), `terminate` (arrête le daemon).
 
 ### 6.1 Sur clide lui-même
 
-Ouvre clide **sur le checkout de clide** :
+Ouvre clide **sur le checkout de clide** — démarre d'abord le daemon, puis
+connecte le client :
 
 ```bash
-cd /tmp/run && java -jar /tmp/clide/clide.jar /tmp/clide
+nohup java -jar /tmp/clide/clide.jar /tmp/clide > /tmp/clide-daemon.log 2>&1 &
+# attends "Daemon ready on port ..." dans /tmp/clide-daemon.log, puis :
+cd /tmp/run && python3 /tmp/clide/clide.py /tmp/clide
 ```
 
 Intérêt : boucle courte, code que tu viens de lire, et cas limite connu — un
