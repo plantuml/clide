@@ -34,7 +34,21 @@ public final class TestSelector {
 	}
 
 	/**
-	 * The two-element argument list TestRunnerMain expects.
+	 * The argument list TestRunnerMain expects: two elements for "run the whole
+	 * class", three for "run one name inside it".
+	 *
+	 * Deliberately does not build a "Class#method" string the way
+	 * DiscoverySelectors.selectMethod(String) wants it: that form has no way to
+	 * spell a parameter list (so an absent one is read as "takes no arguments",
+	 * wrong for every @ParameterizedTest/@RepeatedTest) and no way to spell a
+	 * @Nested class (a bare method name typed against the file's own top-level
+	 * class is simply the wrong class for anything declared inside one). The
+	 * file name is the only thing this method can resolve with certainty -
+	 * jdtls already resolved <position> to the real declaration, but that
+	 * information does not survive the trip through the "path:line:column:name"
+	 * notation - so it always names the top-level class here and leaves
+	 * TestRunnerMain.buildRequest() to discover that whole class and filter
+	 * down to <symbolName> by its simple name, method or @Nested class alike.
 	 *
 	 * Pure on purpose - no filesystem, no jdtls - so the naming rules can be
 	 * tested for what they are.
@@ -46,7 +60,7 @@ public final class TestSelector {
 		if (symbolName.equals(typeName))
 			return new String[] { "--class", qualified };
 
-		return new String[] { "--method", qualified + "#" + symbolName };
+		return new String[] { "--method", qualified, symbolName };
 	}
 
 	/** The class a Java source file declares: its name, minus the extension. */

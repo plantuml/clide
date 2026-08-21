@@ -128,10 +128,50 @@ class TestRunnerMainExecutionTest {
 	@Test
 	@DisplayName("une méthode seule se sélectionne aussi")
 	void singleMethodSelector() {
-		final Run run = run("--method", FIXTURES + "Mixed#plainOne");
+		final Run run = run("--method", FIXTURES + "Mixed", "plainOne");
 
 		assertEquals(TestRunnerMain.EXIT_OK, run.exit, run.toString());
 		run.assertSummary(1, 1, 0, 0);
+	}
+
+	@Test
+	@DisplayName("une méthode @ParameterizedTest se sélectionne - le bug qui construisait \"Class#method\" la ratait")
+	void singleParameterizedMethodSelector() {
+		// DiscoverySelectors.selectMethod("Class#method") lit l'absence de
+		// parenthèses comme "zéro argument", ce qu'une @ParameterizedTest n'est
+		// jamais. Sélectionner la classe puis filtrer par nom simple contourne le
+		// problème : cinq cas, pas zéro.
+		final Run run = run("--method", FIXTURES + "ParameterizedOnly", "everyValueIsPositive");
+
+		assertEquals(TestRunnerMain.EXIT_OK, run.exit, run.toString());
+		run.assertSummary(5, 5, 0, 0);
+	}
+
+	@Test
+	@DisplayName("une méthode dans une classe @Nested se sélectionne - le nom de fichier seul ne suffisait pas à la trouver")
+	void nestedMethodSelector() {
+		final Run run = run("--method", FIXTURES + "NestedFixture", "innerPasses");
+
+		assertEquals(TestRunnerMain.EXIT_OK, run.exit, run.toString());
+		run.assertSummary(1, 1, 0, 0);
+	}
+
+	@Test
+	@DisplayName("une classe @Nested entière se sélectionne par son nom simple")
+	void nestedClassSelector() {
+		final Run run = run("--method", FIXTURES + "NestedFixture", "InnerGroup");
+
+		assertEquals(TestRunnerMain.EXIT_OK, run.exit, run.toString());
+		run.assertSummary(2, 2, 0, 0);
+	}
+
+	@Test
+	@DisplayName("la classe @Nested entière, elle, tourne au complet")
+	void nestedFixtureWholeClass() {
+		final Run run = runClass("NestedFixture");
+
+		assertEquals(TestRunnerMain.EXIT_OK, run.exit, run.toString());
+		run.assertSummary(3, 3, 0, 0);
 	}
 
 	// ------------------------------------------------------------------
@@ -143,10 +183,15 @@ class TestRunnerMainExecutionTest {
 	/**
 	 * Forke un JVM sur le classpath de ce test — qui porte déjà TestRunnerMain,
 	 * la plateforme JUnit et les cobayes compilés.
+	 *
+	 * Variadique parce que le sélecteur a deux formes : deux éléments pour
+	 * "--class <nom>"/"--scan <racine>", trois pour "--method <classe>
+	 * <cible>" - voir TestSelector.selector().
 	 */
-	private static Run run(final String selector, final String value) {
-		final List<String> command = List.of(JdtlsLauncher.javaExecutable(), "-cp",
-				System.getProperty("java.class.path"), TestRunnerMain.class.getName(), selector, value);
+	private static Run run(final String... selectorArgs) {
+		final List<String> command = new ArrayList<>(List.of(JdtlsLauncher.javaExecutable(), "-cp",
+				System.getProperty("java.class.path"), TestRunnerMain.class.getName()));
+		command.addAll(List.of(selectorArgs));
 
 		try {
 			final Process process = new ProcessBuilder(command).redirectErrorStream(false).start();

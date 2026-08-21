@@ -147,8 +147,9 @@ public final class ProjectTests {
 		command.add("-cp");
 		command.add(String.join(java.io.File.pathSeparator, full));
 		command.add(TestRunnerMain.class.getName());
-		command.add(selector[0]);
-		command.add(selector[1]);
+		// selector is 2 elements for "--class <name>"/"--scan <root>", 3 for
+		// "--method <class> <target>" - see TestSelector.selector().
+		command.addAll(List.of(selector));
 
 		final Process process;
 		try {

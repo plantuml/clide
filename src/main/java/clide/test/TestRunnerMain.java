@@ -9,10 +9,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import org.junit.platform.engine.FilterResult;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.discovery.DiscoverySelectors;
+import org.junit.platform.engine.support.descriptor.MethodSource;
 import org.junit.platform.launcher.Launcher;
 import org.junit.platform.launcher.LauncherDiscoveryRequest;
+import org.junit.platform.launcher.PostDiscoveryFilter;
 import org.junit.platform.launcher.TestExecutionListener;
 import org.junit.platform.launcher.TestIdentifier;
 import org.junit.platform.launcher.TestPlan;
@@ -112,13 +115,15 @@ public final class TestRunnerMain {
 	/**
 	 * The class a --class/--method selector names, when it cannot be loaded off
 	 * this JVM's classpath - null when there is nothing to complain about.
+	 *
+	 * args[1] is always the plain class name for both forms now - --method no
+	 * longer carries a "Class#member" string to split apart, see buildRequest().
 	 */
 	private static String classThatIsNotThere(final String[] args) {
-		if (args.length != 2 || args[0].equals("--scan"))
+		if (args.length < 2 || args[0].equals("--scan"))
 			return null;
 
-		final int hash = args[1].indexOf('#');
-		final String className = hash < 0 ? args[1] : args[1].substring(0, hash);
+		final String className = args[1];
 		try {
 			Class.forName(className, false, TestRunnerMain.class.getClassLoader());
 			return null;
@@ -128,19 +133,77 @@ public final class TestRunnerMain {
 	}
 
 	private static LauncherDiscoveryRequest buildRequest(final String[] args) {
-		if (args.length != 2)
-			throw new IllegalArgumentException("Usage: TestRunnerMain --class|--method|--scan <value>");
+		if (args.length < 2)
+			throw new IllegalArgumentException("Usage: TestRunnerMain --class|--scan <value> | --method <class> <name>");
 
 		final String value = args[1];
 		return switch (args[0]) {
 		case "--class" -> LauncherDiscoveryRequestBuilder.request()
 				.selectors(DiscoverySelectors.selectClass(value)).build();
-		case "--method" -> LauncherDiscoveryRequestBuilder.request()
-				.selectors(DiscoverySelectors.selectMethod(value)).build();
+		case "--method" -> {
+			if (args.length != 3)
+				throw new IllegalArgumentException("--method requires a class and a target name");
+
+			// Not DiscoverySelectors.selectMethod("Class#name"): that string has no
+			// way to spell a parameter list (missing parentheses read as "takes
+			// none", wrong for every @ParameterizedTest/@RepeatedTest) and no way to
+			// name a @Nested class (a bare name is resolved against the class
+			// selectMethod was given, never one nested under it). Discovering the
+			// whole class and filtering by simple name - see matching() - sidesteps
+			// both without needing to know a parameter list or a nesting depth.
+			yield LauncherDiscoveryRequestBuilder.request().selectors(DiscoverySelectors.selectClass(value))
+					.filters(matching(args[2])).build();
+		}
 		case "--scan" -> LauncherDiscoveryRequestBuilder.request()
 				.selectors(DiscoverySelectors.selectClasspathRoots(Set.of(Paths.get(value)))).build();
 		default -> throw new IllegalArgumentException("Unknown selector " + args[0]);
 		};
+	}
+
+	/**
+	 * Keeps a descriptor discovered under the class --method selected when it
+	 * names <target> - a method by its simple name, or a @Nested class by its
+	 * own simple name (every method inside it then matches too, one level down).
+	 *
+	 * Only a MethodSource is ever checked: the class itself, its @Nested
+	 * children's own containers, the JUnit engine root - none of those name a
+	 * single method or hold the class simple name a @Nested selection is
+	 * spelled with, and excluding any of them would prune away the descendants
+	 * <target> is actually asking for. A @ParameterizedTest/@RepeatedTest method
+	 * is still a container at discovery time (see Recorder's own note on why),
+	 * but it already carries a MethodSource naming itself, so it is matched and
+	 * kept here exactly like a plain @Test - its invocations register normally
+	 * once execution reaches it.
+	 *
+	 * Two declarations sharing a simple name - an overload, or the same method
+	 * name reused in a sibling @Nested group - are both kept rather than
+	 * neither: <position> already picked one specific declaration through
+	 * jdtls, but a bare name is all TestRunnerMain has to go on here, and
+	 * running one test too many is a better failure than running none at all
+	 * silently.
+	 */
+	private static PostDiscoveryFilter matching(final String target) {
+		return descriptor -> {
+			final var source = descriptor.getSource();
+			if (source.isPresent() && source.get() instanceof MethodSource method)
+				return sameSimpleName(method, target) ? FilterResult.included("clide: matches " + target)
+						: FilterResult.excluded("clide: does not match " + target);
+
+			// Not a method - the run root, the JUnit engine, the class --method
+			// selected, or a @Nested group's own container. None of those can be
+			// what <target> names; keeping them is what lets a matching descendant
+			// stay reachable.
+			return FilterResult.included("clide: not a method, kept for its matching descendants");
+		};
+	}
+
+	private static boolean sameSimpleName(final MethodSource method, final String target) {
+		if (method.getMethodName().equals(target))
+			return true;
+
+		final String className = method.getClassName();
+		final int cut = Math.max(className.lastIndexOf('.'), className.lastIndexOf('$'));
+		return className.substring(cut + 1).equals(target);
 	}
 
 	/**

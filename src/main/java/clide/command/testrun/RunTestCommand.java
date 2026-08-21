@@ -112,7 +112,12 @@ public class RunTestCommand extends Command {
 					"could not read " + position.path() + ": " + e.getMessage());
 		}
 
-		return ProjectTests.runSelection(context, selector, selector[1]);
+		// selector[1] is the class either way; selector[2], when present, is the
+		// method/@Nested name inside it - see TestSelector.selector(). Rebuilt here
+		// rather than read straight off selector[1] so "no test found in ..." still
+		// names the full target, not just the class it was searched in.
+		final String what = selector.length > 2 ? selector[1] + "#" + selector[2] : selector[1];
+		return ProjectTests.runSelection(context, selector, what);
 	}
 
 	@Override

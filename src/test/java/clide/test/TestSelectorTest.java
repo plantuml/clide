@@ -25,7 +25,7 @@ class TestSelectorTest {
 	@Test
 	@DisplayName("un symbole nommant autre chose lance cette seule méthode")
 	void namingAMethodRunsThatMethod() {
-		assertArrayEquals(new String[] { "--method", "demo.CalcTest#addWorks" },
+		assertArrayEquals(new String[] { "--method", "demo.CalcTest", "addWorks" },
 				TestSelector.selector("package demo;", "CalcTest.java", "addWorks"));
 	}
 
