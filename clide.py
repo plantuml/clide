@@ -141,6 +141,12 @@ def pump_socket_to_stdout(sock: socket.socket) -> None:
 			if not chunk:
 				break
 			sys.stdout.buffer.write(chunk)
+			# Flushed per chunk, not just once the loop ends: sys.stdout.buffer is a
+			# plain block-buffered BufferedWriter (writing to .buffer bypasses the
+			# line-buffering sys.stdout itself would get on a tty), so without this a
+			# short reply (e.g. "> READY") sits in this process' own buffer and never
+			# reaches the console until the connection eventually closes.
+			sys.stdout.buffer.flush()
 	except OSError:
 		pass  # the daemon closed its side mid-read - the normal end of a connection
 	sys.stdout.buffer.flush()
@@ -158,19 +164,28 @@ def relay(sock: socket.socket, source: "IO[bytes]") -> None:
 	that closes the connection on its own, e.g. after "exit") is not left
 	waiting on a source read that has nothing left to unblock it. Unlike
 	ClideClient.relay(), there's no need to force a stuck read to give up here:
-	every source this script ever relays - a pipe, a script file - reaches EOF
-	on its own once its writer is done; there is no interactive keyboard behind
-	stdin for this script to ever be handed (a genuinely interactive --human
-	session is served by the daemon this connects to, but the mode is fixed at
-	the daemon's own startup - see clide.py's own module doc - and nothing about
-	relaying it differs here from an AI-mode one).
+	every source this script ever relays - a pipe, a script file, or (for a
+	--human session) a person's own keyboard - reaches EOF on its own once its
+	writer is done.
+
+	Reads with os.read(), one raw syscall at a time, deliberately not
+	source.read(CHUNK_SIZE): a plain io.BufferedReader.read(n) is free to issue
+	several underlying reads to fill the whole n bytes before returning it to
+	the caller. On a real terminal that means it can sit past the line a human
+	just typed and pressed Enter on, waiting for enough further typing to fill
+	a 64KiB buffer - so a --human session's very first command would never
+	even reach the daemon (and so never get a reply) until that much text had
+	accumulated on stdin. os.read() is a single syscall: it returns whatever
+	the OS already has - one console line for an interactive --human session,
+	or up to CHUNK_SIZE bytes of a script/pipe otherwise - every time, which is
+	exactly what this loop already handles either way.
 	"""
 	output_thread = threading.Thread(target=pump_socket_to_stdout, args=(sock,), daemon=True)
 	output_thread.start()
 
 	try:
 		while True:
-			chunk = source.read(CHUNK_SIZE)
+			chunk = os.read(source.fileno(), CHUNK_SIZE)
 			if not chunk:
 				break
 			sock.sendall(chunk)

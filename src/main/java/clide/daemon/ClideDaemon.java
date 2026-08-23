@@ -164,11 +164,24 @@ public final class ClideDaemon {
 	 */
 	private void runSession(final BufferedReader reader, final PrintStream out, final ClideContext context)
 			throws IOException {
+		final PrintMode printMode = context.getPrintMode();
+
+		// A --human daemon owes this connection a "> READY" prompt before every
+		// command it reads - this one's very first included, same as every one
+		// after it (see readCommandLine()). Without this, a person sitting at the
+		// keyboard sees nothing at all after connecting and has no way to know the
+		// daemon is already waiting on them - their first line only got read once
+		// they'd blindly typed something (see printReadyPrompt()). An AI/script
+		// connection still gets no preamble anywhere in this method - that is what
+		// keeps a bare socket session, netcat included, working with no preamble,
+		// see ConnectionMode's own doc.
+		if (printMode == PrintMode.HUMAN)
+			printReadyPrompt(out);
+
 		final String firstLine = reader.readLine();
 		if (firstLine == null)
 			return; // this client disconnected without saying anything at all
 
-		final PrintMode printMode = context.getPrintMode();
 		final ConnectionMode mode = ConnectionMode.of(firstLine);
 
 		if (mode == ConnectionMode.SCRIPT) {
@@ -314,11 +327,20 @@ public final class ClideDaemon {
 	 */
 	private String readCommandLine(final BufferedReader reader, final PrintStream out, final PrintMode printMode)
 			throws IOException {
-		if (printMode == PrintMode.HUMAN) {
-			out.println();
-			out.println("> READY");
-		}
+		if (printMode == PrintMode.HUMAN)
+			printReadyPrompt(out);
 		return reader.readLine();
+	}
+
+	/**
+	 * The "> READY" prompt a --human daemon shows before it reads the next
+	 * command line - this connection's very first one (see runSession()) and
+	 * every one after it (see readCommandLine()) alike, so both print it exactly
+	 * the same way.
+	 */
+	private void printReadyPrompt(final PrintStream out) {
+		out.println();
+		out.println("> READY");
 	}
 
 	/**
