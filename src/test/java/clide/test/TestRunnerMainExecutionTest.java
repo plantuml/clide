@@ -116,6 +116,29 @@ class TestRunnerMainExecutionTest {
 	}
 
 	@Test
+	@DisplayName("une hypothèse (Assumptions.assumeTrue) qui échoue compte comme sautée, pas comme un échec")
+	void assumptionFailureIsSkippedNotFailed() {
+		// executionSkipped() ne voit jamais ce cas : une hypothèse ne se vérifie
+		// qu'une fois l'exécution du test entamée, donc JUnit le rapporte par
+		// executionFinished() avec le statut ABORTED, au même endroit qu'un vrai
+		// échec. Avant le correctif, tout ce qui n'était pas SUCCESSFUL tombait
+		// dans "failed" - un test qui saute une dépendance optionnelle absente
+		// (ELK, par exemple) rougissait toute la suite pour une raison que rien
+		// dans le projet cible ne peut corriger.
+		final Run run = runClass("AssumptionFailing");
+
+		assertEquals(TestRunnerMain.EXIT_OK, run.exit, run.toString());
+		run.assertSummary(2, 1, 0, 1);
+		assertEquals(1, run.countOf(TestRunnerMain.SKIP));
+		assertEquals(0, run.countOf(TestRunnerMain.FAIL));
+
+		final List<String> fields = TestRunnerMain.parseRecord(run.recordsOf(TestRunnerMain.SKIP).get(0));
+		assertEquals("fixture.AssumptionFailing", fields.get(1));
+		assertEquals("skippedBecauseAssumptionFails", fields.get(2));
+		assertTrue(fields.get(4).contains("cobaye : hypothese jamais vraie"), "raison : " + fields.get(4));
+	}
+
+	@Test
 	@DisplayName("une classe absente du classpath le dit, plutôt que de laisser JUnit échouer sur la découverte")
 	void missingClassIsReportedAsSuch() {
 		final Run run = runClass("PasCompileeDuTout");

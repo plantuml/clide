@@ -281,6 +281,21 @@ public final class TestRunnerMain {
 				return;
 			}
 
+			if (result.getStatus() == TestExecutionResult.Status.ABORTED) {
+				// A JUnit assumption (Assumptions.assumeTrue/assumeFalse, @EnabledIf, ...)
+				// failed - the test body never really ran, and TestAbortedException says
+				// exactly that, not that anything is broken. executionSkipped() never fires
+				// here: an assumption is only checked once execution reaches the test, so
+				// JUnit reports it through executionFinished() like any other outcome, not
+				// as a plan-time skip. Routing it into the SKIP shape rather than FAIL is
+				// what a project like PlantUML relies on to make an optional-dependency
+				// test (ELK not on the classpath, say) abort cleanly on a machine that
+				// lacks it instead of turning run_test/run_tests red for a "failure"
+				// nobody can fix by touching the project's own code.
+				recordSkip(identifier, abortReason(result.getThrowable().orElse(null)));
+				return;
+			}
+
 			failed++;
 			final Throwable thrown = result.getThrowable().orElse(null);
 			out.println(String.join("\t", FAIL, className(identifier), methodName(identifier),
@@ -313,6 +328,20 @@ public final class TestRunnerMain {
 
 			return part == 0 ? identifier.getUniqueId() : "";
 		}
+	}
+
+	/**
+	 * "Assumption failed: ELK ... is not on the classpath", read straight off
+	 * TestAbortedException's own message - already a complete sentence, unlike
+	 * describe() below it never gets the exception's class name prefixed on top,
+	 * which would only turn a plain explanation into noise ahead of it.
+	 */
+	private static String abortReason(final Throwable thrown) {
+		if (thrown == null)
+			return "aborted with no exception";
+
+		final String message = thrown.getMessage();
+		return message == null || message.isBlank() ? thrown.getClass().getName() : message;
 	}
 
 	/** "java.lang.ArithmeticException: / by zero", or just the message when it says enough. */
