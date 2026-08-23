@@ -102,13 +102,15 @@ public class JdtlsSession {
 
 	/**
 	 * Puts .project/.classpath back the way stage() (called from start(), above)
-	 * found them - or removes clide's own if there was nothing to restore - now
-	 * that jdtls has actually finished importing the project, not merely completed
-	 * the LSP handshake. Must be called only once build() (the initial one, right
-	 * after start()) has returned - see EclipseProjectFiles' class doc for why
-	 * restoring any earlier would risk a race against jdtls still reading the files
-	 * it was just handed. A no-op if start() never staged anything (e.g. this
-	 * session was never actually started).
+	 * found them - or removes clide's own if there was nothing to restore. Must
+	 * still be called only once build() (the initial one, right after start())
+	 * has returned - restoring any earlier would risk a race against jdtls still
+	 * reading the files it was just handed - but no longer right after that
+	 * either: see EclipseProjectFiles' class doc for why this is now called only
+	 * from ClideDaemon.shutdown() on the success path (ClideDaemon.run() itself
+	 * still calls this immediately, but only if start()/build() failed). A no-op
+	 * if start() never staged anything (e.g. this session was never actually
+	 * started).
 	 */
 	public void restoreEclipseFiles() throws IOException {
 		if (eclipseFiles != null)

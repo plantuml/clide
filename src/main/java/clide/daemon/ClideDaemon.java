@@ -94,26 +94,38 @@ public final class ClideDaemon {
 		System.out.println(" [OK] (jdtls: " + jdtlsHome + ")");
 
 		System.out.print("(3/4) Starting session ...");
-		// start()+build() together in one try/finally: whatever happens - both
-		// succeed, or either throws - restoreEclipseFiles() must run before this
-		// method returns or propagates, so a project's own .project/.classpath (if
-		// any) is never left stranded in .clide/tmp/ - see EclipseProjectFiles.
+		// start()+build() together in one try/finally, but the finally now only ever
+		// fires restoreEclipseFiles() on the FAILURE path: a daemon that fails here
+		// never reaches shutdown() (see below), so without this fallback a project's
+		// own .project/.classpath would be left stranded in .clide/tmp/ forever -
+		// refuseIfDirty() exists to catch exactly that on the next start, but there
+		// is no reason to force the user through that recovery when this method can
+		// just as well leave things clean itself.
+		//
+		// On success, restoreEclipseFiles() is deliberately NOT called here any more
+		// - only from shutdown(), below. See EclipseProjectFiles' class doc for why
+		// restoring right after the initial build turned out not to be safe after
+		// all.
+		boolean startedAndBuilt = false;
 		try {
 			session.start();
 			System.out.println(" [OK]");
 
 			System.out.print("(4/4) Building project ...");
 			session.build();
+			startedAndBuilt = true;
 		} finally {
-			session.restoreEclipseFiles();
+			if (startedAndBuilt == false)
+				session.restoreEclipseFiles();
 		}
 
 		if (eclipseFilesWereMissing)
 			System.out.println(" [OK] (imported via a temporary .project/.classpath from src/**/java and .clide/*.jar, "
-					+ "removed afterward - none existed before)");
+					+ "kept in place for as long as this daemon runs - none existed before)");
 		else
-			System.out.println(" [OK] (imported via a temporary .project/.classpath, "
-					+ "the project's own restored afterward - see .clide/tmp/ for what was actually used)");
+			System.out.println(" [OK] (imported via a temporary .project/.classpath, kept in place for as long as "
+					+ "this daemon runs - the project's own restored on shutdown, see .clide/tmp/ for what was "
+					+ "actually used)");
 
 		final ClideContext context = new ClideContext(filesRepository, session, commands);
 		// Fixed for the daemon's whole lifetime - see this class's own doc and
@@ -446,10 +458,15 @@ public final class ClideDaemon {
 	private void shutdown(final JdtlsSession session, final ServerSocket serverSocket) {
 		session.stop();
 		try {
-			// jdtls can write .project back on its own during the graceful shutdown
-			// handshake session.stop() just ran, independently of anything clide staged
-			// - see EclipseProjectFiles' class doc. Running the same cleanup again here
-			// catches and removes that, now that nothing is left watching the files.
+			// The regular restore point now that run() no longer restores right after
+			// the initial build (see run()'s own doc and EclipseProjectFiles' class
+			// doc for why) - nothing is left watching the files by the time this runs,
+			// so whatever jdtls does in reaction no longer matters. Also catches and
+			// removes whatever jdtls wrote to .project on its own during the graceful
+			// shutdown handshake session.stop() just ran, independently of anything
+			// clide staged - see EclipseProjectFiles' class doc. Safe to run even for
+			// a daemon whose run() already restored things once on a failed start (see
+			// run()'s own finally): unstage() is idempotent per managed file.
 			session.restoreEclipseFiles();
 		} catch (final IOException e) {
 			// best effort - a stray .project/.classpath is a cosmetic leftover, not

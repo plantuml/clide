@@ -27,27 +27,44 @@ import java.util.Map;
  * JdtlsSession.start()/restoreEclipseFiles() for exactly when that is, and
  * why it cannot be any earlier.
  *
- * This only works because jdtls, once it has imported a project, never
- * revisits .project/.classpath on its own to READ them - confirmed by
- * editing .classpath on disk under a live daemon and observing that neither
- * a passive wait nor an explicit rebuild picked up the change; only a fresh
- * jdtls import (a new daemon) does. Swapping the files back right after the
- * initial build is therefore safe as far as jdtls reading them goes.
+ * <b>Restoring right after the initial build turned out not to be reliably
+ * safe</b> - despite this class having once tested exactly that (editing
+ * .classpath on disk under a live daemon and observing that neither a
+ * passive wait nor an explicit rebuild picked up the change). On at least
+ * one real project (PlantUML, whose committed .classpath names test jars
+ * - mockito, individual junit-jupiter-* artifacts - that clide never
+ * vendors under .clide/; see that project's own CLAUDE.md for what it
+ * actually fetches there instead), putting the original .classpath back on
+ * disk right after the build was later observed to make jdtls silently
+ * reimport the project a second time - internally named "&lt;project&gt;
+ * (2)", the unqualified name still being held by the first, correct import -
+ * using that just-restored file. Where its library list does not match what
+ * .clide/ actually holds, this second, uncontrolled import reports every
+ * mismatch as a build-path error: exactly the kind of finding
+ * print_diagnostics exists to surface for real problems, not artifacts of
+ * clide's own file juggling.
  *
- * jdtls does, however, sometimes WRITE .project back on its own -
+ * That is why unstage() is now called only once jdtls is already being shut
+ * down - from ClideDaemon.shutdown(), never right after the initial build
+ * any more (see ClideDaemon.run()'s own doc for the one exception: a daemon
+ * that fails before ever reaching shutdown() still restores immediately, so
+ * nothing is left stranded for refuseIfDirty() to trip on the next start).
+ * Whatever jdtls reacts to by then no longer matters - the daemon is already
+ * on its way out.
+ *
+ * jdtls does, separately, sometimes WRITE .project back on its own -
  * independently of anything staged here - as part of its own "invisible
  * project" bookkeeping (it was already caught doing this once before, see
  * JDTLS.md: injecting a &lt;filteredResources&gt; filter with a
- * __CREATED_BY_JAVA_LANGUAGE_SERVER__ marker). Observed happening around the
- * graceful LSP shutdown handshake (JdtlsSession.stop()), i.e. after the
- * unstage() that follows the initial build has already run and moved on.
- * That is why unstage() is safe - and meant - to be called again once
- * JdtlsSession.stop() returns (see ClideDaemon.shutdown()): every call after
- * the first still knows, per managed file, whether a real original was ever
- * there to restore (hadOriginal, set once by stage() and never revisited) -
- * so a repeat call either leaves an already-restored original alone, or
- * deletes whatever is live when there never was one, catching exactly this
- * kind of late, clide-independent rewrite.
+ * __CREATED_BY_JAVA_LANGUAGE_SERVER__ marker), observed around the graceful
+ * LSP shutdown handshake (JdtlsSession.stop()) - i.e. around the same moment
+ * unstage() now itself first runs. That is why unstage() is safe, and still
+ * meant, to be called again once JdtlsSession.stop() returns (see
+ * ClideDaemon.shutdown()): every call knows, per managed file, whether a
+ * real original was ever there to restore (hadOriginal, set once by stage()
+ * and never revisited) - so a repeat call either leaves an already-restored
+ * original alone, or deletes whatever is live when there never was one,
+ * catching exactly this kind of late, clide-independent rewrite.
  *
  * A copy of whichever content was actually handed to jdtls this run is kept
  * at .clide/tmp/&lt;name&gt;.clide, purely for debugging - never read back by
