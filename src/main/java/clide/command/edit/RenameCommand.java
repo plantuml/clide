@@ -29,6 +29,7 @@ import clide.edit.ResourceOperation;
 import clide.edit.ResourceOperationKind;
 import clide.edit.WorkspaceEdit;
 import clide.jdtls.JdtlsSession;
+import clide.jdtls.LspClient;
 import clide.model.CodeLocation;
 import clide.model.Listing;
 import clide.model.Position;
@@ -195,11 +196,15 @@ public class RenameCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
+		final JdtlsSession session = context.getCurrentSession();
+
 		final Position position;
 		try {
-			position = PositionParser.parse(context.getFilesRepository(), params[0]);
+			position = PositionParser.parse(context.getFilesRepository(), session, params[0]);
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
+		} catch (final IOException | InterruptedException | LspClient.TimeoutException e) {
+			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, "rename failed: " + e.getMessage());
 		}
 
 		final String newName = params[1].trim();
@@ -207,7 +212,6 @@ public class RenameCommand extends Command {
 		if (badName != null)
 			return badName;
 
-		final JdtlsSession session = context.getCurrentSession();
 		final Path projectRoot = context.getProjectRoot();
 
 		// Two try blocks rather than one, so the code names what actually went

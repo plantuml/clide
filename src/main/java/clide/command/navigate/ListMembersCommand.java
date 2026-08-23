@@ -69,9 +69,11 @@ public class ListMembersCommand extends Command {
 
 		final Position position;
 		try {
-			position = PositionParser.parse(context.getFilesRepository(), params[0]);
+			position = PositionParser.parse(context.getFilesRepository(), session, params[0]);
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
+		} catch (final Exception e) {
+			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, "list_members failed: " + e.getMessage());
 		}
 
 		try {

@@ -125,10 +125,12 @@ public final class CommandDispatcher {
 	/**
 	 * Surface-level check for one parameter's raw text, run purely on that text -
 	 * TRANSACTION_ID must match TransactionStack.ID_PATTERN, REGEX must compile
-	 * (java.util.regex.Pattern), POSITION must parse as a real
-	 * file/line/column/word (see PositionParser.parse()). Every other ParamType has
-	 * nothing to check here. Returns null when value is acceptable, or an error fit
-	 * to send back to the client as-is otherwise.
+	 * (java.util.regex.Pattern), POSITION must at least look like one of
+	 * SYMBOLS.md's four notations (see PositionParser.preValidate() - the two that
+	 * need jdtls are only grammar-checked here, not resolved: this runs before
+	 * needsJdtlsSession() below has established that a session even exists). Every
+	 * other ParamType has nothing to check here. Returns null when value is
+	 * acceptable, or an error fit to send back to the client as-is otherwise.
 	 */
 	private static CommandResult validate(final FilesRepository filesRepository, final ParamType type,
 			final String value) {
@@ -148,7 +150,7 @@ public final class CommandDispatcher {
 			return null;
 		case POSITION:
 			try {
-				PositionParser.parse(filesRepository, value);
+				PositionParser.preValidate(filesRepository, value);
 			} catch (final IllegalArgumentException e) {
 				// PositionException carries which of the ways it failed, and the hint
 				// that goes with it when there is one (NAME_NOT_AT_COLUMN names the

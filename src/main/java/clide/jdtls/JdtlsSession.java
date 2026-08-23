@@ -28,6 +28,7 @@ import clide.model.DiagnosticsReport;
 import clide.model.Listing;
 import clide.model.Position;
 import clide.model.SymbolHit;
+import clide.model.TypeCandidate;
 
 /**
  * Drives a full jdtls session end-to-end: LSP handshake (with Gradle/Maven
@@ -696,6 +697,54 @@ public class JdtlsSession {
 			throw new IOException("workspace/symbol failed: " + error);
 
 		return collectSymbols(response.getOrNull("result"));
+	}
+
+	/**
+	 * workspace/symbol restricted to class/interface/enum-kind hits whose name -
+	 * type parameters stripped, exactly as findTypeNode() already does for
+	 * documentSymbol - equals simpleName exactly, each paired with jdtls' own
+	 * containerName (the enclosing type's fully qualified name for a nested
+	 * class, the package for a top-level one). The raw material PositionParser's
+	 * "Classe"/"Outer.Inner seule" and "Classe::membre" resolution (see
+	 * SYMBOLS.md) filters and disambiguates from.
+	 *
+	 * Unlike findSymbol(), an <b>exact</b> match only - never fuzzy/camelCase.
+	 * workspace/symbol's own loose matching is a discovery aid for a human
+	 * typing a partial query; a &lt;position&gt; token names a class the caller
+	 * already chose deliberately; matching anything looser would silently widen
+	 * what a token can resolve to.
+	 *
+	 * A hit outside the project (isInProject() false) is dropped rather than
+	 * kept unsigned, the same way locationOf() already drops one for
+	 * find_declaration/find_implementation - see its own doc.
+	 */
+	public List<TypeCandidate> findTypesNamed(final String simpleName)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Monomorphic params = Monomorphic.mapBuilder().putString("query", simpleName).build();
+
+		final Monomorphic response = client.request("workspace/symbol", params, 30);
+		final Monomorphic error = JdtlsResponses.errorOf(response);
+		if (error != null)
+			throw new IOException("workspace/symbol failed: " + error);
+
+		final List<TypeCandidate> candidates = new ArrayList<>();
+		for (final Monomorphic item : response.getOrNull("result").elementsOf()) {
+			if (item.isMap() == false || JdtlsResponses.isTypeKind(item) == false)
+				continue;
+			if (simpleName.equals(withoutTypeParameters(item.getOrNull("name"))) == false)
+				continue;
+
+			final Monomorphic location = item.getOrNull("location");
+			if (location.isMap() == false)
+				continue;
+			final CodeLocation located = locationOf(location);
+			if (located == null)
+				continue; // outside the project - see locationOf()
+
+			final String containerName = item.getOrNull("containerName").stringOrNull();
+			candidates.add(new TypeCandidate(containerName == null ? "" : containerName, located));
+		}
+		return candidates;
 	}
 
 	/** Accepts either a SymbolInformation[], or null/absent. */

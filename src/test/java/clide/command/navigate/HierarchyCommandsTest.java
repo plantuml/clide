@@ -32,6 +32,15 @@ import clide.core.FilesRepository;
  * context.getCurrentSession(), the same way FilterParamValidationTest pins
  * down run_tests/rebuild/print_diagnostics refusing an invalid <filter>
  * before touching jdtls.
+ *
+ * "toto!" rather than the simpler "toto" as the malformed token: since
+ * SYMBOLS.md's Classe/Outer.Inner notation, "toto" alone is now well-formed
+ * - a bare class name PositionParser would search jdtls for, which is
+ * exactly what these tests must not trigger with a null session (see
+ * contextOn()). The trailing '!' is not legal in any of the four notations
+ * (see PositionParser), so it stays MALFORMED_POSITION - caught by
+ * PositionParser.preValidate()/parse() on grammar alone, without ever
+ * reaching jdtls.
  */
 class HierarchyCommandsTest {
 
@@ -53,25 +62,25 @@ class HierarchyCommandsTest {
 	@Test
 	@DisplayName("find_callers refuse une position malformee avant de toucher jdtls")
 	void findCallersRejectsAMalformedPosition(@TempDir final Path root) {
-		assertMalformedPositionRejected(new FindCallersCommand().executeCommand(contextOn(root), "toto"));
+		assertMalformedPositionRejected(new FindCallersCommand().executeCommand(contextOn(root), "toto!"));
 	}
 
 	@Test
 	@DisplayName("find_callees refuse une position malformee avant de toucher jdtls")
 	void findCalleesRejectsAMalformedPosition(@TempDir final Path root) {
-		assertMalformedPositionRejected(new FindCalleesCommand().executeCommand(contextOn(root), "toto"));
+		assertMalformedPositionRejected(new FindCalleesCommand().executeCommand(contextOn(root), "toto!"));
 	}
 
 	@Test
 	@DisplayName("find_supertypes refuse une position malformee avant de toucher jdtls")
 	void findSupertypesRejectsAMalformedPosition(@TempDir final Path root) {
-		assertMalformedPositionRejected(new FindSupertypesCommand().executeCommand(contextOn(root), "toto"));
+		assertMalformedPositionRejected(new FindSupertypesCommand().executeCommand(contextOn(root), "toto!"));
 	}
 
 	@Test
 	@DisplayName("find_subtypes refuse une position malformee avant de toucher jdtls")
 	void findSubtypesRejectsAMalformedPosition(@TempDir final Path root) {
-		assertMalformedPositionRejected(new FindSubtypesCommand().executeCommand(contextOn(root), "toto"));
+		assertMalformedPositionRejected(new FindSubtypesCommand().executeCommand(contextOn(root), "toto!"));
 	}
 
 	private static void assertMalformedPositionRejected(final CommandResult result) {

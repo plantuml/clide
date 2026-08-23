@@ -14,6 +14,8 @@ import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.PositionParser;
+import clide.jdtls.JdtlsSession;
+import clide.jdtls.LspClient;
 import clide.model.Position;
 import clide.test.ProjectTests;
 import clide.test.TestSelector;
@@ -97,11 +99,15 @@ public class RunTestCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
+		final JdtlsSession session = context.getCurrentSession();
+
 		final Position position;
 		try {
-			position = PositionParser.parse(context.getFilesRepository(), params[0]);
+			position = PositionParser.parse(context.getFilesRepository(), session, params[0]);
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
+		} catch (final IOException | InterruptedException | LspClient.TimeoutException e) {
+			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, "run_test failed: " + e.getMessage());
 		}
 
 		final String[] selector;

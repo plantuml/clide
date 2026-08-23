@@ -175,7 +175,7 @@ hint: find_symbol Foo locates it
   `INVALID_REGEX`, `INVALID_INTEGER`, `VALUE_OUT_OF_RANGE`, `NOT_A_DIRECTORY`,
   `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`, `FILE_MODIFIED`,
   `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NAME_NOT_AT_COLUMN`, `NOT_A_TYPE`,
-  `NOT_A_METHOD`,
+  `NOT_A_METHOD`, `SYMBOL_NOT_FOUND`, `AMBIGUOUS_SYMBOL`,
   `JDTLS_REQUEST_FAILED`,
   `BUILD_FAILED`, `SESSION_START_FAILED`, `TEST_FAILURES`, `NO_TEST_FOUND`,
   `TEST_CLASS_NOT_COMPILED`, `TEST_TIMEOUT`, `TEST_RUNNER_BROKEN`,
@@ -271,9 +271,23 @@ Most commands that point to a precise spot in the code
 `<file-content-md5>:<file path>:<line>:<column>:<name>` — for example
 `0f5a2c8e:src/main/java/clide/command/ManualCommand.java:27:21:needsJdtlsSession`.
 
-This is the only notation clide accepts today. The shorter forms sketched
-in `SYMBOLS.md` (`Classe::membre`, a bare file name, a bare class name) are
-not implemented; sending one gets `?ERROR MALFORMED_POSITION`.
+Three shorter forms are also accepted, all resolving to this same shape
+under the hood - see `SYMBOLS.md` for the full grammar and how each is
+resolved:
+
+- `Classe::membre` / `Outer.Inner::membre` - `Classe::champ` for a field,
+  `Classe::methode()` for a method (parentheses mandatory, even empty - it's
+  what tells a method from a same-named field), `Classe::methode(1)` with an
+  optional arity to lift an overload ambiguity.
+- `Classe` / `Outer.Inner` alone - the class itself, dotted for nesting.
+- `NomFichier.java:<line>:<column>:<name>` - the canonical notation with a
+  bare file name (no `/` or `\`) instead of the full path, when that name is
+  unique in the project.
+
+Each of the three is refused with `?ERROR SYMBOL_NOT_FOUND` (nothing matches)
+or `?ERROR AMBIGUOUS_SYMBOL` (more than one candidate - the hint lists them)
+rather than ever guessing - see SYMBOLS.md's "principe cardinal". A token
+matching none of the four grammars is `?ERROR MALFORMED_POSITION`.
 
 Five rules are enough to use it correctly:
 

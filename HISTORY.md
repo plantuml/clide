@@ -1338,6 +1338,45 @@ que résolus au build : même raisonnement que pour l'archive jdtls. Côté Grad
   (`definition`/`typeDefinition`/`implementation`/`references` faits — voir
   `find_declaration`/`find_reference`/`find_implementation` ci-dessus ; voir
   `JDTLS.md`, section 2).
+- ~~Les niveaux 1-3 de SYMBOLS.md (`Classe::membre`, `Classe`/`Outer.Inner`
+  seule, `NomFichier.java` seul), spécifiés mais non implémentés.~~ Faits,
+  2026-08-23 : `PositionParser.parse()` lui-même étendu avec un accès
+  `JdtlsSession` plutôt qu'un résolveur séparé en amont (choix délibéré,
+  malgré la dépendance circulaire `clide.core`↔`clide.jdtls` que ça crée —
+  sans conséquence en pratique, le projet n'utilise pas de `module-info.java`)
+  — dispatch sur la forme du jeton : `::` présent → `Classe::membre` ;
+  suffixe `.java` sans séparateur → raccourci par nom de fichier (entièrement
+  hors ligne, une recherche `FilesRepository` par nom) ; identifiant nu
+  (éventuellement à points) → `Classe`/`Outer.Inner` seule ; sinon
+  `MALFORMED_POSITION` inchangé. Deux codes d'erreur ajoutés,
+  `SYMBOL_NOT_FOUND`/`AMBIGUOUS_SYMBOL`, un par issue (zéro/plusieurs
+  candidats) plutôt qu'un par grammaire.
+
+  Deux découvertes empiriques ont façonné l'implémentation, faites en testant
+  clide sur lui-même : le `containerName` qu'un hit `workspace/symbol` porte
+  pour une classe est le nom qualifié de la portée englobante (le paquet pour
+  une classe de premier niveau, `paquet.Externe` pour une classe imbriquée
+  `Externe.Interne`) — exactement ce qu'il fallait pour désambiguïser
+  `Outer.Inner` d'une classe `Inner` homonyme ailleurs dans le projet. Et le
+  champ `name` d'un noeud `textDocument/documentSymbol` pour une
+  méthode/constructeur porte la liste de types des paramètres telle quelle
+  (`"goToPosition(String, Position)"`), jamais juste le nom nu — ce qui donne
+  l'arité gratuitement, sans reparser le texte source de la ligne (fragile
+  avec des génériques imbriqués) : `Classe::methode(N)` compte les virgules
+  de ce texte à profondeur d'imbrication `<...>` nulle.
+
+  Résolution de chaque niveau indépendante, sans repli automatique d'un
+  niveau vers le suivant — voir SYMBOLS.md, "Principe cardinal" : un tel
+  repli serait exactement la résolution silencieuse que ce principe interdit.
+  `CommandDispatcher.validate()` (la passe de surface avant même qu'une
+  commande ne s'exécute) a dû se scinder en deux : les niveaux hors ligne
+  (canonique, nom de fichier seul) y sont résolus en entier, comme avant ;
+  `Classe::membre`/`Classe seule` n'y sont vérifiés que grammaticalement
+  (`PositionParser.preValidate()`), leur résolution réelle restant réservée à
+  l'exécution de la commande, seul moment où jdtls est garanti démarré et à
+  jour (`CommandDispatcher.dispatch()` ne relance la session/resynchronise
+  qu'après `validateParams()`) — sans quoi une position pourtant valide
+  aurait pu heurter une session pas encore prête.
 - Attendre réellement la fin d'indexation (`language/status` →
   `Started`/`ServiceReady`) plutôt que le délai fixe actuel dans
   `JdtlsSession.waitForServiceReady` — le délai fixe s'est avéré suffisant

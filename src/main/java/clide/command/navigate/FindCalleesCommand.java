@@ -97,14 +97,17 @@ public class FindCalleesCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
+		final JdtlsSession session = context.getCurrentSession();
+
 		final Position position;
 		try {
-			position = PositionParser.parse(context.getFilesRepository(), params[0]);
+			position = PositionParser.parse(context.getFilesRepository(), session, params[0]);
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
+		} catch (final IOException | InterruptedException | LspClient.TimeoutException e) {
+			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, "find_callees failed: " + e.getMessage());
 		}
 
-		final JdtlsSession session = context.getCurrentSession();
 		try {
 			final List<CodeLocation> callees = session.findCallees(position);
 			return PositionCommandSupport.located(context, position, callees);

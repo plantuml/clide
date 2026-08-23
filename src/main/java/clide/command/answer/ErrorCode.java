@@ -127,6 +127,24 @@ public enum ErrorCode {
 	/** The position resolved, but names nothing find_callers/find_callees can work with (e.g. a field or a type). */
 	NOT_A_METHOD,
 
+	/**
+	 * A Classe::membre, Classe/Outer.Inner, or NomFichier.java token (see
+	 * SYMBOLS.md) resolved to zero candidates in the project - no class, member,
+	 * or file of that name exists. One code for all three grammars: the caller's
+	 * next move is the same in each case, check the spelling or fall back to a
+	 * full path.
+	 */
+	SYMBOL_NOT_FOUND,
+
+	/**
+	 * A Classe::membre, Classe/Outer.Inner, or NomFichier.java token (see
+	 * SYMBOLS.md) resolved to more than one candidate - the hint lists them. Per
+	 * SYMBOLS.md's cardinal principle, clide never silently picks the first
+	 * match; the caller must disambiguate, typically by falling back to a full
+	 * path or adding an arity to a Classe::methode(N) token.
+	 */
+	AMBIGUOUS_SYMBOL,
+
 	// ------------------------------------------------------------------
 	// jdtls
 	// ------------------------------------------------------------------

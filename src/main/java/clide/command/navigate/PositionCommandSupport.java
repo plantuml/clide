@@ -55,14 +55,17 @@ final class PositionCommandSupport {
 	 */
 	static CommandResult goTo(final ClideContext context, final String commandName, final String lspMethod,
 			final String positionText, final Monomorphic requestContext) {
+		final JdtlsSession session = context.getCurrentSession();
+
 		final Position position;
 		try {
-			position = PositionParser.parse(context.getFilesRepository(), positionText);
+			position = PositionParser.parse(context.getFilesRepository(), session, positionText);
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
+		} catch (final Exception e) {
+			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, commandName + " failed: " + e.getMessage());
 		}
 
-		final JdtlsSession session = context.getCurrentSession();
 		try {
 			return located(context, position, session.goToPosition(lspMethod, position, requestContext));
 		} catch (final Exception e) {
@@ -78,14 +81,17 @@ final class PositionCommandSupport {
 	 */
 	static CommandResult findMethodImplementations(final ClideContext context, final String commandName,
 			final String positionText) {
+		final JdtlsSession session = context.getCurrentSession();
+
 		final Position position;
 		try {
-			position = PositionParser.parse(context.getFilesRepository(), positionText);
+			position = PositionParser.parse(context.getFilesRepository(), session, positionText);
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
+		} catch (final Exception e) {
+			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, commandName + " failed: " + e.getMessage());
 		}
 
-		final JdtlsSession session = context.getCurrentSession();
 		try {
 			return located(context, position, session.findMethodImplementations(position));
 		} catch (final Exception e) {

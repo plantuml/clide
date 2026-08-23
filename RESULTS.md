@@ -151,16 +151,22 @@ un mensonge, pas un service.
 | aucune erreur | `NONE` |
 | protocole | `UNKNOWN_KEYWORD`, `MISSING_PARAMETERS` |
 | paramètres | `INVALID_ENUM_VALUE`, `EMPTY_PARAMETER`, `INVALID_REGEX`, `INVALID_INTEGER`, `VALUE_OUT_OF_RANGE`, `INVALID_TRANSACTION_ID`, `NOT_A_DIRECTORY` |
-| `<position>` | `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`, `FILE_MODIFIED`, `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NAME_NOT_AT_COLUMN`, `NOT_A_TYPE`, `NOT_A_METHOD` |
+| `<position>` | `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`, `FILE_MODIFIED`, `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NAME_NOT_AT_COLUMN`, `NOT_A_TYPE`, `NOT_A_METHOD`, `SYMBOL_NOT_FOUND`, `AMBIGUOUS_SYMBOL` |
 | jdtls | `SESSION_START_FAILED`, `JDTLS_REQUEST_FAILED`, `BUILD_FAILED` |
 | transactions | `NO_OPEN_TRANSACTION`, `TRANSACTION_REFUSED`, `TRANSACTION_IO_FAILED`, `TERMINATE_REFUSED` |
 | tests | `TEST_FAILURES`, `NO_TEST_FOUND`, `TEST_CLASS_NOT_COMPILED`, `TEST_RUNNER_BROKEN`, `TEST_TIMEOUT`, `NO_OUTPUT_FOLDER`, `CLASSPATH_UNAVAILABLE`, `MULTI_MODULE_PROJECT` |
 | divers | `IO_FAILED` |
 
-Les six premiers codes de `<position>` sortent tous de `PositionParser.parse()`, qui
-les porte via `PositionException` — laquelle reste une
-`IllegalArgumentException`, si bien que tout `catch` écrit avant l'existence des
-codes fonctionne inchangé.
+Les codes de `<position>` sortent tous de `PositionParser.parse()`, qui les
+porte via `PositionException` — laquelle reste une `IllegalArgumentException`,
+si bien que tout `catch` écrit avant l'existence des codes fonctionne
+inchangé. Les six premiers (`MALFORMED_POSITION` à `NOT_A_TYPE`) viennent de
+la notation canonique et sont hors ligne ; `SYMBOL_NOT_FOUND` et
+`AMBIGUOUS_SYMBOL` viennent des trois notations SYMBOLS.md ajoutées par la
+suite (`Classe::membre`, `Classe`/`Outer.Inner` seule, `NomFichier.java`) —
+un code par issue (zéro candidat / plusieurs) plutôt qu'un par grammaire,
+puisque le geste de l'appelant est le même quelle que soit la notation en
+cause.
 
 `NAME_NOT_ON_LINE` et `NAME_NOT_AT_COLUMN` se ressemblent et ne se corrigent pas
 pareil, d'où deux codes plutôt qu'un : le premier dit que le nom n'est **nulle

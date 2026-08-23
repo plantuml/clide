@@ -13,7 +13,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import clide.command.answer.ErrorCode;
+import clide.jdtls.JdtlsSession;
+import clide.jdtls.LspClient;
 import clide.model.Position;
+import clide.model.SymbolHit;
+import clide.model.TypeCandidate;
 
 public final class PositionParser {
 
@@ -45,6 +49,34 @@ public final class PositionParser {
 	 * length: an md5 written with uppercase letters. See refuseMiscasedMd5().
 	 */
 	private static final Pattern MISCASED_MD5 = Pattern.compile("^([0-9a-fA-F]{" + Position.MD5_LENGTH + "}):");
+
+	/** A single Java identifier - letters, digits, '_' and '$', not starting with a digit. */
+	private static final String IDENTIFIER = "[A-Za-z_$][A-Za-z0-9_$]*";
+
+	/**
+	 * Classe::membre or Outer.Inner::membre (SYMBOLS.md level 1) -
+	 * javadoc-style '::', reused as-is from Java's own method-reference syntax.
+	 *
+	 * Group 1: the class, dotted for nesting (Outer.Middle.Inner). Group 2: the
+	 * member name. Group 3: the whole "(...)" including parens, when present -
+	 * their presence, not their content, is what tells a method from a
+	 * same-named field (Classe::champ vs Classe::methode()). Group 4: the digits
+	 * inside the parens, "" when they are empty (Classe::methode(), arity left
+	 * unconstrained) - see resolveMember().
+	 */
+	private static final Pattern MEMBER_NOTATION = Pattern
+			.compile("^(" + IDENTIFIER + "(?:\\." + IDENTIFIER + ")*)::(" + IDENTIFIER + ")(\\((\\d*)\\))?$");
+
+	/**
+	 * Classe or Outer.Inner alone (SYMBOLS.md level 2) - a bare, optionally
+	 * dotted identifier chain and nothing else. Matched only once NOTATION and
+	 * MEMBER_NOTATION have both already failed, so there is nothing left to
+	 * confuse this with: no ':' (ruled out by NOTATION), no "::" (ruled out by
+	 * MEMBER_NOTATION), no '/', '\\' or ".java" suffix (see isBareFilename() -
+	 * checked ahead of this one only inside NOTATION's own path group, for the
+	 * unrelated level 3 shortcut).
+	 */
+	private static final Pattern CLASS_NOTATION = Pattern.compile("^" + IDENTIFIER + "(?:\\." + IDENTIFIER + ")*$");
 
 	private PositionParser() {
 	}
@@ -121,6 +153,337 @@ public final class PositionParser {
 
 		return new Position(Position.abbreviate(currentMd5), projectRoot.relativize(file).toString(), line, column,
 				name);
+	}
+
+	/**
+	 * A syntax-only pass over token, run before jdtls is known to be ready or
+	 * its model known to be fresh (see CommandDispatcher.validate(), which
+	 * calls this rather than the jdtls-backed parse() below) - "surface-level",
+	 * same as every other ParamType check there.
+	 *
+	 * The canonical notation and the NomFichier.java shortcut (SYMBOLS.md
+	 * levels 3-4) are both fully offline - a Snapshot scan at most, never
+	 * jdtls - so both get the real, full parse() here, same error codes a
+	 * client would see from the command itself: a malformed one, or an
+	 * unambiguous one, is caught immediately rather than only once the command
+	 * actually runs.
+	 *
+	 * Classe::membre and Classe/Outer.Inner seule (levels 1-2) cannot get that
+	 * same early treatment - resolving either needs jdtls' model to be both
+	 * started and in step with the files on disk, neither of which
+	 * CommandDispatcher has established yet at this point (see its own
+	 * dispatch(): needsJdtlsSession()/ModelSync.beforeCommand() run only
+	 * after validateParams()). So only their <i>grammar</i> is checked here -
+	 * MALFORMED_POSITION for anything that fits none of the four - and their
+	 * actual resolution (SYMBOL_NOT_FOUND, AMBIGUOUS_SYMBOL) is left entirely
+	 * to the command's own call to the three-argument parse(), which always
+	 * runs after the model is ready.
+	 *
+	 * Throws exactly parse(FilesRepository, String)'s own PositionException on
+	 * the offline branches; nothing is returned anywhere - like that method
+	 * when called for its checking effect alone, a caller only cares whether
+	 * this returns at all.
+	 */
+	public static void preValidate(final FilesRepository filesRepository, final String token) {
+		final String trimmed = token.trim();
+		final Matcher canonical = NOTATION.matcher(trimmed);
+		if (canonical.matches()) {
+			if (isBareFilename(canonical.group(2)))
+				resolveFilenameAlone(filesRepository, canonical);
+			else
+				parse(filesRepository, token);
+			return;
+		}
+
+		if (MEMBER_NOTATION.matcher(trimmed).matches() || CLASS_NOTATION.matcher(trimmed).matches())
+			return; // well-formed; resolution deferred to parse(FilesRepository, JdtlsSession, String)
+
+		throw new PositionException(ErrorCode.MALFORMED_POSITION, malformedMessage(token));
+	}
+
+	/**
+	 * The full SYMBOLS.md notation, all four levels: this is parse(FilesRepository,
+	 * String) widened with jdtls access, exactly as approved - not a separate
+	 * front-end resolver, PositionParser itself. Every command that takes a
+	 * &lt;position&gt; parameter calls this one (never the two-argument overload
+	 * directly) so that a result of find_symbol, a hand-typed Classe::membre, or
+	 * the historical full path are all equally acceptable input.
+	 *
+	 * Dispatches on the token's own shape, cascading through nothing - each
+	 * grammar is tried once, resolved or refused on its own terms (see
+	 * SYMBOLS.md's "Principe cardinal": an ambiguity is an error, never a
+	 * silent fall-through to a different notation):
+	 *
+	 * <ol>
+	 * <li>Matches the canonical &lt;path&gt;:&lt;line&gt;:&lt;column&gt;:&lt;name&gt;
+	 * shape - either the historical full path (delegated to
+	 * parse(FilesRepository, String), unchanged, offline), or, when the path
+	 * segment carries no '/'/'\\' and ends in ".java", the NomFichier.java
+	 * shortcut (resolveFilenameAlone() - also offline, a project-wide filename
+	 * search rather than a literal one).
+	 * <li>Contains "::" - Classe::membre or Outer.Inner::membre
+	 * (resolveMember()).
+	 * <li>A bare, optionally dotted identifier - Classe or Outer.Inner alone
+	 * (resolveClassAlone()).
+	 * <li>Anything else - MALFORMED_POSITION.
+	 * </ol>
+	 */
+	public static Position parse(final FilesRepository filesRepository, final JdtlsSession jdtls, final String token)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final String trimmed = token.trim();
+		final Matcher canonical = NOTATION.matcher(trimmed);
+		if (canonical.matches())
+			return isBareFilename(canonical.group(2)) ? resolveFilenameAlone(filesRepository, canonical)
+					: parse(filesRepository, token);
+
+		final Matcher member = MEMBER_NOTATION.matcher(trimmed);
+		if (member.matches())
+			return resolveMember(filesRepository, jdtls, member);
+
+		final Matcher clazz = CLASS_NOTATION.matcher(trimmed);
+		if (clazz.matches())
+			return resolveClassAlone(filesRepository, jdtls, List.of(trimmed.split("\\."))).location().position();
+
+		throw new PositionException(ErrorCode.MALFORMED_POSITION, malformedMessage(token));
+	}
+
+	private static String malformedMessage(final String token) {
+		return "Invalid position '" + token + "' - expected <file-content-md5>:<file path>:<line>:<column>:<name>, "
+				+ "Classe::membre, Classe/Outer.Inner, or NomFichier.java:<line>:<column>:<name> (see SYMBOLS.md)";
+	}
+
+	/**
+	 * Whether pathArgument is SYMBOLS.md level 3's shortcut rather than level
+	 * 4's full path: a bare filename, no '/' or '\\' anywhere in it, ending in
+	 * ".java". "Pas de sigil dédié : l'absence de séparateur suffit" - the
+	 * absence of a separator is the whole signal, checked unconditionally
+	 * rather than only as a fallback when the literal path does not resolve,
+	 * so a bare filename never depends on whether a same-named file also
+	 * happens to sit at the project root.
+	 */
+	private static boolean isBareFilename(final String pathArgument) {
+		return pathArgument.indexOf('/') < 0 && pathArgument.indexOf('\\') < 0
+				&& pathArgument.length() > ".java".length() && pathArgument.endsWith(".java");
+	}
+
+	/**
+	 * SYMBOLS.md level 3: canonical's path segment resolved by filename alone
+	 * rather than by its full project-relative path - a project-wide scan
+	 * (offline, no jdtls) for every .java file with that exact name.
+	 *
+	 * Unique or not, the outcome is handed to parse(FilesRepository, String) to
+	 * finish the job: once the filename search has picked one real file,
+	 * everything else - the md5 check, the line/column/name check - is
+	 * identical to what the canonical notation already does, so it is reused
+	 * rather than duplicated. A failure inside that second call (FILE_MODIFIED,
+	 * LINE_OUT_OF_RANGE, ...) is a genuine error on the one file the search
+	 * found, not a reason to look for a different file of the same name -
+	 * uniqueness is about the name, not about whether the rest of the token
+	 * happens to still fit.
+	 */
+	private static Position resolveFilenameAlone(final FilesRepository filesRepository, final Matcher canonical) {
+		final String md5 = canonical.group(1);
+		final String bareFilename = canonical.group(2);
+		final int line = Integer.parseInt(canonical.group(3));
+		final int column = Integer.parseInt(canonical.group(4));
+		final String name = canonical.group(5);
+
+		final Path projectRoot = filesRepository.getProjectRoot();
+		final List<Path> matches = new ArrayList<>();
+		try {
+			for (final SourceFile source : filesRepository.currentSourceFiles()) {
+				final Path candidate = Paths.get(source.sourceFilePath());
+				if (candidate.getFileName().toString().equals(bareFilename))
+					matches.add(candidate);
+			}
+		} catch (final IOException e) {
+			throw new PositionException(ErrorCode.IO_FAILED,
+					"Could not scan the project for '" + bareFilename + "': " + e.getMessage());
+		}
+
+		if (matches.isEmpty())
+			throw new PositionException(ErrorCode.SYMBOL_NOT_FOUND,
+					"No file named '" + bareFilename + "' in the project");
+
+		if (matches.size() > 1)
+			throw new PositionException(ErrorCode.AMBIGUOUS_SYMBOL,
+					"Ambiguous file name '" + bareFilename + "' - " + matches.size() + " files of that name in the project",
+					listPaths(projectRoot, matches));
+
+		final String relativePath = projectRoot.relativize(matches.get(0)).toString();
+		return parse(filesRepository, Position.notation(md5, relativePath, line, column, name));
+	}
+
+	private static String listPaths(final Path projectRoot, final List<Path> paths) {
+		final StringBuilder hint = new StringBuilder();
+		for (final Path path : paths) {
+			if (hint.length() > 0)
+				hint.append(", ");
+			hint.append(projectRoot.relativize(path));
+		}
+		return hint.toString();
+	}
+
+	/**
+	 * SYMBOLS.md level 1: Classe::membre or Outer.Inner::membre. Resolves the
+	 * class part exactly as resolveClassAlone() would (same uniqueness rule,
+	 * same errors when it fails), then narrows jdtls.listMembers() of that one
+	 * class down to the member named group(2).
+	 *
+	 * Parens presence, not their content, decides field vs method
+	 * (Classe::champ vs Classe::methode()) - see MEMBER_NOTATION. When parens
+	 * carry digits (Classe::methode(1)), that arity further narrows a method
+	 * search; two overloads of the same arity but different parameter types
+	 * (methode(String) / methode(FontConfiguration)) stay ambiguous even then -
+	 * a documented limit (see SYMBOLS.md), not a bug - and are reported the
+	 * same as any other AMBIGUOUS_SYMBOL, hint naming both signatures.
+	 */
+	private static Position resolveMember(final FilesRepository filesRepository, final JdtlsSession jdtls,
+			final Matcher member) throws IOException, InterruptedException, LspClient.TimeoutException {
+		final List<String> classChain = List.of(member.group(1).split("\\."));
+		final String memberName = member.group(2);
+		final boolean isMethod = member.group(3) != null;
+		final String arityDigits = member.group(4);
+		final Integer arity = (isMethod && arityDigits != null && arityDigits.isEmpty() == false)
+				? Integer.valueOf(arityDigits)
+				: null;
+
+		final TypeCandidate declaringClass = resolveClassAlone(filesRepository, jdtls, classChain);
+		final Position classPosition = declaringClass.location().position();
+		final List<SymbolHit> members = jdtls.listMembers(classPosition);
+
+		final List<SymbolHit> matches = new ArrayList<>();
+		for (final SymbolHit hit : members) {
+			final int paren = hit.name().indexOf('(');
+			final String baseName = paren < 0 ? hit.name() : hit.name().substring(0, paren);
+			if (baseName.equals(memberName) == false)
+				continue;
+
+			if (isMethod) {
+				if (isCallableKindLabel(hit.kind()) == false || paren < 0)
+					continue;
+				if (arity != null && countTopLevelParams(hit.name().substring(paren + 1, hit.name().length() - 1)) != arity)
+					continue;
+			} else {
+				if (isFieldLikeKindLabel(hit.kind()) == false)
+					continue;
+			}
+
+			matches.add(hit);
+		}
+
+		final String classLabel = String.join(".", classChain);
+		if (matches.isEmpty())
+			throw new PositionException(ErrorCode.SYMBOL_NOT_FOUND,
+					"No " + (isMethod ? "method" : "field") + " named '" + memberName + "'"
+							+ (arity != null ? " with " + arity + " parameter(s)" : "") + " in class '" + classLabel + "'");
+
+		if (matches.size() > 1)
+			throw new PositionException(ErrorCode.AMBIGUOUS_SYMBOL,
+					"Ambiguous " + (isMethod ? "method" : "field") + " '" + memberName + "' in class '" + classLabel + "' - "
+							+ matches.size() + " candidates" + (isMethod && arity == null
+									? " - add an arity (e.g. " + memberName + "(" + 0 + ")) or fall back to a full path"
+									: " - fall back to a full path"),
+					listSymbolHits(matches));
+
+		return matches.get(0).location().position();
+	}
+
+	private static String listSymbolHits(final List<SymbolHit> hits) {
+		final StringBuilder hint = new StringBuilder();
+		for (final SymbolHit hit : hits) {
+			if (hint.length() > 0)
+				hint.append(", ");
+			hint.append(hit.location() == null ? hit.name() : hit.location().position().toString());
+		}
+		return hint.toString();
+	}
+
+	/** "method"/"constructor" - see JdtlsSession.symbolKindLabel(). */
+	private static boolean isCallableKindLabel(final String kindLabel) {
+		return "method".equals(kindLabel) || "constructor".equals(kindLabel);
+	}
+
+	/** "field"/"property"/"enum member" - a bare Classe::name with no parens can name any of these. */
+	private static boolean isFieldLikeKindLabel(final String kindLabel) {
+		return "field".equals(kindLabel) || "property".equals(kindLabel) || "enum member".equals(kindLabel);
+	}
+
+	/**
+	 * The number of top-level parameters in params - the text between a
+	 * documentSymbol method/constructor node's own parens (e.g.
+	 * "String, Position" out of "goToPosition(String, Position)"), 0 for an
+	 * empty string. Counts commas at generic-nesting depth 0 only, so
+	 * "Map&lt;String, List&lt;Foo&gt;&gt;" - one parameter, two commas inside
+	 * angle brackets - is not miscounted as two.
+	 */
+	private static int countTopLevelParams(final String params) {
+		if (params.isBlank())
+			return 0;
+
+		int depth = 0;
+		int count = 1;
+		for (int i = 0; i < params.length(); i++) {
+			final char c = params.charAt(i);
+			if (c == '<')
+				depth++;
+			else if (c == '>')
+				depth--;
+			else if (c == ',' && depth == 0)
+				count++;
+		}
+		return count;
+	}
+
+	/**
+	 * SYMBOLS.md level 2: Classe or Outer.Inner alone. classChain's last element
+	 * is the class' own simple name, searched project-wide via
+	 * jdtls.findTypesNamed(); every earlier element narrows it to a nested class
+	 * declared inside exactly that outer chain, checked against jdtls' own
+	 * containerName (see TypeCandidate) - which is why a single bare identifier
+	 * (classChain of size 1) needs no such check at all: any class of that name
+	 * anywhere in the project already qualifies, nested or not.
+	 *
+	 * Shared with resolveMember(), which resolves the class half of
+	 * Classe::membre exactly the same way before narrowing further to a member.
+	 */
+	private static TypeCandidate resolveClassAlone(final FilesRepository filesRepository, final JdtlsSession jdtls,
+			final List<String> classChain) throws IOException, InterruptedException, LspClient.TimeoutException {
+		final String simpleName = classChain.get(classChain.size() - 1);
+		final List<TypeCandidate> found = jdtls.findTypesNamed(simpleName);
+
+		final List<TypeCandidate> matches = new ArrayList<>();
+		if (classChain.size() == 1) {
+			matches.addAll(found);
+		} else {
+			final String expectedOuter = String.join(".", classChain.subList(0, classChain.size() - 1));
+			for (final TypeCandidate candidate : found)
+				if (candidate.containerName().equals(expectedOuter)
+						|| candidate.containerName().endsWith("." + expectedOuter))
+					matches.add(candidate);
+		}
+
+		final String classLabel = String.join(".", classChain);
+		if (matches.isEmpty())
+			throw new PositionException(ErrorCode.SYMBOL_NOT_FOUND,
+					"No class/interface/enum named '" + classLabel + "' in the project");
+
+		if (matches.size() > 1)
+			throw new PositionException(ErrorCode.AMBIGUOUS_SYMBOL,
+					"Ambiguous class '" + classLabel + "' - " + matches.size() + " candidates in the project",
+					listCandidates(matches));
+
+		return matches.get(0);
+	}
+
+	private static String listCandidates(final List<TypeCandidate> candidates) {
+		final StringBuilder hint = new StringBuilder();
+		for (final TypeCandidate candidate : candidates) {
+			if (hint.length() > 0)
+				hint.append(", ");
+			hint.append(candidate.location().position());
+		}
+		return hint.toString();
 	}
 
 	/**
