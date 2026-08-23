@@ -6,6 +6,7 @@ import clide.annotation.Keyword;
 import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
+import clide.command.CommandResults;
 import clide.command.answer.CommandResult;
 import clide.core.ClideContext;
 import clide.core.Command;
@@ -36,9 +37,8 @@ public class RunTestsCommand extends Command {
 				Runs every test found in the project's compiled test output,
 				and reports the totals plus one entry per test. "failures"
 				narrows the listing down to the tests that failed, which on
-				a suite of any size is the only part worth reading; any
-				other value reports everything. The totals are printed
-				either way.
+				a suite of any size is the only part worth reading; "all"
+				reports everything. The totals are printed either way.
 
 				Discovery scans the project's own output folders, not the
 				whole classpath: a classpath scan would walk every jar and
@@ -50,6 +50,10 @@ public class RunTestsCommand extends Command {
 				"path:line: name".
 
 			ERRORS
+				<filter> must be exactly "all" or "failures" - anything
+				else, including a typo, is rejected (INVALID_ENUM_VALUE)
+				rather than silently treated as "all".
+
 				run_tests does NOT recompile first - it reports the state of
 				the last build. Run rebuild after editing.
 
@@ -67,8 +71,10 @@ public class RunTestsCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
-		// Same convention as rebuild and print_diagnostics: only the exact
-		// literal narrows the listing, any other value reports everything.
+		final CommandResult rejected = CommandResults.rejectUnlessOneOf("filter", params[0], "all", "failures");
+		if (rejected != null)
+			return rejected;
+
 		return ProjectTests.runEverything(context, params[0].equals("failures"));
 	}
 

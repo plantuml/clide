@@ -7,6 +7,7 @@ import clide.annotation.Keyword;
 import clide.annotation.Manual;
 import clide.annotation.Param;
 import clide.annotation.ParamType;
+import clide.command.CommandResults;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ResultEnvelope;
@@ -42,10 +43,9 @@ public class PrintDiagnosticsCommand extends Command {
 				diagnostic, "errors" reports only those at error severity.
 
 			ERRORS
-				Only the exact literal "errors" filters down to
-				error-severity diagnostics; any other value for <filter> -
-				including "all", or a typo - reports everything.
-				print_diagnostics never rejects its argument.
+				<filter> must be exactly "all" or "errors" - anything else,
+				including a typo, is rejected (INVALID_ENUM_VALUE) rather
+				than silently treated as "all".
 
 			SEE ALSO
 				rebuild(1)
@@ -66,6 +66,10 @@ public class PrintDiagnosticsCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
+		final CommandResult rejected = CommandResults.rejectUnlessOneOf("filter", params[0], "all", "errors");
+		if (rejected != null)
+			return rejected;
+
 		final JdtlsSession session = context.getCurrentSession();
 
 		final boolean errorsOnly = params[0].equals("errors");
