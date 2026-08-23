@@ -26,6 +26,14 @@ import clide.model.Position;
  * result; only the LSP method (and, for find_reference, an extra request-level
  * "context") differs between them.
  *
+ * find_callers, find_callees, find_supertypes and find_subtypes (see
+ * FindCallersCommand and siblings) share only the second half of this - the
+ * CommandPayload.Locations/Listing shape built by located() below and rendered
+ * by render() - since their own JdtlsSession methods each need more than one
+ * LSP round trip (prepare, then the actual call/type hierarchy request) and so
+ * parse their own &lt;position&gt; and call JdtlsSession directly rather than
+ * going through goTo().
+ *
  * It used to format the text too, which is why it was called goToAndFormat().
  * The text now comes from render() below, off the payload, and the two are
  * separate steps: what was found, then how it reads.
@@ -85,7 +93,17 @@ final class PositionCommandSupport {
 		}
 	}
 
-	private static CommandResult located(final ClideContext context, final Position position,
+	/**
+	 * Wraps a list of locations already computed by the caller into the same
+	 * CommandPayload.Locations/Listing shape goTo()/findMethodImplementations()
+	 * build below - shared with FindCallersCommand/FindCalleesCommand/
+	 * FindSupertypesCommand/FindSubtypesCommand, whose own JdtlsSession methods
+	 * are not a single plain LSP request the way the ones behind goTo() are, but
+	 * still answer in exactly this shape - so all seven commands render through
+	 * the same render() below, and a result from any of them is exactly as
+	 * chainable as one from find_reference/find_implementation.
+	 */
+	static CommandResult located(final ClideContext context, final Position position,
 			final List<CodeLocation> locations) {
 		final CommandPayload payload = new CommandPayload.Locations(position.name(),
 				Listing.of(locations, context.getMaxResults()));

@@ -6,8 +6,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -391,6 +393,287 @@ public class JdtlsSession {
 		}
 
 		return located;
+	}
+
+	// ------------------------------------------------------------------
+	// Call hierarchy and type hierarchy
+	// ------------------------------------------------------------------
+
+	/**
+	 * textDocument/prepareCallHierarchy + callHierarchy/incomingCalls: every
+	 * method/constructor that directly calls the one at position - one hop,
+	 * not the whole call graph. Each entry is the *caller's own declaration*
+	 * (name, not one particular call site inside it), so it is directly
+	 * chainable into another findCallers() to walk up a level further - the
+	 * same way the Lua example in CLAUDE.md already walks find_reference in a
+	 * loop.
+	 *
+	 * @throws NotApplicableException position does not name a method or
+	 *                                 constructor at all (see
+	 *                                 prepareCallHierarchy()). A method with
+	 *                                 no caller is a different, and entirely
+	 *                                 valid, answer: an empty list.
+	 */
+	public List<CodeLocation> findCallers(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		return callHierarchyLocations(position, "callHierarchy/incomingCalls", "from");
+	}
+
+	/**
+	 * textDocument/prepareCallHierarchy + callHierarchy/outgoingCalls: every
+	 * method/constructor that the one at position directly calls - the
+	 * counterpart findCallers() has no equivalent for today (find_reference
+	 * answers "who uses this symbol", never "what does this one call").
+	 *
+	 * @throws NotApplicableException see findCallers().
+	 */
+	public List<CodeLocation> findCallees(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		return callHierarchyLocations(position, "callHierarchy/outgoingCalls", "to");
+	}
+
+	/**
+	 * Shared by findCallers()/findCallees(): both requests take the same
+	 * {"item": <the CallHierarchyItem prepareCallHierarchy() resolved>} params
+	 * and answer a flat array of {"from"|"to": CallHierarchyItem, "fromRanges":
+	 * Range[]} - only the LSP method name and which of those two fields names
+	 * the *other* item differ. fromRanges (where, inside that other method,
+	 * the call itself sits) is read by nothing here: what a caller can chain
+	 * into another findCallers()/findCallees() is the *method's* position, not
+	 * one particular call site inside it.
+	 */
+	private List<CodeLocation> callHierarchyLocations(final Position position, final String lspMethod,
+			final String itemField) throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Monomorphic item = prepareCallHierarchy(position);
+
+		final Monomorphic response = client.request(lspMethod, Monomorphic.mapBuilder().put("item", item).build(),
+				30);
+		final Monomorphic error = JdtlsResponses.errorOf(response);
+		if (error != null)
+			throw new IOException(lspMethod + " failed: " + error);
+
+		// LinkedHashSet, not a plain list: jdtls reports one entry per call SITE,
+		// not one per caller - a method that calls position twice comes back as
+		// two separate {"from"|"to": ..., "fromRanges"|"toRanges": [...]} entries,
+		// both resolving (via callHierarchyItemLocation()) to the exact same
+		// caller/callee declaration. find_callers/find_callees answer "who calls
+		// this" - a set of methods, not a multiset of call sites (that finer
+		// granularity, one row per site, is what find_reference is for) - so a
+		// caller that calls twice is still one entry here, and the "N location(s)"
+		// count reflects that. Insertion order preserved (jdtls' own), same as
+		// everywhere else that reports "in server order".
+		final Set<CodeLocation> located = new LinkedHashSet<>();
+		for (final Monomorphic call : response.getOrNull("result").elementsOf())
+			if (call.isMap()) {
+				final CodeLocation location = callHierarchyItemLocation(call.getOrNull(itemField));
+				if (location != null)
+					located.add(location);
+			}
+
+		return List.copyOf(located);
+	}
+
+	/**
+	 * textDocument/prepareCallHierarchy: resolves position to the single
+	 * CallHierarchyItem jdtls associates with it. clide's own &lt;position&gt;
+	 * notation already pins a request down to one exact occurrence (name,
+	 * whole word, at that column of that line), so there is nothing left for
+	 * this step to disambiguate between - the first (and, in every case
+	 * observed, only) item prepareCallHierarchy answers with is the one asked
+	 * about.
+	 *
+	 * An empty (or null) result is jdtls saying position does not name
+	 * something callable at all - a field, a variable, a type - and is what
+	 * NotApplicableException exists to report distinctly from every other
+	 * failure this method (and callHierarchyLocations() after it) can raise.
+	 */
+	private Monomorphic prepareCallHierarchy(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Monomorphic response = client.request("textDocument/prepareCallHierarchy",
+				JdtlsResponses.positionParams(fileOf(position), position.line(), position.column()), 30);
+		final Monomorphic error = JdtlsResponses.errorOf(response);
+		if (error != null)
+			throw new IOException("textDocument/prepareCallHierarchy failed: " + error);
+
+		final List<Monomorphic> items = response.getOrNull("result").elementsOf();
+		if (items.isEmpty())
+			throw new NotApplicableException("'" + position.name() + "' at line " + position.line() + " of "
+					+ position.path() + " is not a method or constructor - find_callers/find_callees only work on those");
+
+		return items.get(0);
+	}
+
+	/**
+	 * textDocument/prepareTypeHierarchy + typeHierarchy/supertypes: the
+	 * direct superclass and/or interfaces of the class/interface/enum at
+	 * position - one hop, not the whole hierarchy up to Object. Chainable
+	 * into another findSupertypes() the same way findCallers() is - see its
+	 * doc.
+	 *
+	 * Distinct from find_implementation("type", ...): that one answers "every
+	 * class that implements/extends this, anywhere below it, all at once";
+	 * this answers "what does this directly extend/implement, one level up".
+	 *
+	 * @throws NotApplicableException position does not name a type at all
+	 *                                 (see prepareTypeHierarchy()). A type
+	 *                                 with no supertype beyond Object -
+	 *                                 jdtls' own choice whether to report
+	 *                                 Object itself - is a different, and
+	 *                                 entirely valid, answer.
+	 */
+	public List<CodeLocation> findSupertypes(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		return typeHierarchyLocations(position, "typeHierarchy/supertypes");
+	}
+
+	/**
+	 * textDocument/prepareTypeHierarchy + typeHierarchy/subtypes: the direct
+	 * subclasses/implementors of the class/interface/enum at position - one
+	 * hop down, the reverse of findSupertypes(). See its doc for how this
+	 * differs from find_implementation("type", ...).
+	 *
+	 * @throws NotApplicableException see findSupertypes().
+	 */
+	public List<CodeLocation> findSubtypes(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		return typeHierarchyLocations(position, "typeHierarchy/subtypes");
+	}
+
+	private List<CodeLocation> typeHierarchyLocations(final Position position, final String lspMethod)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Monomorphic item = prepareTypeHierarchy(position);
+
+		final Monomorphic response = client.request(lspMethod, Monomorphic.mapBuilder().put("item", item).build(),
+				30);
+		final Monomorphic error = JdtlsResponses.errorOf(response);
+		if (error != null)
+			throw new IOException(lspMethod + " failed: " + error);
+
+		final List<CodeLocation> located = new ArrayList<>();
+		for (final Monomorphic typeItem : response.getOrNull("result").elementsOf()) {
+			final CodeLocation location = typeHierarchyItemLocation(typeItem);
+			if (location != null)
+				located.add(location);
+		}
+
+		return located;
+	}
+
+	/** Same role as prepareCallHierarchy(), for typeHierarchy/supertypes|subtypes. */
+	private Monomorphic prepareTypeHierarchy(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Monomorphic response = client.request("textDocument/prepareTypeHierarchy",
+				JdtlsResponses.positionParams(fileOf(position), position.line(), position.column()), 30);
+		final Monomorphic error = JdtlsResponses.errorOf(response);
+		if (error != null)
+			throw new IOException("textDocument/prepareTypeHierarchy failed: " + error);
+
+		final List<Monomorphic> items = response.getOrNull("result").elementsOf();
+		if (items.isEmpty())
+			throw new NotApplicableException("'" + position.name() + "' at line " + position.line() + " of "
+					+ position.path() + " is not a class, interface, or enum - find_supertypes/find_subtypes only work on those");
+
+		return items.get(0);
+	}
+
+	/**
+	 * A TypeHierarchyItem's own position - reusing locationOf() the way
+	 * memberOf() already does for a documentSymbol child (see its doc): a
+	 * TypeHierarchyItem carries no plain Location of its own (uri+range
+	 * together as one field), so a synthetic one is built from the item's own
+	 * "uri" and "selectionRange" - the type name's own token, not its whole
+	 * declaration/body. Verified empirically (self-test against clide's own
+	 * FindCallersCommand/Command hierarchy) that a TypeHierarchyItem's
+	 * selectionRange is exactly that: unlike a CallHierarchyItem's (see
+	 * callHierarchyItemLocation() for why that one needs a second request).
+	 */
+	private CodeLocation typeHierarchyItemLocation(final Monomorphic item) {
+		if (item.isMap() == false)
+			return null;
+
+		final Monomorphic location = Monomorphic.mapBuilder() //
+				.put("uri", item.getOrNull("uri")) //
+				.put("range", item.getOrNull("selectionRange")) //
+				.build();
+
+		return locationOf(location);
+	}
+
+	/**
+	 * A CallHierarchyItem's own declaration position - NOT read off its own
+	 * "selectionRange" the way typeHierarchyItemLocation() reads a
+	 * TypeHierarchyItem's. Verified empirically (self-test against clide's
+	 * own CommandResults.rejectUnlessOneOf() and its callers): jdtls (Eclipse
+	 * JDT LS) sets a call hierarchy item's "selectionRange" to the call site
+	 * itself - the same span as its sibling field "fromRanges"/"toRanges" -
+	 * rather than to the calling/called method's own name, which is what
+	 * clide's &lt;position&gt; notation needs to stay chainable into another
+	 * find_callers/find_callees/hover/find_reference.
+	 *
+	 * What jdtls does report correctly on the item is "range": the whole
+	 * enclosing declaration, annotations included. That is enough to recover
+	 * the real position without guessing: the item's own file's
+	 * textDocument/documentSymbol tree (the same one list_members already
+	 * reads) has its own member node for that exact declaration, at the same
+	 * start line jdtls itself computed for "range" - no name/overload
+	 * matching needed, since the line alone already pins it down uniquely -
+	 * and that member node's own selectionRange is trustworthy (it is exactly
+	 * what memberOf()/list_members already build a CodeLocation from).
+	 *
+	 * Returns null when no such member node is found (dropped rather than
+	 * guessed at, the same tolerance locationOf() already has for a location
+	 * outside the project) - not expected to ever happen for a real jdtls
+	 * answer, but "jdtls reported a line documentSymbol does not corroborate"
+	 * is exactly the kind of surprise this exists to not paper over.
+	 */
+	private CodeLocation callHierarchyItemLocation(final Monomorphic item)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		if (item.isMap() == false)
+			return null;
+
+		final String uri = JdtlsResponses.uriOf(item);
+		final int zeroBasedLine = JdtlsResponses.lineOf(JdtlsResponses.startOf(JdtlsResponses.rangeOf(item)));
+		final Monomorphic memberNode = findMemberNodeStartingAt(JdtlsResponses.documentSymbols(client, uri),
+				zeroBasedLine);
+		if (memberNode.isMap() == false)
+			return null;
+
+		final Monomorphic location = Monomorphic.mapBuilder() //
+				.put("uri", item.getOrNull("uri")) //
+				.put("range", memberNode.getOrNull("selectionRange")) //
+				.build();
+
+		return locationOf(location);
+	}
+
+	/**
+	 * Recursively searches a documentSymbol tree (nodes, and each node's own
+	 * "children" - see findTypeNode(), which does the same walk for a
+	 * type-kind node) for a method/constructor node whose own "range" starts
+	 * on exactly zeroBasedLine. Returns the first match found (depth-first),
+	 * or null.
+	 */
+	private Monomorphic findMemberNodeStartingAt(final List<Monomorphic> nodes, final int zeroBasedLine) {
+		for (final Monomorphic node : nodes) {
+			if (node.isMap() == false)
+				continue;
+
+			if (isCallableKind(node)
+					&& JdtlsResponses.lineOf(JdtlsResponses.startOf(node.getOrNull("range"))) == zeroBasedLine)
+				return node;
+
+			final Monomorphic foundInChildren = findMemberNodeStartingAt(JdtlsResponses.childrenOf(node),
+					zeroBasedLine);
+			if (foundInChildren.isMap())
+				return foundInChildren;
+		}
+		return Monomorphic.createNull();
+	}
+
+	/** Whether node is "method/constructor"-shaped - SymbolKind 6/9, see symbolKindLabel(). */
+	private boolean isCallableKind(final Monomorphic node) {
+		final int kind = (int) node.getOrNull("kind").longOrDefault(-1);
+		return kind == 6 || kind == 9;
 	}
 
 	/**

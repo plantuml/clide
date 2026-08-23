@@ -54,6 +54,7 @@ class FreshModelRequirementTest {
 	@DisplayName("toute commande sémantique ou modifiante est resynchronisée avant de répondre")
 	void everySemanticOrModifyingCommandRequiresAFreshModel() {
 		for (final String keyword : List.of("find_symbol", "find_declaration", "find_reference", "find_implementation",
+				"find_callers", "find_callees", "find_supertypes", "find_subtypes",
 				"hover", "list_members", "run_test", "run_tests", "rename")) {
 			final Command command = commandNamed(keyword);
 			assertTrue(command.needsJdtlsSession(), keyword + " interroge jdtls");

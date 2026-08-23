@@ -151,7 +151,7 @@ un mensonge, pas un service.
 | aucune erreur | `NONE` |
 | protocole | `UNKNOWN_KEYWORD`, `MISSING_PARAMETERS` |
 | paramètres | `INVALID_ENUM_VALUE`, `EMPTY_PARAMETER`, `INVALID_REGEX`, `INVALID_INTEGER`, `VALUE_OUT_OF_RANGE`, `INVALID_TRANSACTION_ID`, `NOT_A_DIRECTORY` |
-| `<position>` | `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`, `FILE_MODIFIED`, `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NAME_NOT_AT_COLUMN`, `NOT_A_TYPE` |
+| `<position>` | `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`, `FILE_MODIFIED`, `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NAME_NOT_AT_COLUMN`, `NOT_A_TYPE`, `NOT_A_METHOD` |
 | jdtls | `SESSION_START_FAILED`, `JDTLS_REQUEST_FAILED`, `BUILD_FAILED` |
 | transactions | `NO_OPEN_TRANSACTION`, `TRANSACTION_REFUSED`, `TRANSACTION_IO_FAILED`, `TERMINATE_REFUSED` |
 | tests | `TEST_FAILURES`, `NO_TEST_FOUND`, `TEST_CLASS_NOT_COMPILED`, `TEST_RUNNER_BROKEN`, `TEST_TIMEOUT`, `NO_OUTPUT_FOLDER`, `CLASSPATH_UNAVAILABLE`, `MULTI_MODULE_PROJECT` |
@@ -443,7 +443,12 @@ Source: *[demo](file:///tmp/demo/src/main/java/demo/Calc.java#7)*
 | `subject` | `String` | le `<name>` sur lequel portait la question |
 | `locations` | `Listing<CodeLocation>` | les résultats |
 
-Produit par `find_declaration`, `find_reference`, `find_implementation`.
+Produit par `find_declaration`, `find_reference`, `find_implementation`,
+`find_callers`, `find_callees`, `find_supertypes`, `find_subtypes` - les
+quatre derniers réutilisent cette même forme même si leur propre requête
+jdtls (call/type hierarchy) n'est pas un simple `textDocument/xxx` comme les
+trois premiers (voir `JdtlsSession.callHierarchyLocations()`/
+`typeHierarchyLocations()`).
 
 **Exemple** — `subject = "add"`, `totalCount = 3`, `maxResults = 100` :
 
@@ -725,6 +730,10 @@ set_max_results: max_results 100 -> 3
 | `find_declaration` | `Locations` | oui |
 | `find_reference` | `Locations` | oui |
 | `find_implementation` | `Locations` | oui |
+| `find_callers` | `Locations` | oui |
+| `find_callees` | `Locations` | oui |
+| `find_supertypes` | `Locations` | oui |
+| `find_subtypes` | `Locations` | oui |
 | `find_symbol` | `Symbols` | oui |
 | `list_members` | `Symbols` | oui |
 | `search_regex` | `SearchMatches` | oui |

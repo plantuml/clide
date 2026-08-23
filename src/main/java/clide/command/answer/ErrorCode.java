@@ -124,6 +124,9 @@ public enum ErrorCode {
 	/** The position resolved, but names nothing this command can work with (e.g. list_members on a method). */
 	NOT_A_TYPE,
 
+	/** The position resolved, but names nothing find_callers/find_callees can work with (e.g. a field or a type). */
+	NOT_A_METHOD,
+
 	// ------------------------------------------------------------------
 	// jdtls
 	// ------------------------------------------------------------------

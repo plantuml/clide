@@ -175,6 +175,7 @@ hint: find_symbol Foo locates it
   `INVALID_REGEX`, `INVALID_INTEGER`, `VALUE_OUT_OF_RANGE`, `NOT_A_DIRECTORY`,
   `MALFORMED_POSITION`, `FILE_NOT_FOUND`, `FILE_UNREADABLE`, `FILE_MODIFIED`,
   `LINE_OUT_OF_RANGE`, `NAME_NOT_ON_LINE`, `NAME_NOT_AT_COLUMN`, `NOT_A_TYPE`,
+  `NOT_A_METHOD`,
   `JDTLS_REQUEST_FAILED`,
   `BUILD_FAILED`, `SESSION_START_FAILED`, `TEST_FAILURES`, `NO_TEST_FOUND`,
   `TEST_CLASS_NOT_COMPILED`, `TEST_TIMEOUT`, `TEST_RUNNER_BROKEN`,
@@ -456,6 +457,10 @@ the question — a grep remains blind to inheritance and polymorphism.
 | `find_declaration <what> <position>` | Where the symbol is actually declared. `<what>` = `method` (the declaration of the symbol itself) or `type` (the class/interface of its declared type). |
 | `find_reference <what> <position>` | All real usages of the symbol, declaration excluded. `<what>` is accepted for naming symmetry but has no effect on the result (only one query exists behind it). |
 | `find_implementation <what> <position>` | Which classes/methods actually implement or override the symbol — the polymorphism question. `<what>` is accepted for symmetry, with no effect on the result. |
+| `find_callers <position>` | Every method/constructor that directly calls the one at `<position>` — one hop, chainable into another `find_callers` to go further. No `<what>`: jdtls resolves what a call hierarchy question means on its own (see `man find_callers` for what a field or a type position answers with). |
+| `find_callees <position>` | Every method/constructor the one at `<position>` directly calls — the reverse of `find_callers`, and the one with no equivalent from `find_reference`. |
+| `find_supertypes <position>` | The direct superclass/interfaces of the class/interface/enum at `<position>` — one hop up, not the whole chain to `Object`. |
+| `find_subtypes <position>` | The direct subclasses/implementors of the class/interface/enum at `<position>` — one hop down; `find_implementation type` is the flat "all of them, any depth" alternative. |
 | `hover <position>` | Signature/Javadoc known for this symbol at this exact spot. |
 | `list_members <position>` | **Direct** members (methods, fields, constructors) of a type — never inherited members. |
 

@@ -69,7 +69,8 @@ public class FindReferenceCommand extends Command {
 				carries the check with it.
 
 			SEE ALSO
-				find_declaration(1), find_implementation(1), find_symbol(1)
+				find_declaration(1), find_implementation(1), find_symbol(1),
+				find_callers(1), find_callees(1)
 			""")
 	public FindReferenceCommand() {
 

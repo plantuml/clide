@@ -1311,12 +1311,33 @@ que résolus au build : même raisonnement que pour l'archive jdtls. Côté Grad
 - ~~Commande de lancement d'un test unique.~~ Faite : `run_test`/`run_tests`,
   voir plus haut. Reste à valider sur PlantUML, et à décider si un paramètre de
   module doit être ajouté pour les dépôts multi-modules.
-- Requêtes sémantiques supplémentaires via `JdtlsSession`/`LspClient` :
-  `callHierarchy` (confirmé supporté par jdtls — voir « Capacités de jdtls »
-  ci-dessus), `typeHierarchy`, etc. (`definition`/`typeDefinition`/
-  `implementation`/`references` faits — voir `find_declaration`/
-  `find_reference`/`find_implementation` ci-dessus ; voir `JDTLS.md`,
-  section 2).
+- ~~Requêtes sémantiques supplémentaires via `JdtlsSession`/`LspClient` :
+  `callHierarchy` (...), `typeHierarchy`, etc.~~ Faites :
+  `find_callers`/`find_callees` (`textDocument/prepareCallHierarchy` +
+  `callHierarchy/incomingCalls`/`outgoingCalls`) et
+  `find_supertypes`/`find_subtypes` (`textDocument/prepareTypeHierarchy` +
+  `typeHierarchy/supertypes`/`subtypes`), un cran à chaque fois plutôt que
+  toute la hiérarchie d'un coup, position chaînable dans un nouvel appel
+  pour aller plus loin (voir CLAUDE.md, la boucle `--lua` existe pour ça).
+  Piège découvert en testant clide sur lui-même : contrairement à
+  `TypeHierarchyItem`, le `selectionRange` d'un `CallHierarchyItem` que
+  jdtls renvoie pour `incomingCalls`/`outgoingCalls` n'est PAS le nom de la
+  méthode appelante/appelée — c'est le site d'appel lui-même (même span que
+  `fromRanges`/`toRanges`), verifié empiriquement le 2026-08-23. Corrigé en
+  retrouvant la vraie déclaration via l'arbre `textDocument/documentSymbol`
+  du fichier, apparié par `(uri, range.start.line)` — pas besoin de
+  comparer les noms, cette ligne suffit à désambiguïser. Autre surprise :
+  `textDocument/prepareCallHierarchy` est bien plus permissif que ne le
+  laisse penser la spec LSP — pointé sur un champ, il répond avec les
+  méthodes qui le lisent/l'écrivent (comme la vue Call Hierarchy d'Eclipse
+  le fait aussi pour les champs) ; pointé sur un type, avec les
+  constructeurs qui l'appellent implicitement ou non. `NOT_A_METHOD` ne
+  déclenche donc que quand jdtls ne résout vraiment rien du tout (rare).
+  `prepareTypeHierarchy`, lui, se comporte comme attendu (`NOT_A_TYPE`
+  propre sur un champ/une méthode).
+  (`definition`/`typeDefinition`/`implementation`/`references` faits — voir
+  `find_declaration`/`find_reference`/`find_implementation` ci-dessus ; voir
+  `JDTLS.md`, section 2).
 - Attendre réellement la fin d'indexation (`language/status` →
   `Started`/`ServiceReady`) plutôt que le délai fixe actuel dans
   `JdtlsSession.waitForServiceReady` — le délai fixe s'est avéré suffisant

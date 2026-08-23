@@ -71,7 +71,8 @@ public class FindImplementationCommand extends Command {
 				carries the check with it.
 
 			SEE ALSO
-				find_declaration(1), find_reference(1), find_symbol(1)
+				find_declaration(1), find_reference(1), find_symbol(1),
+				find_subtypes(1)
 			""")
 	public FindImplementationCommand() {
 
