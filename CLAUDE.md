@@ -568,6 +568,7 @@ reconnecting. `--lua` script connections never see this either.
 | Command | Role |
 |---|---|
 | `rename <position> <new name>` | Renames the symbol at `<position>` — class, interface, enum, method, field, parameter or local variable — everywhere it is *really* used, and writes the result. |
+| `remove_unused_imports <path regex>` | Deletes every unused import jdtls flagged, from every project file whose path matches `<path regex>`. |
 
 One command for every kind of symbol, not one per kind: `textDocument/rename`
 is a single request and jdtls resolves for itself what is at that position, so
@@ -617,6 +618,25 @@ A renamed public type also has its file renamed (`Square.java` →
 `Rectangle.java`), reported on its own line. That is only possible because
 clide declares `workspace.workspaceEdit.resourceOperations` during
 `initialize` — see the note on `WorkspaceEdit` under "Known limitations".
+
+`remove_unused_imports <path regex>` takes the same kind of `<path regex>`
+`search_regex` does — a regex matched against every `.java` file's
+project-relative, forward-slash path, not a filename — and deletes every
+import line jdtls' last build flagged as unused in one of the matched files.
+Detection comes straight from jdtls' own diagnostics, filtered by Eclipse's
+own problem id for "The import ... is never used" (`268435844`, found
+empirically — there is no documented, stable name for it) rather than by
+matching jdt's message text. Only imports jdtls actually flagged as unused
+are touched: nothing is reordered, regrouped, or collapsed — a caller who
+wants jdtls' broader `source.organizeImports` behavior is not this command's
+job to provide.
+
+`<path regex>` matching zero files is `NO_FILES_FOUND` — almost always a
+typo'd regex. Matching real files that simply have nothing to remove is not
+an error: the answer says how many files matched and how many were actually
+changed, and a matched-but-clean file is not listed among the changed ones.
+Like `rename`, it requires an open transaction, tells jdtls about its own
+edit immediately, and reports the resulting error count.
 
 ### Help and session
 

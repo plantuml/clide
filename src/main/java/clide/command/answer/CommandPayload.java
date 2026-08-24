@@ -181,6 +181,31 @@ public sealed interface CommandPayload {
 	}
 
 	/**
+	 * Unused imports removed from one or more files - remove_unused_imports.
+	 *
+	 * matchedFileCount is every file &lt;path regex&gt; matched, whether or not
+	 * it had an unused import to remove - "3 file(s) matched, 1 changed" is a
+	 * more useful answer than staying silent about the two that were already
+	 * clean. changedFiles lists only the files actually rewritten, each with
+	 * the import(s) it lost, in the order they appeared in the file.
+	 *
+	 * errorCount is what the rebuild that followed the edit reported - the same
+	 * idea as Rename.errorCount: an editing command's answer says in one line
+	 * whether the project still compiles.
+	 */
+	record RemoveUnusedImports(int matchedFileCount, Listing<RemoveUnusedImports.FileChange> changedFiles,
+			int errorCount) implements CommandPayload {
+
+		/** One file rewritten, and the import(s) - fully-qualified, "static " kept - it lost. */
+		public record FileChange(String path, List<String> removedImports) {
+
+			public FileChange {
+				removedImports = List.copyOf(removedImports);
+			}
+		}
+	}
+
+	/**
 	 * A session setting was read or changed - set_max_results. Carrying the
 	 * previous value as well as the new one is what makes the command its own
 	 * read-back: the fixed arity of the line protocol leaves no room for an

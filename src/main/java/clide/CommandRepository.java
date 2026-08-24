@@ -9,6 +9,7 @@ import clide.command.ResearchRegexCommand;
 import clide.command.SetMaxResultsCommand;
 import clide.command.diagnostics.PrintDiagnosticsCommand;
 import clide.command.diagnostics.RebuildCommand;
+import clide.command.edit.RemoveUnusedImportsCommand;
 import clide.command.edit.RenameCommand;
 import clide.command.navigate.FindCalleesCommand;
 import clide.command.navigate.FindCallersCommand;
@@ -83,6 +84,7 @@ public final class CommandRepository {
 		registered.add(new SetMaxResultsCommand());
 
 		registered.add(new RenameCommand());
+		registered.add(new RemoveUnusedImportsCommand());
 
 		registered.add(new OpenTransactionCommand());
 		registered.add(new CommitTransactionCommand());

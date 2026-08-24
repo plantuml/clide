@@ -687,6 +687,60 @@ Un diff vide est un fait à rapporter, pas une absence :
 No differences (current content matches the pre-transaction backup).
 ```
 
+### `Rename`
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `subject` | `String` | le nom d'avant |
+| `newName` | `String` | le nom d'après |
+| `changedFiles` | `Listing<String>` | fichiers touchés — pas un compte d'occurrences, voir plus bas |
+| `fileRenames` | `List<Rename.FileRenaming>` | un type public renommé renomme aussi son fichier — à part, jamais mêlé à `changedFiles` |
+| `declaration` | `CodeLocation` | la position fraîche du symbole renommé, `null` si clide n'a pas pu en dériver une vérifiée |
+| `errorCount` | `int` | ce que le build qui suit l'edit a rapporté |
+
+Produit par `rename`. Pas de compte d'occurrences : jdtls fusionne deux
+occurrences voisines en un seul edit, donc un compte dérivé des edits
+ressemblerait à un compte d'occurrences sans en être un — `find_reference`
+sur `declaration` donne le vrai compte.
+
+```
+rename: Square -> Rectangle, 2 file(s)
+src/demo/Main.java
+src/demo/Rectangle.java
+file renamed: src/demo/Square.java -> src/demo/Rectangle.java
+declaration now at f21e4159:src/demo/Rectangle.java:3:14:Rectangle public class Rectangle {
+rebuilt: 0 error(s)
+```
+
+Rien à changer se dit, plutôt que d'annoncer 0 fichier :
+
+```
+rename: nothing to change - 'Square' is already called 'Square'
+```
+
+### `RemoveUnusedImports`
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `matchedFileCount` | `int` | fichiers dont le chemin matche `<path regex>`, changés ou non |
+| `changedFiles` | `Listing<RemoveUnusedImports.FileChange>` | seulement les fichiers réellement réécrits |
+| `errorCount` | `int` | ce que le build qui suit l'edit a rapporté |
+
+`FileChange` porte `path` et `removedImports` (`List<String>`, dans l'ordre
+d'apparition dans le fichier). Produit par `remove_unused_imports`. Un
+fichier matché mais déjà propre n'apparaît pas dans `changedFiles` — ce n'est
+pas une erreur, `matchedFileCount` le dit déjà.
+
+```
+remove_unused_imports: 3 file(s) matched, 1 file(s) changed
+src/demo/Calc.java: removed java.util.List, java.util.ArrayList
+rebuilt: 0 error(s)
+```
+
+```
+remove_unused_imports: 2 file(s) matched, nothing to remove
+```
+
 ### `CommandList`
 
 | Champ | Type | Rôle |
@@ -757,6 +811,8 @@ set_max_results: max_results 100 -> 3
 | `commit_transaction` | `Transaction` | non |
 | `rollback_transaction` | `Transaction` | non |
 | `restore_file` | `Transaction` | non |
+| `rename` | `Rename` | oui (`changedFiles`) |
+| `remove_unused_imports` | `RemoveUnusedImports` | oui (`changedFiles`) |
 | `exit` / `quit` | `Nothing` | — |
 | `terminate` | `Nothing` | — |
 

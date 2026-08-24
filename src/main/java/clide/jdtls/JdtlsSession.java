@@ -1068,6 +1068,64 @@ public class JdtlsSession {
 	}
 
 	/**
+	 * Eclipse's own problem id for "The import ... is never used" - empirically
+	 * confirmed (see HISTORY.md) by printing a raw diagnostic for a deliberately
+	 * unused import and reading its "code" field back. Not documented anywhere
+	 * as a stable contract, but it is what jdt.core actually sends, and matching
+	 * on it is far more robust than matching jdt's own message wording, which
+	 * is free to change or be localized.
+	 */
+	private static final String UNUSED_IMPORT_PROBLEM_ID = "268435844";
+
+	/**
+	 * Every file the last build flagged at least one unused import in, mapped to
+	 * the 1-based line(s) jdtls flagged - project-relative, forward-slash
+	 * paths, the same shape diagnosticsReport() prints. remove_unused_imports'
+	 * only way of finding candidates without parsing any Java itself.
+	 *
+	 * Filtered by UNUSED_IMPORT_PROBLEM_ID rather than by severity: an unused
+	 * import is a warning, and plenty of other warnings are too, so severity
+	 * alone cannot tell them apart.
+	 *
+	 * Reads the same diagnosticsByUri every print_diagnostics/rebuild already
+	 * read - nothing here triggers a build of its own, so this only ever
+	 * answers for the last build CommandDispatcher already required to be
+	 * fresh (see Command.needsFreshModel()).
+	 */
+	public Map<String, List<Integer>> unusedImportLines() {
+		final Map<String, List<Integer>> result = new TreeMap<>();
+		for (final Map.Entry<String, List<Monomorphic>> entry : diagnosticsByUri.entrySet()) {
+			final List<Integer> lines = new ArrayList<>();
+			for (final Monomorphic diagnostic : entry.getValue()) {
+				if (isUnusedImportDiagnostic(diagnostic) == false)
+					continue;
+
+				final int zeroBasedLine = JdtlsResponses.lineOf(JdtlsResponses.startOf(diagnostic.getOrNull("range")));
+				if (zeroBasedLine != -1)
+					lines.add(zeroBasedLine + 1);
+			}
+
+			if (lines.isEmpty() == false)
+				result.put(shortName(entry.getKey()), lines);
+		}
+
+		return result;
+	}
+
+	/**
+	 * Whether diagnostic is jdt's own "unused import" warning. The one raw
+	 * sample captured while confirming UNUSED_IMPORT_PROBLEM_ID carried "code"
+	 * as a JSON string, which is what the string comparison below expects - a
+	 * JSON number is also accepted, defensively, since nothing in the LSP spec
+	 * promises one shape over the other for an opaque "code".
+	 */
+	private static boolean isUnusedImportDiagnostic(final Monomorphic diagnostic) {
+		final Monomorphic code = diagnostic.getOrNull("code");
+		final String asString = code.isNumber() ? String.valueOf(code.longOrDefault(0)) : code.stringOrNull();
+		return UNUSED_IMPORT_PROBLEM_ID.equals(asString);
+	}
+
+	/**
 	 * Attempts a graceful LSP shutdown, then stops the underlying process either
 	 * way.
 	 */

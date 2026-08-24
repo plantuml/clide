@@ -1382,3 +1382,42 @@ que résolus au build : même raisonnement que pour l'archive jdtls. Côté Grad
   `JdtlsSession.waitForServiceReady` — le délai fixe s'est avéré suffisant
   aussi sur PlantUML (3600 fichiers, build complet au démarrage du daemon),
   mais l'attente réelle resterait plus propre.
+- ~~Une commande pour supprimer les imports non utilisés dans un ou plusieurs
+  fichiers Java.~~ Faite, 2026-08-24 : `remove_unused_imports <path regex>`,
+  le même genre de `<path regex>` que `search_regex` (matché sur le chemin
+  relatif au projet, forward slashes) plutôt qu'un chemin unique — la demande
+  explicite. Portée volontairement limitée aux imports *non utilisés* :
+  aucun réordonnancement, regroupement ni collapse de wildcard — c'est le
+  travail du `source.organizeImports` de jdtls, délibérément pas appelé ici.
+
+  Détection sans parser aucun Java : filtrage des diagnostics du dernier
+  build (les mêmes que `print_diagnostics`) sur l'id de problème propre à
+  Eclipse pour "The import ... is never used" — `268435844`, trouvé de façon
+  empirique (aucune doc stable ne le nomme) en imprimant un diagnostic brut
+  sur un import volontairement inutilisé et en lisant son champ `code` :
+  `{"range":{...},"severity":2,"code":"268435844","source":"Java","message":
+  "The import java.util.List is never used"}`. Comparaison sur ce code plutôt
+  que sur le texte du message, qui n'est pas un contrat. Nouvelle méthode
+  `JdtlsSession.unusedImportLines()`, dérivée de la même `diagnosticsByUri`
+  que `diagnosticsReport()` — rien de neuf n'est demandé à jdtls.
+
+  Écriture directe (`Files.write()`), sans passer par un `WorkspaceEdit` de
+  jdtls ni par un appel à `backupBeforeModification()` : l'architecture de
+  `Transaction` s'est avérée ne pas en avoir besoin — le `Snapshot` pris à
+  l'ouverture d'une transaction couvre déjà tout fichier `.java` source, donc
+  `rollback_transaction`/`diff_transaction` fonctionnent sur ce que cette
+  commande écrit sans rien de plus. Chaque ligne candidate est revérifiée
+  contre le fichier tel qu'il est là, maintenant (elle doit encore ressembler
+  à `import ...;`) avant suppression — défensif, au cas où le fichier aurait
+  changé depuis le diagnostic ; suppression du bas vers le haut pour ne
+  jamais décaler un numéro de ligne encore en attente. `<path regex>` qui ne
+  matche aucun fichier du projet est `NO_FILES_FOUND` ; matcher des fichiers
+  réels mais déjà propres ne l'est pas — l'ambiguïté que la conception a
+  tranchée avant l'implémentation (voir la discussion avec l'utilisateur).
+
+  Vérifié en conditions réelles sur clide lui-même (fichier de test avec un
+  `import java.util.Map;` volontairement inutilisé) : suppression correcte
+  d'un seul fichier et de plusieurs à la fois (regex groupée), `0 error(s)`
+  après resynchronisation, `diff_transaction` montrant exactement la ligne
+  supprimée, `rollback_transaction` restaurant le fichier à l'identique, et
+  `commit_transaction` rendant la suppression définitive.

@@ -79,6 +79,7 @@ public final class LuaPayloads {
 		case CommandPayload.Setting setting -> map("name", setting.name(), "previousValue", setting.previousValue(),
 				"newValue", setting.newValue());
 		case CommandPayload.Rename renamed -> renamed(renamed);
+		case CommandPayload.RemoveUnusedImports removed -> removedUnusedImports(removed);
 		};
 	}
 
@@ -98,6 +99,15 @@ public final class LuaPayloads {
 		return map("subject", renamed.subject(), "newName", renamed.newName(), "changedFiles",
 				listing(renamed.changedFiles(), file -> file), "fileRenames", fileRenames, "declaration",
 				codeLocation(renamed.declaration()), "errorCount", (long) renamed.errorCount());
+	}
+
+	private static Object removedUnusedImports(final CommandPayload.RemoveUnusedImports removed) {
+		return map("matchedFileCount", (long) removed.matchedFileCount(), "changedFiles",
+				listing(removed.changedFiles(), LuaPayloads::fileChange), "errorCount", (long) removed.errorCount());
+	}
+
+	private static Object fileChange(final CommandPayload.RemoveUnusedImports.FileChange file) {
+		return map("path", file.path(), "removedImports", new ArrayList<Object>(file.removedImports()));
 	}
 
 	// ------------------------------------------------------------------

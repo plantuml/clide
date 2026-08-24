@@ -237,6 +237,17 @@ public enum ErrorCode {
 	MULTI_MODULE_PROJECT,
 
 	// ------------------------------------------------------------------
+	// remove_unused_imports
+	// ------------------------------------------------------------------
+
+	/**
+	 * &lt;path regex&gt; matched no file under the project - the message names
+	 * the regex. Distinct from "matched files, none had an unused import":
+	 * that second case is not an error at all, see remove_unused_imports.
+	 */
+	NO_FILES_FOUND,
+
+	// ------------------------------------------------------------------
 	// Misc
 	// ------------------------------------------------------------------
 
