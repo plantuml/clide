@@ -215,6 +215,37 @@ public sealed interface CommandPayload {
 	}
 
 	/**
+	 * A class moved to another package - move_class.
+	 *
+	 * fromPackage/toPackage are the packages as move_class was given them and
+	 * as it found them - equal when the class was already there, which is not
+	 * an error (see MoveClassCommand): movedFrom/movedTo are then equal too,
+	 * and changedFiles is empty.
+	 *
+	 * movedFrom/movedTo are the file's own project-relative path before and
+	 * after - kept apart from changedFiles for the same reason
+	 * Rename.fileRenames is kept apart from Rename.changedFiles: "4 file(s)
+	 * changed" reads as a routine edit, "and Scratch.java is now under
+	 * scratchb/" is the part a reader could not have guessed. changedFiles
+	 * itself carries every path this command touched, moved file included
+	 * under both its old and new name (see AppliedEdit.changedFiles()) -
+	 * cross-package importers whose import statement jdtls rewrote are the
+	 * usual other entries.
+	 *
+	 * errorCount is what the rebuild that followed the move reported, the
+	 * same idea as Rename.errorCount and RemoveUnusedImports.errorCount - and
+	 * here it carries real weight: jdtls' own willRenameFiles refactor never
+	 * finds a same-package caller that referenced the class without an
+	 * import, since nothing about the move touches that caller's own file.
+	 * Such a file is left exactly as it was and will not compile after the
+	 * move - errorCount is how that surfaces, exactly like it does for any
+	 * other jdtls blind spot rename hits. See MoveClassCommand's Manual.
+	 */
+	record MoveClass(String className, String fromPackage, String toPackage, String movedFrom, String movedTo,
+			Listing<String> changedFiles, CodeLocation declaration, int errorCount) implements CommandPayload {
+	}
+
+	/**
 	 * A session setting was read or changed - set_max_results. Carrying the
 	 * previous value as well as the new one is what makes the command its own
 	 * read-back: the fixed arity of the line protocol leaves no room for an

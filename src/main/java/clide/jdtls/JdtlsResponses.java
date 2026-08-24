@@ -248,6 +248,19 @@ final class JdtlsResponses {
 				.build();
 	}
 
+	/**
+	 * workspace/willRenameFiles request params: one FileRename pairing an old
+	 * and a new URI - clide only ever moves a single file per move_class call,
+	 * so the "files" array here always carries exactly one entry.
+	 */
+	static Monomorphic willRenameFilesParams(final String oldUri, final String newUri) {
+		final Monomorphic fileEntry = Monomorphic.mapBuilder() //
+				.putString("oldUri", oldUri) //
+				.putString("newUri", newUri) //
+				.build();
+		return Monomorphic.mapBuilder().put("files", Monomorphic.createList(fileEntry)).build();
+	}
+
 	/** Raw textDocument/documentSymbol tree for uri - empty on any error. */
 	static List<Monomorphic> documentSymbols(final LspClient client, final String uri)
 			throws IOException, InterruptedException, LspClient.TimeoutException {

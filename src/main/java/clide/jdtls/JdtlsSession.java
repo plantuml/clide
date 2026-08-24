@@ -351,6 +351,77 @@ public class JdtlsSession {
 	}
 
 	/**
+	 * workspace/willRenameFiles: what jdtls computes should change elsewhere in
+	 * the project when the file at oldFile is about to become newFile - the
+	 * same request/response idea as rename(), keyed off a file move rather than
+	 * a symbol name. See MoveClassCommand.
+	 *
+	 * Computes and returns; writes nothing and does not perform the move
+	 * itself, exactly like rename() does not write either - applying is still
+	 * WorkspaceEdit.applyTo()'s job. What the caller gets back is text edits
+	 * only: jdtls' own answer never includes a resource-rename operation for
+	 * oldFile itself, just an in-place edit of its own package declaration
+	 * (still addressed at the OLD uri, since this request fires before the
+	 * physical move) and the import statements of every cross-package importer
+	 * jdtls could find - confirmed empirically, see HISTORY.md. The caller
+	 * appends its own ResourceOperation.rename() for the physical move before
+	 * calling applyTo().
+	 *
+	 * A file relying on the moved type through same-package implicit
+	 * visibility, without an explicit import, is not found by this request at
+	 * all - a confirmed limitation of jdtls' own refactor, not of this method.
+	 * See MoveClassCommand's Manual for how that is surfaced.
+	 */
+	public WorkspaceEdit willRenameFile(final Path oldFile, final Path newFile)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Monomorphic response = client.request("workspace/willRenameFiles",
+				JdtlsResponses.willRenameFilesParams(oldFile.toUri().toString(), newFile.toUri().toString()), 60);
+		final Monomorphic error = JdtlsResponses.errorOf(response);
+		if (error != null)
+			throw new IOException("workspace/willRenameFiles failed: " + error);
+
+		return WorkspaceEdits.parse(response.getOrNull("result"), filesRepository.getProjectRoot());
+	}
+
+	/**
+	 * The name of every OTHER top-level type declared in the same file as the
+	 * one position names - empty when position's file declares exactly one
+	 * top-level type. Only the root of the documentSymbol tree is scanned, with
+	 * no recursion into any node's children: a nested type therefore never
+	 * matches as "position's own node" and always falls through to the
+	 * IOException below, which is the point - move_class only moves a
+	 * top-level type, and this is how it tells the two cases apart. See
+	 * MoveClassCommand.
+	 */
+	public List<String> siblingTopLevelTypeNames(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final String uri = fileOf(position).toUri().toString();
+		final List<Monomorphic> roots = JdtlsResponses.documentSymbols(client, uri);
+
+		boolean foundSelf = false;
+		final List<String> siblings = new ArrayList<>();
+		for (final Monomorphic node : roots) {
+			if (node.isMap() == false || JdtlsResponses.isTypeKind(node) == false)
+				continue;
+
+			if (isMatchingTypeNode(node, position.name(), position.line() - 1)) {
+				foundSelf = true;
+				continue;
+			}
+
+			final String name = withoutTypeParameters(node.getOrNull("name"));
+			if (name != null)
+				siblings.add(name);
+		}
+
+		if (foundSelf == false)
+			throw new IOException("'" + position.name() + "' at line " + position.line() + " of " + position.path()
+					+ " is not declared at the top level of its file (move_class only moves top-level types)");
+
+		return siblings;
+	}
+
+	/**
 	 * textDocument/documentSymbol: lists the direct members (methods, fields,
 	 * constructors - not further-nested inner types' own members) of the
 	 * class/interface/enum named position.name(), declared at position.line() of
@@ -1449,8 +1520,12 @@ public class JdtlsSession {
 						Monomorphic.createString("rename"), Monomorphic.createString("delete"))) //
 				.putString("failureHandling", "abort") //
 				.build();
+		final Monomorphic fileOperationsCapabilities = Monomorphic.mapBuilder() //
+				.putBoolean("willRename", true) //
+				.build();
 		final Monomorphic workspaceCapabilities = Monomorphic.mapBuilder() //
 				.put("workspaceEdit", workspaceEditCapabilities) //
+				.put("fileOperations", fileOperationsCapabilities) //
 				.build();
 		final Monomorphic capabilities = Monomorphic.mapBuilder() //
 				.put("textDocument", textDocumentCapabilities) //

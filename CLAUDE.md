@@ -587,6 +587,7 @@ reconnecting. `--lua` script connections never see this either.
 |---|---|
 | `rename <position> <new name>` | Renames the symbol at `<position>` — class, interface, enum, method, field, parameter or local variable — everywhere it is *really* used, and writes the result. |
 | `remove_unused_imports <path regex>` | Deletes every unused import jdtls flagged, from every project file whose path matches `<path regex>`. |
+| `move_class <position> <new package>` | Moves the top-level class/interface/enum at `<position>` to `<new package>`: rewrites its own package declaration, moves its file, and rewrites the import of every other file jdtls can find that references it. |
 
 One command for every kind of symbol, not one per kind: `textDocument/rename`
 is a single request and jdtls resolves for itself what is at that position, so
@@ -655,6 +656,39 @@ an error: the answer says how many files matched and how many were actually
 changed, and a matched-but-clean file is not listed among the changed ones.
 Like `rename`, it requires an open transaction, tells jdtls about its own
 edit immediately, and reports the resulting error count.
+
+`move_class <position> <new package>` moves a top-level class, interface or
+enum to another package: rewrites its own `package` declaration, moves its
+file to the matching directory, and rewrites the import of every other file
+jdtls can find that references it — the same `workspace/willRenameFiles`
+refactoring an IDE runs for a drag-and-drop package move. `<new package>`
+already equal to the current one is not an error: the answer says so
+("nothing to change") and nothing is written.
+
+Like `rename`, this is built on a WorkspaceEdit jdtls computes and clide
+applies, not one jdtls writes itself — but with one structural difference:
+jdtls' own answer to `workspace/willRenameFiles` never includes the
+resource-rename operation for the file being moved, only text edits (its own
+package line, and every importer's import statement jdtls could find). The
+physical move is clide's own responsibility, done by appending one
+`ResourceOperation.rename()` to what jdtls answered and applying the combined
+edit — reusing the exact same `WorkspaceEdit.applyTo()` machinery `rename`
+already trusts for its own file-rename case.
+
+A file declaring more than one top-level type is refused outright
+(`MULTIPLE_TOP_LEVEL_TYPES`, naming the others) rather than silently moving
+every type in it together, and a nested type is refused too
+(`NOT_A_TOP_LEVEL_TYPE`) — moving one out of its enclosing type is a
+different refactoring this command does not attempt. Like `rename` and
+`remove_unused_imports`, it requires an open transaction and reports the
+resulting error count after telling jdtls about its own edit.
+
+**What is not fixed**: a file in the class's old package that called it
+without an explicit import, relying on same-package implicit visibility, is
+sometimes left untouched by jdtls' own refactor and will not compile after
+the move — no extra `find_reference` pass patches this; the error count is
+how it surfaces, exactly like any other jdtls blind spot `rename` can also
+hit. See "Known limitations" below for what testing this actually found.
 
 ### Help and session
 
@@ -759,6 +793,27 @@ one. `--lua` and `--human` cannot be combined.
   project that already ships its own `.project`/`.classpath`; not fixed
   yet (excluding `.clide/**` from jdtls's import scan would be the natural
   fix).
+- **`move_class`'s `workspace/willRenameFiles` answer can be incomplete
+  right after the underlying file changed** (a rollback, a rebuild) — not
+  always, but reproducibly often enough in testing to be worth naming.
+  Sometimes jdtls answers with only *some* of what a complete refactor
+  needs: same-package callers relying on implicit visibility are the one
+  gap the design accepts as permanent (see above), but testing also caught
+  jdtls occasionally omitting the moved file's *own* package-line edit, or
+  a cross-package importer's import rewrite, on the very next call after a
+  transaction rollback restored the file. A second, immediately-following
+  call for the exact same move then answered completely, every time it was
+  tried. This looks like jdtls' own internal search index still catching up
+  in the background after a file changed underneath it - not something
+  clide causes or can detect apart from a genuinely unfixable same-package
+  reference, since both look identical from here: a non-zero error count
+  in the answer. clide does not retry automatically (a silent retry would
+  hide a real blind spot as easily as a transient one) - `print_diagnostics`
+  after any `move_class` with a suspicious error count is worth a look
+  before `commit_transaction`, and `rollback_transaction` then a plain
+  retry of the same `move_class` call is a reasonable next step if the
+  errors look like an incomplete edit rather than a real same-package
+  caller.
 - **jdtls's `workspace/applyEdit` (server-initiated edits) can't reach
   clide, deliberately.** One concrete case: saving `Truc.java` when it
   actually declares `public class Machin` — jdtls detects the

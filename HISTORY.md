@@ -1488,3 +1488,105 @@ que résolus au build : même raisonnement que pour l'archive jdtls. Côté Grad
   `hashCode()` correctement absent de la liste (au moins un appel explicite
   ailleurs dans le projet) ; une interface pointée directement (`ScratchIface`)
   ne rapporte aucun candidat, comme documenté.
+- ~~Une commande de refactoring pour déplacer une classe dans un autre
+  package.~~ Faite, 2026-08-24 : `move_class <position> <new package>`,
+  bâtie sur `workspace/willRenameFiles` plutôt que sur un `Files.move()`
+  écrit à la main - la même requête LSP qu'un IDE envoie pour un
+  déplacement par glisser-déposer d'un fichier entre packages.
+
+  Feasibilité confirmée empiriquement avant toute écriture de code : jdtls
+  répond à `workspace/willRenameFiles` (capacité serveur
+  `fileOperations.willRename` vue dans sa réponse à `initialize`) à
+  condition que le client déclare `workspace.fileOperations.willRename`
+  pendant `initialize` - un simple booléen, ajouté à `initializeParams()`
+  aux côtés de `workspaceEdit`. Réponse capturée sur un cas réel (classe
+  déplacée d'un package à un autre, avec un appelant dans un troisième
+  package qui l'importait) :
+  ```json
+  {"changes":{},"documentChanges":[
+    {"textDocument":{"uri":".../AutrePackage/Appelant.java"},
+     "edits":[{"range":{...},"newText":"\n\nimport nouveau.paquet.Classe;\n\n"}]},
+    {"textDocument":{"uri":".../ancien/paquet/Classe.java"},
+     "edits":[{"range":{...},"newText":"nouveau.paquet"}]}
+  ]}
+  ```
+  Deux enseignements structurants tirés de cette forme. D'abord, la réponse
+  ne contient **aucune** opération de ressource "rename" pour le fichier
+  déplacé lui-même - seulement des edits texte (la ligne `package` du
+  fichier déplacé, réécrite en place à son URI *d'avant*, puisque la
+  requête part avant le déplacement physique ; et l'import de chaque
+  fichier important la classe, quand jdtls le trouve). Le déplacement
+  physique reste entièrement la responsabilité du client. Plutôt que
+  d'écrire un `Files.move()` séparé, la commande construit un
+  `WorkspaceEdit` combiné - les `FileEdit` que jdtls a renvoyés, plus un
+  `ResourceOperation.rename()` ajouté à la main pour le fichier lui-même -
+  et le fait passer par le même `WorkspaceEdit.applyTo()` que `rename`
+  utilise déjà pour son propre cas de renommage de fichier : aucune
+  nouvelle mécanique de déplacement, la même déjà éprouvée sous rollback de
+  transaction.
+
+  Ensuite, et c'est la limite que la conception assume plutôt que de tenter
+  de la combler : un fichier de l'ancien package qui appelait la classe
+  déplacée *sans* import explicite (visibilité implicite de même package)
+  n'apparaît pas du tout dans une réponse de willRenameFiles - rien dans la
+  requête ne nomme ce fichier-là. Décision prise avec l'utilisateur (deux
+  questions posées, les deux options recommandées choisies) : pas de passe
+  `find_reference` supplémentaire pour détecter ce cas ni de correction
+  automatique - la commande applique ce que jdtls a calculé, déplace le
+  fichier, resynchronise le modèle, et rapporte le compte d'erreurs qui en
+  résulte, exactement comme `rename` le fait déjà pour ses propres angles
+  morts. Un fichier déclarant plus d'un type de premier niveau est en
+  revanche refusé d'emblée (`MULTIPLE_TOP_LEVEL_TYPES`, nommant les autres
+  types trouvés) plutôt que de tous les déplacer ensemble silencieusement -
+  seconde question posée, également tranchée pour l'option recommandée.
+
+  `JdtlsSession.siblingTopLevelTypeNames()` détecte les deux cas refusés
+  (type imbriqué, fichier à types multiples) avec un seul scan, sans
+  récursion dans l'arbre `documentSymbol` : seule la racine est parcourue,
+  donc un type imbriqué ne correspond jamais à "son propre noeud" et tombe
+  systématiquement dans l'`IOException` qui devient `NOT_A_TOP_LEVEL_TYPE`
+  - la même distinction que `listMembers()` fait déjà pour une raison
+  différente. Le package actuel d'un fichier est lu par un simple scan
+  texte (`^\s*package\s+...;`), pas via jdtls : information purement locale,
+  aucune raison d'en faire un aller-retour. Le chemin de destination est
+  dérivé en retirant le suffixe `ancienPackageEnChemin/NomFichier.java` du
+  chemin actuel puis en le remplaçant par le nouveau - `PACKAGE_DIRECTORY_
+  MISMATCH` si le chemin ne se termine pas par ce suffixe attendu (la
+  disposition sur disque ne correspond pas à la déclaration `package`).
+
+  Vérifié en conditions réelles sur clide lui-même, avec trois classes de
+  test (une classe à déplacer, un appelant dans un autre package avec
+  import, un appelant dans le même package sans import) : déplacement
+  simple correct (fichier physiquement déplacé, ligne `package` réécrite,
+  import de l'appelant externe réécrit, `0 error(s)`), et les quatre refus/
+  cas particuliers voulus par la conception - type imbriqué
+  (`NOT_A_TOP_LEVEL_TYPE`), fichier à types multiples
+  (`MULTIPLE_TOP_LEVEL_TYPES`, nommant l'autre type), destination déjà
+  occupée (`DESTINATION_FILE_EXISTS`), et `<new package>` déjà celui du
+  type (« nothing to change », sans toucher jdtls).
+
+  **Découverte empirique inattendue, distincte de l'angle mort assumé
+  ci-dessus** : la réponse de jdtls à `workspace/willRenameFiles` s'est
+  révélée occasionnellement incomplète juste après qu'un fichier ait changé
+  sous jdtls (un `rollback_transaction` qui restaure un fichier, ou un
+  `rebuild`) - pas systématiquement, mais reproduite plusieurs fois en
+  testant : parfois même la propre ligne `package` du fichier déplacé
+  n'était pas réécrite (le build qui suit rapporte alors une erreur "The
+  declared package ... does not match the expected package ...", sur le
+  fichier que la commande vient elle-même de déplacer), parfois seul
+  l'import d'un appelant externe manquait. Un second appel identique,
+  immédiatement après, a chaque fois répondu complètement (`0 error(s)`,
+  tous les fichiers concernés corrigés - y compris, une fois, un appelant
+  de même package sans import, que la conception avait pourtant acté comme
+  angle mort permanent). Tout indique un index de recherche interne à
+  jdtls encore en train de se remettre à jour en tâche de fond après un
+  changement de fichier, plutôt qu'un bug côté clide : le code envoyé est
+  strictement identique d'un appel à l'autre. Aucune tentative de ré-essai
+  automatique n'a été ajoutée - un ré-essai silencieux masquerait un
+  authentique angle mort aussi facilement qu'un incident transitoire, et
+  les deux se présentent de façon identique ici (un compte d'erreurs non
+  nul dans la réponse). Documenté comme limitation connue (CLAUDE.md) :
+  `print_diagnostics` après un `move_class` au compte d'erreurs suspect
+  avant tout `commit_transaction`, `rollback_transaction` puis un nouvel
+  essai identique si les erreurs ressemblent à un edit incomplet plutôt
+  qu'à un vrai appelant de même package.

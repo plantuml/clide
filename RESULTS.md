@@ -768,6 +768,39 @@ rebuilt: 0 error(s)
 remove_unused_imports: 2 file(s) matched, nothing to remove
 ```
 
+### `MoveClass`
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `className` | `String` | le nom du type déplacé |
+| `fromPackage` | `String` | le package d'avant |
+| `toPackage` | `String` | le package d'après |
+| `movedFrom` | `String` | le chemin du fichier d'avant |
+| `movedTo` | `String` | le chemin du fichier d'après |
+| `changedFiles` | `Listing<String>` | fichiers touchés, fichier déplacé compris sous ses deux noms |
+| `declaration` | `CodeLocation` | la position fraîche du type déplacé, `null` si clide n'a pas pu en dériver une vérifiée |
+| `errorCount` | `int` | ce que le build qui suit l'edit a rapporté |
+
+Produit par `move_class`. `movedFrom`/`movedTo` restent à part de
+`changedFiles` pour la même raison que `Rename.fileRenames` : « 4 fichier(s)
+changés » se lit comme une édition ordinaire, « et Square.java est maintenant
+sous scratchb/ » est la partie qu'un lecteur n'aurait pas pu deviner.
+
+```
+move_class: Square demo -> demo.shapes, 2 file(s)
+src/demo/Main.java
+src/demo/shapes/Square.java
+file moved: src/demo/Square.java -> src/demo/shapes/Square.java
+declaration now at f21e4159:src/demo/shapes/Square.java:3:14:Square public class Square {
+rebuilt: 0 error(s)
+```
+
+Rien à changer se dit, plutôt que d'annoncer un déplacement :
+
+```
+move_class: nothing to change - 'Square' is already in package 'demo'
+```
+
 ### `CommandList`
 
 | Champ | Type | Rôle |
@@ -841,6 +874,7 @@ set_max_results: max_results 100 -> 3
 | `restore_file` | `Transaction` | non |
 | `rename` | `Rename` | oui (`changedFiles`) |
 | `remove_unused_imports` | `RemoveUnusedImports` | oui (`changedFiles`) |
+| `move_class` | `MoveClass` | oui (`changedFiles`) |
 | `exit` / `quit` | `Nothing` | — |
 | `terminate` | `Nothing` | — |
 

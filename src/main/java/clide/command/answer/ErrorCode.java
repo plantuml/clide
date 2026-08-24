@@ -186,6 +186,28 @@ public enum ErrorCode {
 	/** The edit jdtls computed could not be applied as given - see EditApplicationException. */
 	EDIT_NOT_APPLICABLE,
 
+	/** move_class was given a position that does not name a top-level type declaration. */
+	NOT_A_TOP_LEVEL_TYPE,
+
+	/**
+	 * move_class targets a file that declares more than one top-level type - moving
+	 * it would silently drag every other type in the file along with it, so the
+	 * command refuses and names the other type(s) found in the file instead.
+	 */
+	MULTIPLE_TOP_LEVEL_TYPES,
+
+	/** The package name move_class was given is not a sequence of valid Java identifiers. */
+	INVALID_JAVA_PACKAGE_NAME,
+
+	/** move_class's destination path is already occupied by another file. */
+	DESTINATION_FILE_EXISTS,
+
+	/**
+	 * The file's own path on disk does not match the package it declares, so
+	 * move_class cannot reliably compute where it belongs after the move.
+	 */
+	PACKAGE_DIRECTORY_MISMATCH,
+
 	// ------------------------------------------------------------------
 	// Transactions
 	// ------------------------------------------------------------------
