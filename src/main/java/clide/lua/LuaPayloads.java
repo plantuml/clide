@@ -12,6 +12,7 @@ import clide.model.CodeLocation;
 import clide.model.Diagnostic;
 import clide.model.DiagnosticsReport;
 import clide.model.Listing;
+import clide.model.NarrowableMethod;
 import clide.model.Position;
 import clide.model.SearchMatch;
 import clide.model.SymbolHit;
@@ -80,6 +81,8 @@ public final class LuaPayloads {
 				"newValue", setting.newValue());
 		case CommandPayload.Rename renamed -> renamed(renamed);
 		case CommandPayload.RemoveUnusedImports removed -> removedUnusedImports(removed);
+		case CommandPayload.NarrowableMethods found -> map("subject", found.subject(), "methods",
+				listing(found.methods(), LuaPayloads::narrowableMethod));
 		};
 	}
 
@@ -108,6 +111,11 @@ public final class LuaPayloads {
 
 	private static Object fileChange(final CommandPayload.RemoveUnusedImports.FileChange file) {
 		return map("path", file.path(), "removedImports", new ArrayList<Object>(file.removedImports()));
+	}
+
+	private static Object narrowableMethod(final NarrowableMethod method) {
+		return map("location", codeLocation(method.location()), "overriddenIn",
+				new ArrayList<Object>(method.overriddenIn()), "neverCalled", method.neverCalled());
 	}
 
 	// ------------------------------------------------------------------

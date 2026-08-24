@@ -20,6 +20,7 @@ import clide.command.navigate.FindSubtypesCommand;
 import clide.command.navigate.FindSupertypesCommand;
 import clide.command.navigate.FindSymbolCommand;
 import clide.command.navigate.HoverCommand;
+import clide.command.navigate.ListCouldBePrivateCommand;
 import clide.command.navigate.ListMembersCommand;
 import clide.command.session.ExitCommand;
 import clide.command.session.QuitCommand;
@@ -72,6 +73,7 @@ public final class CommandRepository {
 		registered.add(new FindSymbolCommand());
 		registered.add(new HoverCommand());
 		registered.add(new ListMembersCommand());
+		registered.add(new ListCouldBePrivateCommand());
 		registered.add(new FindDeclarationCommand());
 		registered.add(new FindImplementationCommand());
 		registered.add(new FindReferenceCommand());

@@ -5,7 +5,11 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +17,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 import clide.command.answer.ErrorCode;
 import clide.core.Delta;
@@ -26,6 +31,7 @@ import clide.model.CodeLocation;
 import clide.model.Diagnostic;
 import clide.model.DiagnosticsReport;
 import clide.model.Listing;
+import clide.model.NarrowableMethod;
 import clide.model.Position;
 import clide.model.SymbolHit;
 import clide.model.TypeCandidate;
@@ -368,6 +374,202 @@ public class JdtlsSession {
 							+ " of " + position.path() + " (list_members only inspects types, not methods/fields)");
 
 		return collectMembers(uri, JdtlsResponses.childrenOf(typeNode));
+	}
+
+	/** A public method declaration is refused this - the JVM invokes it, nothing in the project ever will. */
+	private static final String ENTRY_POINT_METHOD_NAME = "main";
+
+	/** Whole-word "public" on a member's own declaration line - see isDeclaredPublic(). */
+	private static final Pattern PUBLIC_MODIFIER = Pattern.compile("\\bpublic\\b");
+
+	/**
+	 * list_could_be_private: every <b>public</b>, directly-declared method of
+	 * the class/interface/enum named position.name() whose every real usage -
+	 * textDocument/references, same request find_reference sends - stays
+	 * inside that type's own source range. A method with zero usages at all
+	 * counts too (NarrowableMethod.neverCalled()), on the same footing as one
+	 * only ever called from inside - see NarrowableMethod's own doc for why
+	 * that overload/override matches are still reported rather than dropped.
+	 *
+	 * "Inside that type's own source range" is checked against the type
+	 * node's own documentSymbol "range" (its whole declaration, body
+	 * included - unlike the "selectionRange" &lt;position&gt; itself is built
+	 * from), not merely "same file": a second top-level type sharing the file
+	 * is correctly treated as external, and a usage from a nested type
+	 * declared inside this one is correctly treated as internal, since a
+	 * nested type's own textual span sits inside its enclosing type's range.
+	 * The one case this does not get right is the reverse - a usage from the
+	 * *enclosing* type of the one actually inspected, when &lt;position&gt;
+	 * names a nested type - since Java's own nest-based access control allows
+	 * that too but that outer usage sits outside the nested type's own range.
+	 * A known, narrow limitation, not attempted here.
+	 *
+	 * public static void main(String[] args) is always excluded, unconditionally: the
+	 * JVM launcher invokes it, so it would otherwise pass with zero project
+	 * usages found and be flagged for narrowing a call clide never sees, which
+	 * would break "java -jar clide.jar" itself if actually applied.
+	 */
+	public List<NarrowableMethod> narrowableMethods(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final String uri = fileOf(position).toUri().toString();
+		final Monomorphic typeNode = findTypeNode(JdtlsResponses.documentSymbols(client, uri), position.name(),
+				position.line() - 1);
+		if (typeNode.isMap() == false)
+			throw new IOException("No class/interface/enum named '" + position.name() + "' declared at line "
+					+ position.line() + " of " + position.path()
+					+ " (list_could_be_private only inspects types, not methods/fields)");
+
+		final int bodyStartLine = JdtlsResponses.oneBased(JdtlsResponses.lineOf(JdtlsResponses.startOf(typeNode.getOrNull("range"))));
+		final int bodyEndLine = JdtlsResponses.oneBased(JdtlsResponses.lineOf(JdtlsResponses.endOf(typeNode.getOrNull("range"))));
+
+		final Map<String, List<String>> inherited = inheritedMethodSignatures(position);
+
+		final List<NarrowableMethod> candidates = new ArrayList<>();
+		for (final SymbolHit hit : collectMembers(uri, JdtlsResponses.childrenOf(typeNode))) {
+			if ("method".equals(hit.kind()) == false || hit.location() == null)
+				continue;
+
+			if (isDeclaredPublic(hit.location().lineText()) == false)
+				continue;
+
+			final String baseName = baseNameOf(hit.name());
+			if (ENTRY_POINT_METHOD_NAME.equals(baseName))
+				continue;
+
+			final List<CodeLocation> references = goToPosition("textDocument/references", hit.location().position(),
+					Monomorphic.mapBuilder().putBoolean("includeDeclaration", false).build());
+			if (calledFromOutside(references, position.path(), bodyStartLine, bodyEndLine))
+				continue;
+
+			final String signature = signatureOf(baseName, hit.name());
+			candidates.add(new NarrowableMethod(hit.location(), inherited.getOrDefault(signature, List.of()),
+					references.isEmpty()));
+		}
+
+		return candidates;
+	}
+
+	/** Whether any of references falls outside [bodyStartLine, bodyEndLine] of declaringPath - see narrowableMethods(). */
+	private static boolean calledFromOutside(final List<CodeLocation> references, final String declaringPath,
+			final int bodyStartLine, final int bodyEndLine) {
+		for (final CodeLocation reference : references) {
+			final Position at = reference.position();
+			if (declaringPath.equals(at.path()) == false || at.line() < bodyStartLine || at.line() > bodyEndLine)
+				return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Every method signature (see signatureOf()) declared by position's own
+	 * supertypes and directly/indirectly implemented interfaces - walked all
+	 * the way up, not just the one hop findSupertypes() itself takes - mapped
+	 * to the simple name(s) of the type(s) it was found declared on.
+	 *
+	 * java.lang.Object's own equals/hashCode/toString/clone/finalize are
+	 * seeded in unconditionally rather than discovered by the walk: a JDK
+	 * type is never a findSupertypes() CodeLocation to begin with -
+	 * locationOf() drops anything outside the project, see its own doc - so
+	 * without this, an overridden Object method would never be walked to at
+	 * all and would wrongly look like a candidate with nothing to override.
+	 *
+	 * visited guards the walk against revisiting the same type twice - an
+	 * interface reachable through two different paths (diamond inheritance),
+	 * or position's own starting type reappearing through a self-reference
+	 * that should never happen but costs nothing to guard against anyway.
+	 */
+	private Map<String, List<String>> inheritedMethodSignatures(final Position position)
+			throws IOException, InterruptedException, LspClient.TimeoutException {
+		final Map<String, List<String>> signatures = new LinkedHashMap<>();
+		for (final String objectMethod : List.of(signatureOf("equals", "equals(Object)"),
+				signatureOf("hashCode", "hashCode()"), signatureOf("toString", "toString()"),
+				signatureOf("clone", "clone()"), signatureOf("finalize", "finalize()")))
+			signatures.put(objectMethod, new ArrayList<>(List.of("Object")));
+
+		final Set<String> visited = new HashSet<>();
+		visited.add(visitKey(position));
+
+		final Deque<Position> toWalk = new ArrayDeque<>();
+		toWalk.add(position);
+		while (toWalk.isEmpty() == false) {
+			final List<CodeLocation> supertypes;
+			try {
+				supertypes = findSupertypes(toWalk.poll());
+			} catch (final NotApplicableException e) {
+				continue; // not expected to happen - see the class-only walk below - but not fatal either
+			}
+
+			for (final CodeLocation supertype : supertypes) {
+				final Position supertypePosition = supertype.position();
+				if (visited.add(visitKey(supertypePosition)) == false)
+					continue;
+
+				for (final SymbolHit member : listMembers(supertypePosition))
+					if ("method".equals(member.kind()))
+						signatures.computeIfAbsent(signatureOf(baseNameOf(member.name()), member.name()),
+								ignored -> new ArrayList<>()).add(supertypePosition.name());
+
+				toWalk.add(supertypePosition);
+			}
+		}
+
+		return signatures;
+	}
+
+	private static String visitKey(final Position position) {
+		return position.path() + ":" + position.line() + ":" + position.column();
+	}
+
+	/** Whole-word "public" somewhere on lineText - the one thing documentSymbol never carries, see SymbolHit. */
+	private static boolean isDeclaredPublic(final String lineText) {
+		return PUBLIC_MODIFIER.matcher(lineText).find();
+	}
+
+	/** "goToPosition" out of "goToPosition(String, Position)" - see countTopLevelParams()'s own doc for the shape read here. */
+	private static String baseNameOf(final String rawName) {
+		final int paren = rawName.indexOf('(');
+		return paren < 0 ? rawName : rawName.substring(0, paren);
+	}
+
+	/**
+	 * "goToPosition/2" for "goToPosition(String, Position)" - a signature two
+	 * different methods (this class' own candidate, a supertype's member)
+	 * compare equal on when they share a name and a parameter count. Never
+	 * compiled into a Pattern or reused as a Map key type of its own: a plain
+	 * String stays trivially comparable/hashable, and nothing here ever needs
+	 * to parse a signature back apart.
+	 */
+	private static String signatureOf(final String baseName, final String rawName) {
+		final int paren = rawName.indexOf('(');
+		final int arity = paren < 0 ? 0 : countTopLevelParams(rawName.substring(paren + 1, rawName.length() - 1));
+		return baseName + "/" + arity;
+	}
+
+	/**
+	 * The number of top-level parameters in params - same shape and same
+	 * counting rule as PositionParser.countTopLevelParams(), duplicated here
+	 * rather than shared across clide.core/clide.jdtls: a few lines of pure
+	 * text counting is a smaller dependency than a cross-package coupling for
+	 * two callers that otherwise share nothing (see ResearchRegexCommand's
+	 * displayPath(), duplicated in RemoveUnusedImportsCommand for the same
+	 * reason).
+	 */
+	private static int countTopLevelParams(final String params) {
+		if (params.isBlank())
+			return 0;
+
+		int depth = 0;
+		int count = 1;
+		for (int i = 0; i < params.length(); i++) {
+			final char c = params.charAt(i);
+			if (c == '<')
+				depth++;
+			else if (c == '>')
+				depth--;
+			else if (c == ',' && depth == 0)
+				count++;
+		}
+		return count;
 	}
 
 	/**

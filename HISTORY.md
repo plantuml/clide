@@ -1421,3 +1421,70 @@ que résolus au build : même raisonnement que pour l'archive jdtls. Côté Grad
   après resynchronisation, `diff_transaction` montrant exactement la ligne
   supprimée, `rollback_transaction` restaurant le fichier à l'identique, et
   `commit_transaction` rendant la suppression définitive.
+- ~~Une commande pour lister les méthodes publiques d'une classe qui
+  pourraient être `private`.~~ Faite, 2026-08-24 : `list_could_be_private
+  <position>` (portée : une classe/interface/enum à la fois, comme
+  `list_members`, choisi après discussion avec l'utilisateur plutôt qu'une
+  regex multi-fichiers comme `remove_unused_imports`). Un membre public y
+  est candidat quand tous ses usages réels (`textDocument/references`, la
+  même requête que `find_reference`) restent dans son propre type — zéro
+  usage compte pareil qu'un usage uniquement interne (`neverCalled`, décidé
+  par l'utilisateur plutôt qu'une catégorie séparée) ; un membre qui
+  implémente une interface ou redéfinit une méthode héritée reste tout de
+  même listé (jamais silencieusement retiré, principe cardinal de
+  SYMBOLS.md) mais porte la mention de ce qu'il ne faut pas réduire sans
+  vérifier — décidé par l'utilisateur également, plutôt qu'une exclusion
+  pure.
+
+  Deux surprises empiriques, trouvées en testant sur clide lui-même avant
+  d'écrire l'implémentation définitive :
+  - `textDocument/hover` ne dit jamais "public"/"private" ni "Overrides" —
+    juste le type de retour, le nom qualifié et les paramètres
+    (`void clide.Scratch.act()`), aucune trace de visibilité ni de lien vers
+    ce que la méthode redéfinit. Détection de "public" donc réduite à une
+    recherche du mot entier "public" sur la ligne de déclaration elle-même
+    (celle que `CodeLocation.lineText()` porte déjà) — limitation
+    documentée : une interface dont les méthodes abstraites sont
+    implicitement publiques sans jamais écrire le mot ne rapporte aucun
+    candidat en pointant dessus directement.
+  - Le nom brut qu'un noeud méthode/constructeur de `textDocument/
+    documentSymbol` porte inclut bien la liste des types de paramètres
+    littéralement (`"withParams(String, int)"`, confirmé en ajoutant une
+    méthode réellement surchargée dans un fichier de test) — mais l'affichage
+    `[kind] path:line:col:name texte` que `list_members`/`find_symbol`
+    impriment ne le montre JAMAIS : ce nom-avec-parenthèses vient de
+    `SymbolHit.name()`, tandis que le nom imprimé vient de
+    `CodeLocation.position().name()`, relu directement sur le texte source à
+    l'endroit du `selectionRange` (juste le nom, jamais les parenthèses) —
+    deux champs distincts du même `SymbolHit`, une confusion qui a fait
+    croire un temps que l'arité de `Classe::methode(N)` (SYMBOLS.md, livré la
+    veille) était cassée, alors que le test qui semblait le prouver
+    (`Monomorphic::createNumber(1)` sur deux surcharges à un seul paramètre
+    chacune) était simplement un mauvais cas de test : `AMBIGUOUS_SYMBOL`
+    avec 2 candidats était la bonne réponse, l'arité seule ne pouvant pas les
+    départager.
+
+  La détection "implémente/redéfinit" remonte toute la chaîne de supertypes
+  (pas un seul niveau comme `find_supertypes` lui-même), en comparant nom +
+  arité des membres trouvés à chaque niveau - `java.lang.Object` (`equals`/
+  `hashCode`/`toString`/`clone`/`finalize`) est ensemencé à part plutôt que
+  découvert par la remontée : un type du JDK n'apparaît jamais comme
+  `CodeLocation` de `find_supertypes` (`locationOf()` élimine tout ce qui est
+  hors du projet), donc sans cet ensemencement une redéfinition d'`equals`/
+  `toString` aurait semblé un candidat ordinaire sans aucune mention.
+  `public static void main(String[] args)` est exclu sans condition : rien dans le
+  projet ne l'appelle, c'est la JVM qui le fait, et il aurait sinon eu l'air
+  du candidat le plus sûr possible tout en étant celui dont la réduction
+  casserait `java -jar clide.jar` lui-même.
+
+  Vérifié en conditions réelles sur clide lui-même : `act()` (implémente
+  `ScratchIface`, jamais appelée) correctement listée avec les deux
+  mentions ; `internalOnly()` (appelée seulement par `act()`) listée sans
+  mention ; `usedExternally()` (appelée depuis une autre classe) absente de
+  la liste ; `neverCalled()` et les surcharges de `withParams` listées comme
+  jamais appelées ; `main()` de `clide.Main` absente malgré zéro appelant
+  dans le projet ; `equals()`/`toString()` de `SourceFile` (déjà existant
+  dans le projet) correctement marqués comme redéfinissant `Object`, et
+  `hashCode()` correctement absent de la liste (au moins un appel explicite
+  ailleurs dans le projet) ; une interface pointée directement (`ScratchIface`)
+  ne rapporte aucun candidat, comme documenté.

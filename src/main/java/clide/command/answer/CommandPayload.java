@@ -5,6 +5,7 @@ import java.util.List;
 import clide.model.CodeLocation;
 import clide.model.DiagnosticsReport;
 import clide.model.Listing;
+import clide.model.NarrowableMethod;
 import clide.model.SearchMatch;
 import clide.model.SymbolHit;
 import clide.model.TestOutcome;
@@ -67,6 +68,14 @@ public sealed interface CommandPayload {
 
 	/** Symbols found by name (find_symbol) or listed on a type (list_members). */
 	record Symbols(String subject, Listing<SymbolHit> symbols) implements CommandPayload {
+	}
+
+	/**
+	 * Public methods of a class/interface/enum whose every real usage stays
+	 * inside it - list_could_be_private. subject echoes the type that was
+	 * inspected, the same convention Symbols/Locations already follow.
+	 */
+	record NarrowableMethods(String subject, Listing<NarrowableMethod> methods) implements CommandPayload {
 	}
 
 	/** The lines search_regex matched, plus how many distinct files they came from. */

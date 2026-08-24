@@ -497,6 +497,33 @@ find_symbol: no symbol found for "total" - note that find_symbol matches types a
 list_members: Calc has no direct members (inherited ones are never listed - see man list_members)
 ```
 
+### `NarrowableMethods`
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `subject` | `String` | le type inspecté |
+| `methods` | `Listing<NarrowableMethod>` | les candidats |
+
+`NarrowableMethod` porte `location` (`CodeLocation`), `overriddenIn`
+(`List<String>` — les supertypes/`Object` dont ce membre partage nom et
+arité, vide sinon) et `neverCalled` (`boolean`). Produit par
+`list_could_be_private`. Un membre qui implémente/redéfinit quelque chose
+reste listé — jamais silencieusement retiré, principe cardinal de
+SYMBOLS.md — mais porte la mention de ce qu'il ne faut pas toucher sans
+vérifier.
+
+```
+list_could_be_private: Scratch, 2 method(s) could be private
+src/demo/Scratch.java:6:14:act public void act() {  (never called)  (implements/overrides ScratchIface - reducing visibility would not compile)
+src/demo/Scratch.java:10:14:internalOnly public void internalOnly() {
+```
+
+Aucun candidat le dit explicitement :
+
+```
+list_could_be_private: Scratch has no public method that looks safe to narrow to private
+```
+
 ### `SearchMatches`
 
 | Champ | Type | Rôle |
@@ -796,6 +823,7 @@ set_max_results: max_results 100 -> 3
 | `find_subtypes` | `Locations` | oui |
 | `find_symbol` | `Symbols` | oui |
 | `list_members` | `Symbols` | oui |
+| `list_could_be_private` | `NarrowableMethods` | oui |
 | `search_regex` | `SearchMatches` | oui |
 | `print_diagnostics` | `Diagnostics` | oui |
 | `rebuild` | `Rebuild` | oui |

@@ -477,6 +477,24 @@ the question — a grep remains blind to inheritance and polymorphism.
 | `find_subtypes <position>` | The direct subclasses/implementors of the class/interface/enum at `<position>` — one hop down; `find_implementation type` is the flat "all of them, any depth" alternative. |
 | `hover <position>` | Signature/Javadoc known for this symbol at this exact spot. |
 | `list_members <position>` | **Direct** members (methods, fields, constructors) of a type — never inherited members. |
+| `list_could_be_private <position>` | Public methods of a type whose every real usage stays inside it — narrowing-to-`private` candidates. |
+
+`list_could_be_private` asks one question per public method: does every real
+usage `find_reference` would find for it (declaration excluded) stay inside
+its own class? A method with zero usages at all counts the same as one only
+ever called from inside — both pass. A method Java forbids narrowing outright
+— it implements an interface method or overrides a superclass one, walked all
+the way up, `java.lang.Object`'s own `equals`/`hashCode`/`toString`/`clone`/
+`finalize` included — is still listed rather than silently dropped, but
+marked with what it overrides, since whether that is still worth touching
+(the interface might be internal too) is a judgment call left to the caller.
+`public static void main(String[] args)` is always excluded: nothing in the
+project calls it, the JVM launcher does, and it would otherwise look like the
+single safest candidate while being exactly the one that breaks running the
+program at all. Like `search_regex`, this never sees a call made through
+reflection, a framework annotation, or a `ServiceLoader` — every entry is a
+hint to go check by hand, not a change already verified safe; the command
+writes nothing regardless.
 
 All accept the `<position>` notation above, except `find_symbol` which takes
 a bare name. All fail cleanly — and namefully: `?ERROR FILE_NOT_FOUND`,
@@ -711,6 +729,18 @@ one. `--lua` and `--human` cannot be combined.
   `hover` instead for a JDK type (answers instantly).
 - **`list_members`** only lists a type's direct members, never those
   inherited from a superclass.
+- **`list_could_be_private`** reads "public" as literal text off a method's
+  own declaration line — jdtls' `documentSymbol` carries no visibility field
+  at all. An interface's abstract methods are implicitly public without ever
+  spelling the word out, so pointing `<position>` straight at an interface
+  finds nothing (harmless: none of an interface's own abstract methods can
+  usefully be narrowed anyway). And "inside its own type" is checked against
+  that type's own source range, which gets the common cases right — a second
+  top-level type sharing the file counted as external, a nested type's own
+  usage counted as internal — but not the one Java itself allows and this
+  does not: a usage from the *enclosing* type of a nested type actually being
+  inspected, which nest-based access control permits but sits outside that
+  nested type's own range.
 - **`find_symbol`** never finds a field by its name (types and methods
   only) — a jdtls limitation, not clide's. An empty `find_symbol` result now
   says so in place, so "no symbol found" on a field is not mistaken for "that

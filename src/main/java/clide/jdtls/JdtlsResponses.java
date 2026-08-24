@@ -68,6 +68,10 @@ final class JdtlsResponses {
 		return range.getOrNull("start");
 	}
 
+	static Monomorphic endOf(final Monomorphic range) {
+		return range.getOrNull("end");
+	}
+
 	/** Raw, i.e. 0-based as LSP counts - see oneBased() for the client-facing form. */
 	static int lineOf(final Monomorphic position) {
 		return (int) position.getOrNull("line").longOrDefault(-1);
