@@ -15,8 +15,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import clide.command.answer.ErrorCode;
@@ -1396,6 +1398,59 @@ public class JdtlsSession {
 		final Monomorphic code = diagnostic.getOrNull("code");
 		final String asString = code.isNumber() ? String.valueOf(code.longOrDefault(0)) : code.stringOrNull();
 		return UNUSED_IMPORT_PROBLEM_ID.equals(asString);
+	}
+
+	/**
+	 * Eclipse's own problem id for "X cannot be resolved to a type" -
+	 * empirically confirmed the same way UNUSED_IMPORT_PROBLEM_ID was: a raw
+	 * diagnostic printed for a deliberately unresolved reference carried
+	 * {"code":"16777218","message":"ScratchOther cannot be resolved to a
+	 * type",...}. move_class's own auto-import pass (see MoveClassCommand) is
+	 * the one consumer.
+	 */
+	private static final String UNRESOLVED_TYPE_PROBLEM_ID = "16777218";
+
+	/** jdt's own message shape for UNRESOLVED_TYPE_PROBLEM_ID - group 1 is the unresolved simple name. */
+	private static final Pattern UNRESOLVED_TYPE_MESSAGE = Pattern.compile("^(\\w+) cannot be resolved to a type$");
+
+	/**
+	 * Every file the last build flagged with "&lt;simpleClassName&gt; cannot be
+	 * resolved to a type" - project-relative, forward-slash paths, sorted and
+	 * deduplicated (a file carrying more than one such diagnostic is only
+	 * listed once). move_class's own way of finding, after applying its own
+	 * edit, exactly which files still cannot see the class it just moved - see
+	 * MoveClassCommand.
+	 *
+	 * Filtered by UNRESOLVED_TYPE_PROBLEM_ID *and* by the message actually
+	 * naming simpleClassName: the problem id alone fires for any unresolved
+	 * type anywhere in the project, not only the one this move cares about.
+	 *
+	 * Reads the same diagnosticsByUri every print_diagnostics/rebuild already
+	 * read - nothing here triggers a build of its own; the caller is
+	 * responsible for having refreshed the model first.
+	 */
+	public List<String> filesUnresolvedFor(final String simpleClassName) {
+		final Set<String> files = new TreeSet<>();
+		for (final Map.Entry<String, List<Monomorphic>> entry : diagnosticsByUri.entrySet())
+			for (final Monomorphic diagnostic : entry.getValue())
+				if (namesUnresolvedType(diagnostic, simpleClassName))
+					files.add(shortName(entry.getKey()));
+
+		return new ArrayList<>(files);
+	}
+
+	private static boolean namesUnresolvedType(final Monomorphic diagnostic, final String simpleClassName) {
+		final Monomorphic code = diagnostic.getOrNull("code");
+		final String asString = code.isNumber() ? String.valueOf(code.longOrDefault(0)) : code.stringOrNull();
+		if (UNRESOLVED_TYPE_PROBLEM_ID.equals(asString) == false)
+			return false;
+
+		final String message = diagnostic.getOrNull("message").stringOrNull();
+		if (message == null)
+			return false;
+
+		final Matcher matcher = UNRESOLVED_TYPE_MESSAGE.matcher(message);
+		return matcher.matches() && matcher.group(1).equals(simpleClassName);
 	}
 
 	/**

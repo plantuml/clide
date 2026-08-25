@@ -220,7 +220,7 @@ public sealed interface CommandPayload {
 	 * fromPackage/toPackage are the packages as move_class was given them and
 	 * as it found them - equal when the class was already there, which is not
 	 * an error (see MoveClassCommand): movedFrom/movedTo are then equal too,
-	 * and changedFiles is empty.
+	 * and changedFiles/importsAdded are both empty.
 	 *
 	 * movedFrom/movedTo are the file's own project-relative path before and
 	 * after - kept apart from changedFiles for the same reason
@@ -229,20 +229,35 @@ public sealed interface CommandPayload {
 	 * scratchb/" is the part a reader could not have guessed. changedFiles
 	 * itself carries every path this command touched, moved file included
 	 * under both its old and new name (see AppliedEdit.changedFiles()) -
-	 * cross-package importers whose import statement jdtls rewrote are the
-	 * usual other entries.
+	 * cross-package importers whose import statement jdtls rewrote, and every
+	 * path in importsAdded, are the other entries.
 	 *
-	 * errorCount is what the rebuild that followed the move reported, the
-	 * same idea as Rename.errorCount and RemoveUnusedImports.errorCount - and
-	 * here it carries real weight: jdtls' own willRenameFiles refactor never
-	 * finds a same-package caller that referenced the class without an
-	 * import, since nothing about the move touches that caller's own file.
-	 * Such a file is left exactly as it was and will not compile after the
-	 * move - errorCount is how that surfaces, exactly like it does for any
-	 * other jdtls blind spot rename hits. See MoveClassCommand's Manual.
+	 * importsAdded lists, apart from changedFiles for the same reason, every
+	 * file move_class itself patched with a missing import after applying
+	 * jdtls' own edit: jdtls' willRenameFiles refactor does not always find
+	 * every caller that loses access to the moved class - most commonly a
+	 * same-package one that relied on implicit visibility, but testing also
+	 * caught jdtls occasionally missing a cross-package importer too (see
+	 * HISTORY.md). move_class closes that gap itself where it safely can:
+	 * after applying jdtls' edit, every file jdtls' own diagnostics say can no
+	 * longer resolve the moved class's name gets that one import added, then
+	 * the model is rebuilt again before errorCount is read. Left alone,
+	 * still: a file that already imports a *different* class under the same
+	 * simple name - a real name conflict, not a gap this command can safely
+	 * guess its way out of.
+	 *
+	 * errorCount is what the rebuild that followed both the move and the
+	 * import pass above reported, the same idea as Rename.errorCount and
+	 * RemoveUnusedImports.errorCount - and what remains non-zero here is
+	 * exactly what importsAdded could not fix: a genuine name conflict, or
+	 * anything else jdtls' own refactor left broken. See MoveClassCommand's
+	 * Manual - including why the project is required to already compile
+	 * before move_class runs at all, which is what makes this count mean
+	 * "caused by this move" in the first place.
 	 */
 	record MoveClass(String className, String fromPackage, String toPackage, String movedFrom, String movedTo,
-			Listing<String> changedFiles, CodeLocation declaration, int errorCount) implements CommandPayload {
+			Listing<String> changedFiles, Listing<String> importsAdded, CodeLocation declaration, int errorCount)
+			implements CommandPayload {
 	}
 
 	/**

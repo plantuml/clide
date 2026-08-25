@@ -777,20 +777,45 @@ remove_unused_imports: 2 file(s) matched, nothing to remove
 | `toPackage` | `String` | le package d'après |
 | `movedFrom` | `String` | le chemin du fichier d'avant |
 | `movedTo` | `String` | le chemin du fichier d'après |
-| `changedFiles` | `Listing<String>` | fichiers touchés, fichier déplacé compris sous ses deux noms |
+| `changedFiles` | `Listing<String>` | fichiers touchés, fichier déplacé compris sous ses deux noms, et tout chemin de `importsAdded` aussi |
+| `importsAdded` | `Listing<String>` | fichiers auxquels `move_class` a lui-même ajouté l'import manquant, après coup |
 | `declaration` | `CodeLocation` | la position fraîche du type déplacé, `null` si clide n'a pas pu en dériver une vérifiée |
-| `errorCount` | `int` | ce que le build qui suit l'edit a rapporté |
+| `errorCount` | `int` | ce que le build qui suit l'edit *et* la passe d'import ci-dessous a rapporté |
 
 Produit par `move_class`. `movedFrom`/`movedTo` restent à part de
 `changedFiles` pour la même raison que `Rename.fileRenames` : « 4 fichier(s)
 changés » se lit comme une édition ordinaire, « et Square.java est maintenant
 sous scratchb/ » est la partie qu'un lecteur n'aurait pas pu deviner.
 
+`importsAdded` reste à part de `changedFiles` pour la même raison : ce sont
+les fichiers que l'edit de jdtls lui-même n'a pas su corriger — le plus
+souvent un appelant de l'ancien package qui comptait sur la visibilité
+implicite du même package — et que `move_class` a corrigés lui-même, en
+relisant les diagnostics de jdtls après coup. `errorCount` est lu après
+cette seconde passe, pas seulement après l'edit de jdtls : ce qu'il compte
+encore est ce qu'aucune des deux passes n'a pu corriger — un vrai conflit
+de nom, ou autre chose que le refactoring de jdtls a laissé cassé.
+
 ```
 move_class: Square demo -> demo.shapes, 2 file(s)
 src/demo/Main.java
 src/demo/shapes/Square.java
 file moved: src/demo/Square.java -> src/demo/shapes/Square.java
+declaration now at f21e4159:src/demo/shapes/Square.java:3:14:Square public class Square {
+rebuilt: 0 error(s)
+```
+
+Un appelant du même package que jdtls n'a pas su corriger tout seul, mais
+que `move_class` a corrigé pour lui - `importsAdded` liste `Caller.java`,
+`changedFiles` aussi (avec les fichiers habituels) :
+
+```
+move_class: Square demo -> demo.shapes, 3 file(s)
+src/demo/Caller.java
+src/demo/Main.java
+src/demo/shapes/Square.java
+file moved: src/demo/Square.java -> src/demo/shapes/Square.java
+import added: src/demo/Caller.java
 declaration now at f21e4159:src/demo/shapes/Square.java:3:14:Square public class Square {
 rebuilt: 0 error(s)
 ```

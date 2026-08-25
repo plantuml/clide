@@ -208,6 +208,15 @@ public enum ErrorCode {
 	 */
 	PACKAGE_DIRECTORY_MISMATCH,
 
+	/**
+	 * move_class refuses to run against a project that does not already
+	 * compile - print_diagnostics shows what. Without this, a non-zero error
+	 * count in move_class's own answer could not be told apart from an error
+	 * the move introduced: this is the only way to make that count mean
+	 * "caused by this move" rather than "present somewhere in the project".
+	 */
+	PROJECT_HAS_ERRORS,
+
 	// ------------------------------------------------------------------
 	// Transactions
 	// ------------------------------------------------------------------

@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -57,16 +58,31 @@ import clide.model.Position;
  * WorkspaceEdit.applyTo() rename() already trusts for its own file-rename
  * case.
  *
- * <h2>What jdtls' own refactor cannot see</h2>
+ * <h2>What jdtls' own refactor cannot see, and what this command does about it</h2>
  *
  * A file in the class's OLD package that called it without an explicit
  * import - relying on same-package implicit visibility - is not touched by
  * workspace/willRenameFiles at all: nothing about the request even names
- * that file. It compiles today and will not after the move. This is a
- * confirmed limitation of jdtls' own refactor, not of this command, and
- * clide does not run an extra find_reference pass to patch around it: the
- * resulting error count, already part of every editing command's answer, is
- * how it surfaces here too - print_diagnostics gives the detail.
+ * that file. Testing also caught jdtls occasionally missing a cross-package
+ * importer too (see HISTORY.md). Both compile today and would not after the
+ * move, left alone.
+ *
+ * Rather than leave this entirely to the caller, this command applies jdtls'
+ * own edit first, rebuilds, and reads jdtls' own diagnostics back:
+ * whichever file can no longer resolve the moved class's name gets exactly
+ * one import added - never more, and never onto a file that already imports
+ * a <i>different</i> class under the same simple name, a real conflict this
+ * command will not guess its way out of (see addImportIfSafe()). That pass
+ * only runs once the moved file's own package declaration has been read
+ * back and found to actually say &lt;new package&gt; - the same indexing-race
+ * flakiness that can leave a caller untouched (see HISTORY.md) can also
+ * leave jdtls' edit to the moved file itself incomplete, and adding an
+ * import for a class that is not really there yet would not be a fix. The
+ * project is also required to already compile cleanly before any of this
+ * starts (PROJECT_HAS_ERRORS otherwise) - without that, a non-zero error
+ * count in the answer could not be told apart from one already there before
+ * this command ran. What is still non-zero after both passes is what
+ * genuinely could not be fixed - print_diagnostics gives the detail.
  *
  * <h2>One class per file, one file per call</h2>
  *
@@ -94,6 +110,17 @@ public class MoveClassCommand extends Command {
 	 */
 	private static final Pattern PACKAGE_LINE = Pattern.compile("^\\s*package\\s+([\\w.]+)\\s*;");
 
+	/**
+	 * A plain (non-static, non-wildcard) import line, capturing the fully
+	 * qualified name it imports - what addImportIfSafe() reads a file's
+	 * existing imports through, to decide whether adding one more is safe. A
+	 * static or wildcard import is deliberately not matched: a static import
+	 * names a member, not a type, and a wildcard's own simple names cannot be
+	 * enumerated without resolving it - both left alone, same as
+	 * RemoveUnusedImportsCommand leaves a wildcard already in use untouched.
+	 */
+	private static final Pattern PLAIN_IMPORT_LINE = Pattern.compile("^\\s*import\\s+([\\w.]+)\\s*;\\s*$");
+
 	@Keyword("move_class")
 	@Help("Moves the top-level class/interface/enum at <position> to <new package> - requires an open transaction.")
 	@Param(type = ParamType.POSITION, description = "Position")
@@ -114,13 +141,26 @@ public class MoveClassCommand extends Command {
 				workspace/willRenameFiles refactoring an IDE runs for a
 				drag-and-drop package move.
 
+				Once jdtls' own edit is applied, the moved file's own
+				package declaration is read back and checked against
+				<new package> before it is trusted for anything
+				further - see WHAT IS STILL NOT FIXED below for why
+				that read can disagree.
+
 				<new package> already equal to the type's current
 				package is not an error - the answer says so and
 				changes nothing.
 
-				jdtls is told about the edit immediately, and the
-				resulting error count is part of the answer, exactly
-				like rename - print_diagnostics prints the detail
+				The project is required to already compile cleanly
+				before this runs at all (PROJECT_HAS_ERRORS otherwise)
+				- without that, a non-zero error count afterwards
+				could not be told apart from one that was already
+				there. jdtls is told about the edit immediately, and
+				whichever file jdtls' own diagnostics then say still
+				cannot resolve the moved class's name gets one import
+				added - reported as "import added" - before the
+				resulting error count, part of the answer exactly like
+				rename, is read; print_diagnostics prints the detail
 				without recompiling.
 
 				Requires an open transaction: this writes files, and a
@@ -129,18 +169,41 @@ public class MoveClassCommand extends Command {
 				decides, and diff_transaction shows any single file
 				first.
 
-			WHAT IS NOT FIXED
-				A file in the OLD package that called this class
-				without an explicit import - relying on same-package
-				implicit visibility - is not found by jdtls' own
-				refactor and is left exactly as it was: it will not
-				compile after the move. No extra detection pass is
-				run for this; the error count in the answer is how it
-				surfaces, and print_diagnostics or find_reference (on
-				the fresh position this command returns) finds the
-				file to fix by hand.
+			WHAT IS STILL NOT FIXED
+				jdtls' own refactor does not always find every file
+				that loses access to the moved class - most commonly
+				one in the OLD package that called it without an
+				explicit import, relying on same-package implicit
+				visibility, but occasionally a cross-package importer
+				too. This command patches every such file it can
+				safely fix (see DESCRIPTION above), except one case it
+				will not guess its way out of: a file that already
+				imports a <i>different</i> class under the same simple
+				name - a real name conflict, left exactly as it was.
+				Any error still counted at the end is one of these,
+				or something else jdtls' own refactor left broken -
+				print_diagnostics or find_reference (on the fresh
+				position this command returns) finds it to fix by
+				hand.
+
+				The import-adding pass itself also has one condition
+				it will not proceed under: it trusts <new package> as
+				the moved class's new location, and jdtls' own edit
+				can - the same flakiness as above - occasionally leave
+				the moved file's own package declaration unrewritten.
+				When the moved file's declaration, read back after the
+				edit, does not actually say <new package>, the whole
+				pass is skipped rather than adding an import that would
+				point at a class not really there yet - every gap is
+				then left for errorCount and print_diagnostics to show,
+				same as any other jdtls blind spot.
 
 			ERRORS
+				PROJECT_HAS_ERRORS - the project does not already
+				compile cleanly. move_class refuses to run until it
+				does, so the error count it reports afterwards means
+				what this move broke, not what was already broken.
+
 				STALE_MODEL - files changed on disk and jdtls could
 				not be told about them, so the move would have been
 				computed against another state of the project.
@@ -206,6 +269,16 @@ public class MoveClassCommand extends Command {
 		if (badPackage != null)
 			return badPackage;
 
+		// Read before anything else touches jdtls: without this, a non-zero
+		// errorCount in the answer below could not be told apart from an error
+		// already there before this command ran - see PROJECT_HAS_ERRORS and the
+		// class doc.
+		final int preexistingErrors = session.diagnosticsReport(true, context.getMaxResults()).errorCount();
+		if (preexistingErrors > 0)
+			return CommandResult.error(ErrorCode.PROJECT_HAS_ERRORS,
+					"the project has " + preexistingErrors + " existing error(s) - move_class refuses to run until it compiles cleanly",
+					"print_diagnostics shows the detail");
+
 		try {
 			final List<String> siblings = session.siblingTopLevelTypeNames(position);
 			if (siblings.isEmpty() == false)
@@ -243,8 +316,8 @@ public class MoveClassCommand extends Command {
 		if (newPackage.equals(currentPackage))
 			return CommandResult.ok(new CommandPayload.MoveClass(position.name(), currentPackage, newPackage,
 					position.path(), position.path(), Listing.of(List.of(), context.getMaxResults()),
-					freshDeclaration(context, position, position.path()),
-					session.diagnosticsReport(true, context.getMaxResults()).errorCount()));
+					Listing.of(List.of(), context.getMaxResults()), freshDeclaration(context, position, position.path()),
+					preexistingErrors));
 
 		final String sourceRootPrefix = position.path().substring(0, position.path().length() - expectedSuffix.length());
 		final String newPackageAsPath = newPackage.replace('.', '/') + "/";
@@ -274,9 +347,40 @@ public class MoveClassCommand extends Command {
 			// this command just wrote - see JdtlsSession.refreshChangedFiles().
 			session.refreshChangedFiles();
 
+			// jdtls' own edit does not always find every file that loses access to the
+			// moved class - see the class doc. Whatever jdtls' own diagnostics say
+			// still cannot resolve the moved class's name, after the move, gets one
+			// import added here - never more than that, and never onto a file that
+			// already imports a different class under the same simple name (a real
+			// conflict this command will not guess its way out of).
+			//
+			// This pass trusts newPackage as the moved class's new FQN - which only
+			// holds if jdtls' own edit actually rewrote the moved file's package
+			// declaration to match. It does not always (see the class doc and
+			// HISTORY.md: the same indexing-race flakiness that can leave a caller
+			// untouched can also leave the moved file's own package line untouched),
+			// and adding an import that points at a class that does not actually
+			// live there yet would be a fix that only looks like one. So this reads
+			// the moved file's own declaration back before trusting newPackage at
+			// all, and skips the whole pass - leaving every gap for errorCount and
+			// print_diagnostics to report, same as any other jdtls blind spot - the
+			// moment the two disagree.
+			final List<String> importsAdded = new ArrayList<>();
+			final String movedFileActualPackage = readDeclaredPackage(newFile);
+			if (movedFileActualPackage.equals(newPackage))
+				for (final String candidate : session.filesUnresolvedFor(position.name()))
+					if (addImportIfSafe(projectRoot.resolve(candidate), position.name(), newPackage))
+						importsAdded.add(candidate);
+
+			if (importsAdded.isEmpty() == false)
+				session.refreshChangedFiles();
+
+			final Set<String> allChanged = new TreeSet<>(applied.changedFiles());
+			allChanged.addAll(importsAdded);
+
 			return CommandResult.ok(new CommandPayload.MoveClass(position.name(), currentPackage, newPackage,
-					position.path(), newRelative, Listing.of(applied.changedFiles(), context.getMaxResults()),
-					freshDeclaration(context, position, newRelative),
+					position.path(), newRelative, Listing.of(new ArrayList<>(allChanged), context.getMaxResults()),
+					Listing.of(importsAdded, context.getMaxResults()), freshDeclaration(context, position, newRelative),
 					session.diagnosticsReport(true, context.getMaxResults()).errorCount()));
 
 		} catch (final EditApplicationException e) {
@@ -350,6 +454,91 @@ public class MoveClassCommand extends Command {
 	}
 
 	/**
+	 * Adds "import newPackage.simpleClassName;" to file, if doing so is
+	 * unambiguous - false, and the file left untouched, otherwise. Two cases
+	 * refuse: the file already carries that exact import (nothing to add, and
+	 * if jdtls' diagnostics still called the name unresolved something else is
+	 * wrong that this pass will not paper over), or it already imports a
+	 * <i>different</i> class under the same simple name - a real conflict, not
+	 * a gap this command can safely guess its way out of (see the class doc).
+	 *
+	 * The new line goes right after the last existing plain import - joining
+	 * a block that already separates itself from the rest of the file - or,
+	 * when the file has none, right after the package declaration (or at the
+	 * very top, in the default package), with a blank line added on each side
+	 * unless one is already there, matching every source file this project
+	 * already writes. No reordering, no grouping - the smallest edit that
+	 * makes the file compile, same philosophy as RemoveUnusedImportsCommand's
+	 * own single-purpose edit.
+	 *
+	 * Package-private rather than private: this is the one piece of the
+	 * auto-import pass that needs no jdtls session to exercise directly -
+	 * everything else here is only meaningful against a live server, so only
+	 * this is worth a dedicated unit test - see MoveClassCommandTest.
+	 */
+	static boolean addImportIfSafe(final Path file, final String simpleClassName, final String newPackage)
+			throws IOException {
+		final List<String> lines = new ArrayList<>(Files.readAllLines(file, StandardCharsets.UTF_8));
+		final String targetFqn = newPackage + "." + simpleClassName;
+
+		int lastImportLine = -1;
+		int packageLine = -1;
+		for (int i = 0; i < lines.size(); i++) {
+			final Matcher importMatcher = PLAIN_IMPORT_LINE.matcher(lines.get(i));
+			if (importMatcher.matches()) {
+				final String importedFqn = importMatcher.group(1);
+				if (importedFqn.equals(targetFqn) || simpleNameOfFqn(importedFqn).equals(simpleClassName))
+					return false;
+
+				lastImportLine = i;
+				continue;
+			}
+
+			if (packageLine == -1 && PACKAGE_LINE.matcher(lines.get(i)).find())
+				packageLine = i;
+		}
+
+		final String importLine = "import " + targetFqn + ";";
+		if (lastImportLine != -1) {
+			// An existing import block already separates itself from whatever
+			// follows - nothing more to ensure here.
+			lines.add(lastImportLine + 1, importLine);
+		} else if (packageLine != -1) {
+			// No import block exists yet: this becomes the only import, so it needs
+			// a blank line on both sides - before it (separating it from "package
+			// ...;") and after it (separating it from whatever follows, typically
+			// the type declaration) - unless one is already there.
+			final boolean blankBeforeImport = packageLine + 1 < lines.size() && lines.get(packageLine + 1).isBlank();
+			if (blankBeforeImport == false)
+				lines.add(packageLine + 1, "");
+
+			final int importIndex = packageLine + 2;
+			lines.add(importIndex, importLine);
+
+			final boolean blankAfterImport = importIndex + 1 < lines.size() && lines.get(importIndex + 1).isBlank();
+			if (blankAfterImport == false)
+				lines.add(importIndex + 1, "");
+		} else {
+			// The default package: no "package ...;" line to anchor against, so the
+			// import goes at the very top, followed by a blank line separating it
+			// from whatever follows - unless one is already there.
+			lines.add(0, importLine);
+			final boolean blankAfterImport = lines.size() > 1 && lines.get(1).isBlank();
+			if (blankAfterImport == false)
+				lines.add(1, "");
+		}
+
+		Files.write(file, lines, StandardCharsets.UTF_8);
+		return true;
+	}
+
+	/** "java.util.List" -&gt; "List". */
+	private static String simpleNameOfFqn(final String fqn) {
+		final int lastDot = fqn.lastIndexOf('.');
+		return lastDot < 0 ? fqn : fqn.substring(lastDot + 1);
+	}
+
+	/**
 	 * Where the moved symbol now stands - derived, then checked, never
 	 * guessed, exactly like RenameCommand.freshDeclaration(): the declaration
 	 * stays on its own line (moving a file's package edits one line of it in
@@ -419,6 +608,9 @@ public class MoveClassCommand extends Command {
 				out.append('\n').append(changedFile);
 
 			out.append("\nfile moved: ").append(moved.movedFrom()).append(" -> ").append(moved.movedTo());
+
+			for (final String fixedFile : moved.importsAdded().items())
+				out.append("\nimport added: ").append(fixedFile);
 
 			if (moved.declaration() != null)
 				out.append("\ndeclaration now at ").append(moved.declaration().display());

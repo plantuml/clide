@@ -683,12 +683,31 @@ different refactoring this command does not attempt. Like `rename` and
 `remove_unused_imports`, it requires an open transaction and reports the
 resulting error count after telling jdtls about its own edit.
 
-**What is not fixed**: a file in the class's old package that called it
-without an explicit import, relying on same-package implicit visibility, is
-sometimes left untouched by jdtls' own refactor and will not compile after
-the move — no extra `find_reference` pass patches this; the error count is
-how it surfaces, exactly like any other jdtls blind spot `rename` can also
-hit. See "Known limitations" below for what testing this actually found.
+**The project is required to already compile cleanly before `move_class`
+runs at all** (`PROJECT_HAS_ERRORS` otherwise, checked before anything else
+touches jdtls) — without that, a non-zero error count in the answer could
+not be told apart from an error the move itself introduced.
+
+**What jdtls' own refactor can still miss, and what `move_class` does about
+it**: a file that loses access to the moved class without jdtls' edit
+rewriting it for it — most commonly one in the OLD package that called the
+class without an explicit import, relying on same-package implicit
+visibility, but testing also caught jdtls occasionally missing a
+cross-package importer. Rather than leave this entirely to the caller,
+`move_class` applies jdtls' own edit first, rebuilds, and reads jdtls' own
+diagnostics back: whichever file still cannot resolve the moved class's
+name gets exactly one import added — reported as `import added: <path>` —
+never onto a file that already imports a *different* class under the same
+simple name, a real conflict this command will not guess its way out of.
+That pass only runs once the moved file's own `package` declaration has
+been read back off disk and found to actually say `<new package>` — jdtls'
+edit can, the same flakiness described below, occasionally leave that
+rewrite out too, and adding an import for a class not really there yet
+would not be a fix. Any error still counted at the end — after both
+passes — is a genuine name conflict or something else jdtls' own refactor
+left broken; `print_diagnostics` or `find_reference` on the fresh position
+this command returns finds it to fix by hand. See "Known limitations"
+below for what testing this actually found.
 
 ### Help and session
 
@@ -793,27 +812,46 @@ one. `--lua` and `--human` cannot be combined.
   project that already ships its own `.project`/`.classpath`; not fixed
   yet (excluding `.clide/**` from jdtls's import scan would be the natural
   fix).
-- **`move_class`'s `workspace/willRenameFiles` answer can be incomplete
-  right after the underlying file changed** (a rollback, a rebuild) — not
-  always, but reproducibly often enough in testing to be worth naming.
-  Sometimes jdtls answers with only *some* of what a complete refactor
-  needs: same-package callers relying on implicit visibility are the one
-  gap the design accepts as permanent (see above), but testing also caught
-  jdtls occasionally omitting the moved file's *own* package-line edit, or
-  a cross-package importer's import rewrite, on the very next call after a
-  transaction rollback restored the file. A second, immediately-following
-  call for the exact same move then answered completely, every time it was
-  tried. This looks like jdtls' own internal search index still catching up
-  in the background after a file changed underneath it - not something
-  clide causes or can detect apart from a genuinely unfixable same-package
-  reference, since both look identical from here: a non-zero error count
-  in the answer. clide does not retry automatically (a silent retry would
-  hide a real blind spot as easily as a transient one) - `print_diagnostics`
-  after any `move_class` with a suspicious error count is worth a look
-  before `commit_transaction`, and `rollback_transaction` then a plain
-  retry of the same `move_class` call is a reasonable next step if the
-  errors look like an incomplete edit rather than a real same-package
-  caller.
+- **`move_class`'s `workspace/willRenameFiles` answer, and the diagnostics
+  read right after applying it, can both be incomplete right after the
+  underlying file changed** (a rollback, a rebuild, or simply a move into a
+  package jdtls has never indexed before) — not always, but reproducibly
+  often enough in testing to be worth naming. This looks like jdtls' own
+  internal search index still catching up in the background after a file
+  or a whole new package appears underneath it, and testing this round
+  found it cutting both ways: jdtls occasionally omits the moved file's
+  *own* package-line edit or a cross-package importer's import rewrite from
+  its answer outright, and separately, even when its answer *was* complete
+  and correct, the diagnostics read immediately afterwards can still
+  report the freshly-created package as unresolved for a moment (moving a
+  class into a package that already existed before the move did not
+  reproduce this — only moving into a brand new one did, in every attempt
+  this round). Both symptoms present the same way from here: a non-zero
+  error count in the answer.
+
+  This also reframes what earlier testing had called a permanent
+  structural gap — a same-package caller relying on implicit visibility,
+  left broken by the move. Retesting this round found jdtls fixing that
+  exact case entirely on its own, including removing the caller's own
+  now-redundant import, every time the destination package already existed
+  before the move; it was only ever observed broken when the destination
+  package was brand new. That is consistent with the same indexing lag
+  above rather than a separate, permanent blind spot — though not proven
+  absent in every case, since jdtls' own behavior here has never been
+  documented and this is read from the outside, by testing, not from its
+  source.
+
+  `move_class` itself now closes this gap where it safely can — see
+  "Modifying the code" above — but only after checking the moved file's
+  own package declaration on disk actually matches `<new package>` first,
+  so it never adds an import for a class that is not really there because
+  jdtls' own edit was itself incomplete. clide still does not retry
+  automatically beyond that (a silent retry would hide a real blind spot
+  as easily as a transient one) — `print_diagnostics` after any
+  `move_class` with a suspicious error count is worth a look before
+  `commit_transaction`, and `rollback_transaction` then a plain retry of
+  the same `move_class` call is a reasonable next step if the errors look
+  like an incomplete or stale edit rather than a genuine name conflict.
 - **jdtls's `workspace/applyEdit` (server-initiated edits) can't reach
   clide, deliberately.** One concrete case: saving `Truc.java` when it
   actually declares `public class Machin` — jdtls detects the

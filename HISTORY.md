@@ -1590,3 +1590,130 @@ que résolus au build : même raisonnement que pour l'archive jdtls. Côté Grad
   avant tout `commit_transaction`, `rollback_transaction` puis un nouvel
   essai identique si les erreurs ressemblent à un edit incomplet plutôt
   qu'à un vrai appelant de même package.
+
+  **Suite donnée le 2026-08-25**, à la demande de l'utilisateur qui a cité
+  la section "What is not fixed" ci-dessus et proposé deux améliorations
+  concrètes : vérifier que le projet compile déjà avant de lancer
+  `move_class` et refuser sinon, et ajouter automatiquement les imports
+  manquants dans les fichiers qui ne compileraient plus après le
+  déplacement. Deux questions de conception posées via `AskUserQuestion`,
+  toutes deux tranchées pour l'option recommandée : la portée de la
+  correction automatique (tout fichier que les diagnostics de jdtls
+  signalent en erreur, pas seulement les anciens voisins de package), et la
+  gestion d'un import déjà présent sous le même nom simple mais une autre
+  classe (laissé tel quel - un vrai conflit, jamais deviné).
+
+  Nouveau code d'erreur `PROJECT_HAS_ERRORS`, vérifié juste après la
+  validation locale du nom de package et avant tout appel touchant jdtls
+  (`session.diagnosticsReport(true, ...).errorCount()`) : sans ce garde-fou,
+  un compte d'erreurs non nul dans la réponse de `move_class` ne pouvait pas
+  se distinguer d'une erreur déjà présente avant que la commande ne
+  s'exécute - c'est ce qui fait que ce compte veut dire « causé par ce
+  déplacement » plutôt que « présent quelque part dans le projet ».
+
+  La passe de correction automatique repose sur un nouveau code de
+  problème Eclipse/JDT trouvé empiriquement, `16777218` pour « X cannot be
+  resolved to a type » - même méthode que pour `268435844`
+  (`remove_unused_imports`) : un print de debug temporaire dans
+  `JdtlsSession.processNotifications()`, un fichier scratch volontairement
+  cassé, lecture du diagnostic brut, puis suppression du print. Nouvelle
+  méthode `JdtlsSession.filesUnresolvedFor(String simpleClassName)`, sur le
+  modèle de `unusedImportLines()` : scanne `diagnosticsByUri` directement
+  (pas la `Listing` plafonnée de `diagnosticsReport()`), filtre par ce code
+  de problème *et* par un motif sur le message (`^(\w+) cannot be resolved
+  to a type$`) pour ne retenir que les fichiers où c'est bien le nom de la
+  classe déplacée qui est irrésolu - le code de problème seul se déclenche
+  pour n'importe quel type irrésolu dans tout le projet, pas seulement
+  celui qui vient d'être déplacé.
+
+  Nouvelle méthode `MoveClassCommand.addImportIfSafe(Path, String, String)`,
+  volontairement package-private (comme `removeUnusedImportLines()`) pour
+  rester testable sans session jdtls : lit les imports "plats" existants
+  d'un fichier (ni statiques ni wildcard - ceux-là restent hors de portée,
+  même logique que `remove_unused_imports`), refuse et laisse le fichier
+  intact dans deux cas (l'import exact existe déjà, ou un FQN *différent*
+  sous le même nom simple existe déjà - le conflit acté ci-dessus), insère
+  sinon la nouvelle ligne juste après le dernier import existant, ou à
+  défaut juste après la déclaration `package` (ou tout en haut, en package
+  par défaut), avec une ligne vide de chaque côté du bloc d'un seul import
+  fraîchement inséré sauf si elle y est déjà - repéré comme un vrai bug par
+  la suite de tests (la version initiale n'assurait la ligne vide qu'*avant*
+  l'import ajouté, jamais après, produisant un import collé contre la
+  déclaration de classe qui suit) et corrigé avant `ant test` au vert.
+
+  Le flux devient : appliquer l'edit de jdtls et le déplacement physique
+  comme avant, `refreshChangedFiles()`, puis interroger
+  `filesUnresolvedFor()` et appeler `addImportIfSafe()` sur chaque
+  candidat - un second `refreshChangedFiles()` seulement si au moins un
+  fichier a réellement été corrigé (rien à payer quand il n'y a rien à
+  faire, même philosophie que pour l'edit lui-même), avant de relire le
+  compte d'erreurs final. `CommandPayload.MoveClass` gagne un champ
+  `Listing<String> importsAdded`, distinct de `changedFiles` pour la même
+  raison que `movedFrom`/`movedTo` : `changedFiles` documente désormais
+  qu'il inclut aussi tout chemin de `importsAdded`. `ant test` : 653/653 au
+  vert après ce travail.
+
+  **Un bug d'interaction trouvé en testant en conditions réelles, et
+  corrigé avant de committer** : la passe de correction automatique fait
+  confiance à `<new package>` en tant que nouveau FQN de la classe
+  déplacée - mais si l'edit de jdtls pour ce même déplacement a lui-même
+  été incomplet (la flakiness décrite plus haut) et n'a pas réécrit la
+  propre ligne `package` du fichier déplacé, l'import calculé ne pointe
+  alors vers rien de réel, tout en étant rapporté comme « import added »
+  dans la réponse - une correction qui n'en est une qu'en apparence. Corrigé
+  en relisant sur disque la déclaration `package` réelle du fichier déplacé
+  une fois l'edit de jdtls et le déplacement physique appliqués, et en
+  sautant entièrement la passe de correction automatique si elle ne
+  correspond pas à `<new package>` - fidèle au principe déjà en place de ne
+  jamais deviner : tout ce que cette passe n'aurait pas pu corriger reste
+  simplement dans `errorCount`, comme n'importe quel autre angle mort de
+  jdtls. Cette lecture se fait directement sur le fichier que `clide` vient
+  lui-même d'écrire (le `ResourceOperation.rename()` et l'edit de texte de
+  jdtls sont appliqués localement par `WorkspaceEdit.applyTo()`), donc elle
+  reflète l'état réel écrit sur disque indépendamment du retard d'indexation
+  de jdtls décrit plus haut - qui, lui, n'affecte que ce que jdtls répond
+  *ensuite*, pas ce que `clide` a physiquement écrit.
+
+  **Reproduction en conditions réelles, avec un jdtls fraîchement
+  redémarré (jar reconstruit)** : `PROJECT_HAS_ERRORS` vérifié en premier -
+  un fichier scratch volontairement cassé (`thisDoesNotExist()`) fait
+  refuser `move_class` immédiatement, sans toucher jdtls davantage, sans
+  rien écrire. Puis un déplacement vers un package tout nouveau
+  (`clide.scratchb`, jamais vu par jdtls) a reproduit exactement le
+  symptôme "réponse complète mais diagnostics immédiats encore faux" : la
+  réponse de `move_class` incluait bien `import clide.scratchb.ScratchMove;`
+  dans les deux appelants (ajouté par l'edit de jdtls lui-même, pas par la
+  passe de `clide` - qui n'a donc rien eu à ajouter, confirmant qu'elle ne
+  duplique jamais un import déjà présent), mais les diagnostics lus juste
+  après affichaient encore `The import clide.scratchb cannot be resolved`
+  sur les deux fichiers - alors que le fichier déplacé était bel et bien
+  physiquement sur disque sous `clide.scratchb` avec sa ligne `package`
+  correctement réécrite (vérifié directement sur disque). Une reconnexion
+  toute simple juste après (qui resynchronise implicitement, comme toute
+  commande interrogeant jdtls) a suffi à faire tomber `print_diagnostics` à
+  `0 error(s)` sans aucune autre action - confirmant que ce symptôme précis
+  est bien transitoire, pas une vraie régression laissée par le
+  déplacement.
+
+  **Ce test répété a aussi permis de trancher la question laissée ouverte
+  sur l'angle mort "appelant du même package" jugé permanent dans la
+  conception d'origine.** Un second déplacement, cette fois vers un package
+  qui existait déjà avant le déplacement (`clide.scratchc`, où vivait déjà
+  l'appelant externe), a été géré par jdtls entièrement seul, correctement
+  et sans la moindre erreur transitoire : l'appelant du même package a reçu
+  son import, et - un bonus inattendu - l'appelant externe devenu appelant
+  du même package a vu son import désormais redondant *retiré* par l'edit
+  de jdtls lui-même. Tout indique donc que ce qui semblait être un angle
+  mort structurel et permanent est, au moins pour l'essentiel, la même
+  flakiness d'indexation que celle décrite plus haut, spécifiquement
+  déclenchée par un déplacement vers un package que jdtls n'a encore jamais
+  indexé - jamais reproduite, dans aucun essai de cette session, en
+  déplaçant vers un package déjà existant. CLAUDE.md reformulé en
+  conséquence : la section "Known limitations" ne présente plus cet angle
+  mort comme acquis et permanent, mais rapporte ce que les tests ont
+  effectivement montré, sans certitude absolue puisque le comportement
+  interne de jdtls n'est pas documenté et n'a été observé que de
+  l'extérieur.
+
+  Nettoyage des fixtures scratch, `ant test` (653/653) et `ant dist` de
+  nouveau au vert sur un arbre propre avant de committer.

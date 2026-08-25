@@ -117,8 +117,8 @@ public final class LuaPayloads {
 	private static Object movedClass(final CommandPayload.MoveClass moved) {
 		return map("className", moved.className(), "fromPackage", moved.fromPackage(), "toPackage",
 				moved.toPackage(), "movedFrom", moved.movedFrom(), "movedTo", moved.movedTo(), "changedFiles",
-				listing(moved.changedFiles(), file -> file), "declaration", codeLocation(moved.declaration()),
-				"errorCount", (long) moved.errorCount());
+				listing(moved.changedFiles(), file -> file), "importsAdded", listing(moved.importsAdded(), file -> file),
+				"declaration", codeLocation(moved.declaration()), "errorCount", (long) moved.errorCount());
 	}
 
 	private static Object narrowableMethod(final NarrowableMethod method) {

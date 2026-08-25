@@ -27,14 +27,16 @@ import clide.model.Position;
 /**
  * Tests de MoveClassCommand qui ne demandent aucun jdtls : le refus d'un
  * &lt;new package&gt; inacceptable, la lecture de la déclaration "package"
- * d'un fichier (readDeclaredPackage), et le rendu du compte rendu.
+ * d'un fichier (readDeclaredPackage), l'ajout d'import lui-même
+ * (addImportIfSafe), et le rendu du compte rendu.
  *
- * Tout ce que ces tests ne couvrent pas volontairement - le décalage entre
- * chemin et package (PACKAGE_DIRECTORY_MISMATCH), le "déjà dans ce package"
- * qui court-circuite, la destination déjà occupée, l'edit de jdtls et le
- * déplacement lui-même - passe par siblingTopLevelTypeNames(), qui a besoin
- * d'une vraie session ; ça ne veut rien dire sans un vrai serveur en face et
- * se vérifie de bout en bout (clide sur clide), pas ici.
+ * Tout ce que ces tests ne couvrent pas volontairement - PROJECT_HAS_ERRORS,
+ * le décalage entre chemin et package (PACKAGE_DIRECTORY_MISMATCH), le "déjà
+ * dans ce package" qui court-circuite, la destination déjà occupée, l'edit de
+ * jdtls et le déplacement lui-même - passe par une vraie session (lecture des
+ * diagnostics existants, ou siblingTopLevelTypeNames()) ; ça ne veut rien dire
+ * sans un vrai serveur en face et se vérifie de bout en bout (clide sur
+ * clide), pas ici.
  */
 class MoveClassCommandTest {
 
@@ -91,7 +93,7 @@ class MoveClassCommandTest {
 			throw new AssertionError("expected a NullPointerException from the null session, got none");
 		} catch (final NullPointerException expected) {
 			// the package name is accepted, so executeCommand went on to ask the
-			// (null, in this test) session for the file's sibling top-level types -
+			// (null, in this test) session whether the project already compiles -
 			// proof the package validation itself passed
 		}
 	}
@@ -138,7 +140,7 @@ class MoveClassCommandTest {
 		final CommandPayload payload = new CommandPayload.MoveClass("Square", "demo", "demo.shapes",
 				"src/demo/Square.java", "src/demo/shapes/Square.java",
 				Listing.of(List.of("src/demo/Main.java", "src/demo/shapes/Square.java"), 100),
-				new CodeLocation(position, "public class Square {"), 0);
+				Listing.of(List.of(), 100), new CodeLocation(position, "public class Square {"), 0);
 
 		final String rendered = new MoveClassCommand().render(CommandResult.ok(payload), PrintMode.AI);
 
@@ -152,11 +154,33 @@ class MoveClassCommandTest {
 	}
 
 	@Test
+	@DisplayName("un import ajouté apparaît sur sa propre ligne, entre le fichier déplacé et la position fraîche")
+	void anAddedImportGetsItsOwnLine() {
+		final Position position = new Position("f21e4159", "src/demo/shapes/Square.java", 3, 14, "Square");
+		final CommandPayload payload = new CommandPayload.MoveClass("Square", "demo", "demo.shapes",
+				"src/demo/Square.java", "src/demo/shapes/Square.java",
+				Listing.of(List.of("src/demo/Caller.java", "src/demo/shapes/Square.java"), 100),
+				Listing.of(List.of("src/demo/Caller.java"), 100), new CodeLocation(position, "public class Square {"),
+				0);
+
+		final String rendered = new MoveClassCommand().render(CommandResult.ok(payload), PrintMode.AI);
+
+		assertEquals("""
+				move_class: Square demo -> demo.shapes, 2 file(s)
+				src/demo/Caller.java
+				src/demo/shapes/Square.java
+				file moved: src/demo/Square.java -> src/demo/shapes/Square.java
+				import added: src/demo/Caller.java
+				declaration now at f21e4159:src/demo/shapes/Square.java:3:14:Square public class Square {
+				rebuilt: 0 error(s)""", rendered);
+	}
+
+	@Test
 	@DisplayName("sans position fraîche, cette ligne disparaît au lieu d'être vide")
 	void absentDeclarationSimplyDoesNotPrint() {
 		final CommandPayload payload = new CommandPayload.MoveClass("Square", "demo", "demo.shapes",
 				"src/demo/Square.java", "src/demo/shapes/Square.java",
-				Listing.of(List.of("src/demo/shapes/Square.java"), 100), null, 2);
+				Listing.of(List.of("src/demo/shapes/Square.java"), 100), Listing.of(List.of(), 100), null, 2);
 
 		assertEquals("""
 				move_class: Square demo -> demo.shapes, 1 file(s)
@@ -170,11 +194,110 @@ class MoveClassCommandTest {
 	void aMoveThatChangesNothingSaysSo() {
 		final Position position = new Position("f21e4159", "src/demo/Square.java", 3, 14, "Square");
 		final CommandPayload payload = new CommandPayload.MoveClass("Square", "demo", "demo",
-				"src/demo/Square.java", "src/demo/Square.java", Listing.of(List.of(), 100),
+				"src/demo/Square.java", "src/demo/Square.java", Listing.of(List.of(), 100), Listing.of(List.of(), 100),
 				new CodeLocation(position, "public class Square {"), 0);
 
 		assertEquals("move_class: nothing to change - 'Square' is already in package 'demo'",
 				new MoveClassCommand().render(CommandResult.ok(payload), PrintMode.AI));
+	}
+
+	// ------------------------------------------------------------------
+	// addImportIfSafe() - la logique de patch elle-même, testable sans jdtls
+	// ------------------------------------------------------------------
+
+	@Test
+	@DisplayName("ajoute l'import juste après le dernier import existant")
+	void addsAfterTheLastExistingImport(@TempDir final Path root) throws IOException {
+		final Path file = root.resolve("Caller.java");
+		Files.writeString(file, """
+				package demo;
+
+				import java.util.List;
+				import java.util.Map;
+
+				class Caller {
+				}
+				""", StandardCharsets.UTF_8);
+
+		final boolean added = MoveClassCommand.addImportIfSafe(file, "Square", "demo.shapes");
+
+		assertTrue(added);
+		assertEquals("""
+				package demo;
+
+				import java.util.List;
+				import java.util.Map;
+				import demo.shapes.Square;
+
+				class Caller {
+				}
+				""", Files.readString(file, StandardCharsets.UTF_8));
+	}
+
+	@Test
+	@DisplayName("sans import existant mais avec la ligne blanche d'usage, l'import prend sa place normale")
+	void addsAfterThePackageLineWhenAlreadyBlank(@TempDir final Path root) throws IOException {
+		final Path file = root.resolve("Caller.java");
+		Files.writeString(file, "package demo;\n\nclass Caller {\n}\n", StandardCharsets.UTF_8);
+
+		final boolean added = MoveClassCommand.addImportIfSafe(file, "Square", "demo.shapes");
+
+		assertTrue(added);
+		assertEquals("package demo;\n\nimport demo.shapes.Square;\n\nclass Caller {\n}\n",
+				Files.readString(file, StandardCharsets.UTF_8));
+	}
+
+	@Test
+	@DisplayName("sans ligne blanche après le package, une est ajoutée plutôt que de coller au code")
+	void addsABlankLineWhenThePackageLineHasNone(@TempDir final Path root) throws IOException {
+		final Path file = root.resolve("Caller.java");
+		Files.writeString(file, "package demo;\nclass Caller {\n}\n", StandardCharsets.UTF_8);
+
+		final boolean added = MoveClassCommand.addImportIfSafe(file, "Square", "demo.shapes");
+
+		assertTrue(added);
+		assertEquals("package demo;\n\nimport demo.shapes.Square;\n\nclass Caller {\n}\n",
+				Files.readString(file, StandardCharsets.UTF_8));
+	}
+
+	@Test
+	@DisplayName("un fichier du package par défaut reçoit l'import tout en haut")
+	void aDefaultPackageFileGetsTheImportAtTheTop(@TempDir final Path root) throws IOException {
+		final Path file = root.resolve("Caller.java");
+		Files.writeString(file, "class Caller {\n}\n", StandardCharsets.UTF_8);
+
+		final boolean added = MoveClassCommand.addImportIfSafe(file, "Square", "demo.shapes");
+
+		assertTrue(added);
+		assertEquals("import demo.shapes.Square;\n\nclass Caller {\n}\n",
+				Files.readString(file, StandardCharsets.UTF_8));
+	}
+
+	@Test
+	@DisplayName("l'import exact déjà présent n'est pas dupliqué, et rien n'est réécrit")
+	void anAlreadyPresentImportIsNotDuplicated(@TempDir final Path root) throws IOException {
+		final Path file = root.resolve("Caller.java");
+		final String original = "package demo;\n\nimport demo.shapes.Square;\n\nclass Caller {\n}\n";
+		Files.writeString(file, original, StandardCharsets.UTF_8);
+
+		final boolean added = MoveClassCommand.addImportIfSafe(file, "Square", "demo.shapes");
+
+		assertEquals(false, added);
+		assertEquals(original, Files.readString(file, StandardCharsets.UTF_8));
+	}
+
+	@Test
+	@DisplayName("un import conflictuel (même nom simple, autre package) n'est jamais deviné - le fichier reste intact")
+	void aConflictingImportIsLeftAlone(@TempDir final Path root) throws IOException {
+		final Path file = root.resolve("Caller.java");
+		final String original = "package demo;\n\nimport other.pkg.Square;\n\nclass Caller {\n}\n";
+		Files.writeString(file, original, StandardCharsets.UTF_8);
+
+		final boolean added = MoveClassCommand.addImportIfSafe(file, "Square", "demo.shapes");
+
+		assertEquals(false, added);
+		assertEquals(original, Files.readString(file, StandardCharsets.UTF_8),
+				"un conflit réel n'est jamais résolu à l'aveugle");
 	}
 
 	// ------------------------------------------------------------------
