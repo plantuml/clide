@@ -26,6 +26,7 @@ import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.Md5Repository;
 import clide.core.PositionParser;
+import clide.core.SourceFiles;
 import clide.edit.AppliedEdit;
 import clide.edit.EditApplicationException;
 import clide.edit.EditOperation;
@@ -528,7 +529,7 @@ public class MoveClassCommand extends Command {
 				lines.add(1, "");
 		}
 
-		Files.write(file, lines, StandardCharsets.UTF_8);
+		SourceFiles.writeLines(file, lines);
 		return true;
 	}
 

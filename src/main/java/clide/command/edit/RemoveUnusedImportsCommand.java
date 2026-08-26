@@ -26,6 +26,7 @@ import clide.command.answer.ResultEnvelope;
 import clide.core.ClideContext;
 import clide.core.Command;
 import clide.core.SourceFile;
+import clide.core.SourceFiles;
 import clide.jdtls.JdtlsSession;
 import clide.model.Listing;
 
@@ -60,7 +61,7 @@ import clide.model.Listing;
  * <h2>Writing needs no Transaction API call</h2>
  *
  * Unlike RenameCommand, which applies a WorkspaceEdit jdtls computed, this
- * command edits files itself and simply calls Files.write() - no
+ * command edits files itself and simply calls SourceFiles.writeLines() - no
  * backupBeforeModification() or similar is needed. A transaction's opening
  * Snapshot already covers every .java source file the moment the transaction
  * opens (see Transaction), so the machinery that lets rollback_transaction
@@ -252,7 +253,7 @@ public class RemoveUnusedImportsCommand extends Command {
 		for (final int lineNumber : descending)
 			lines.remove(lineNumber - 1);
 
-		Files.write(file, lines, StandardCharsets.UTF_8);
+		SourceFiles.writeLines(file, lines);
 		return new ArrayList<>(toRemove.values());
 	}
 

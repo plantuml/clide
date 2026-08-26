@@ -151,7 +151,7 @@ public final class PositionParser {
 
 		checkNameAtColumn(lines.get(line - 1), line, column, name, pathArgument);
 
-		return new Position(Position.abbreviate(currentMd5), projectRoot.relativize(file).toString(), line, column,
+		return new Position(Position.abbreviate(currentMd5), relativeNotationPath(projectRoot, file), line, column,
 				name);
 	}
 
@@ -310,7 +310,7 @@ public final class PositionParser {
 					"Ambiguous file name '" + bareFilename + "' - " + matches.size() + " files of that name in the project",
 					listPaths(projectRoot, matches));
 
-		final String relativePath = projectRoot.relativize(matches.get(0)).toString();
+		final String relativePath = relativeNotationPath(projectRoot, matches.get(0));
 		return parse(filesRepository, Position.notation(md5, relativePath, line, column, name));
 	}
 
@@ -319,7 +319,7 @@ public final class PositionParser {
 		for (final Path path : paths) {
 			if (hint.length() > 0)
 				hint.append(", ");
-			hint.append(projectRoot.relativize(path));
+			hint.append(relativeNotationPath(projectRoot, path));
 		}
 		return hint.toString();
 	}
@@ -573,7 +573,7 @@ public final class PositionParser {
 				return null;
 
 			final String fresh = Position.notation(Position.abbreviate(currentMd5),
-					projectRoot.relativize(file).toString(), matchAt + 1, columns.get(0), name);
+					relativeNotationPath(projectRoot, file), matchAt + 1, columns.get(0), name);
 			return "'" + name + "' is unchanged elsewhere in the file - now at " + fresh;
 		} catch (final IOException | RuntimeException e) {
 			// best-effort: any failure here means no hint, never a different error than
@@ -693,6 +693,30 @@ public final class PositionParser {
 
 	private static boolean isFileUri(final String pathArgument) {
 		return pathArgument.regionMatches(true, 0, "file:", 0, 5);
+	}
+
+	/**
+	 * file's path relative to projectRoot, exactly as every &lt;position&gt;
+	 * notation's &lt;file path&gt; field is documented to read (see Position's
+	 * class doc): forward-slash separated, on every platform clide runs on.
+	 *
+	 * {@code relativize(...).toString()} alone answers with whatever separator
+	 * the platform's own Path uses - '/' on Linux/macOS, '\' on Windows. A
+	 * Position built on a Windows daemon would then carry a backslash path no
+	 * client typing the notation by hand would write, and no Position built on
+	 * a different platform - for the same file, in the same project - would
+	 * ever equal, breaking the one guarantee this notation exists to give:
+	 * that the same file always spells the same way. See
+	 * normalizeSeparators() for the one line doing the actual rewriting, kept
+	 * separate so it can be unit-tested without needing a real Windows Path.
+	 */
+	private static String relativeNotationPath(final Path projectRoot, final Path file) {
+		return normalizeSeparators(projectRoot.relativize(file).toString());
+	}
+
+	/** raw with every backslash rewritten to a forward slash - see relativeNotationPath(). */
+	static String normalizeSeparators(final String raw) {
+		return raw.replace('\\', '/');
 	}
 
 	/**
