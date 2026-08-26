@@ -24,6 +24,20 @@ public enum ErrorCode {
 	NONE,
 
 	// ------------------------------------------------------------------
+	// Daemon: refused before this connection got anywhere near the protocol
+	// ------------------------------------------------------------------
+
+	/**
+	 * A second client tried to run a command while the daemon was still serving
+	 * another one - it serves one connection at a time by design (see
+	 * ClideDaemon's own class doc: jdtls itself only ever handles one request at
+	 * a time anyway). The message names what is currently running and for how
+	 * long, when there is something more specific to say than that; the caller's
+	 * only sensible reaction is to wait and try again.
+	 */
+	BUSY,
+
+	// ------------------------------------------------------------------
 	// Protocol: what the client sent, before any command ran
 	// ------------------------------------------------------------------
 

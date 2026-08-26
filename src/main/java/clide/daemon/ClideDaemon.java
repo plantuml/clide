@@ -7,10 +7,13 @@ import java.io.PrintStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 import clide.PrintMode;
 import clide.annotation.ParamType;
@@ -46,9 +49,10 @@ import clide.lua.LuaBridge;
  * handed to the ClideContext this daemon serves every connection through (see
  * run()), which is also where a command reads it back (ClideContext.getPrintMode()).
  *
- * Client connections are served one at a time (accept() loops sequentially):
+ * Client connections are served one at a time (see connectionLock below):
  * jdtls itself only ever handles one request at a time anyway, and clide is a
- * single-user tool, so added concurrency here would buy nothing. A client
+ * single-user tool, so added concurrency in command *execution* would buy
+ * nothing. A client
  * disconnecting (EOF on its socket, the normal end of a clide.py run) only
  * ends that connection - the daemon keeps running for the next one.
  * "exit"/"quit" (see DisconnectCommand) additionally stop the jdtls session
@@ -58,12 +62,51 @@ import clide.lua.LuaBridge;
  *
  * A connection announcing "--lua" is served differently: it carries one Lua
  * script rather than a stream of commands - see runScript() and ConnectionMode.
+ *
+ * "Served one at a time" used to mean one thread, full stop: run()'s own loop
+ * called accept() and then did the serving itself, so a second client trying
+ * to connect while the first was still being served simply had no thread free
+ * to answer it - its connection sat there, accepted at the TCP level (the
+ * ServerSocket's own backlog) but never read from, indistinguishable from a
+ * dead daemon until whatever it was waiting on (a rebuild can legitimately
+ * take minutes - see JdtlsSession.build()) finally finished or timed out. It
+ * is still one client served at a time - jdtls still only ever handles one
+ * request at a time - but now via connectionLock (a plain mutual-exclusion
+ * lock) rather than via there being only one thread able to serve anyone at
+ * all: acceptClient() hands every connection its own thread, and
+ * serveOrRejectIfBusy() has a second connection told BUSY and closed
+ * immediately (see rejectBusy()) instead of left hanging. As a side effect, a
+ * bug that throws all the way out of one connection's command now only takes
+ * that one connection down, not the whole process - see
+ * serveOrRejectIfBusy()'s own doc.
  */
 public final class ClideDaemon {
 
 	private final Path projectRoot;
 	private final PrintMode printMode;
 	private final Collection<Command> commands;
+
+	/**
+	 * Held for as long as one connection is being served - see this class' own
+	 * doc for why this exists at all. tryLock() (never lock()) is the whole
+	 * point: a connection that cannot be served right now is told so at once
+	 * (see rejectBusy()), never queued silently behind the one being served.
+	 */
+	private final ReentrantLock connectionLock = new ReentrantLock();
+
+	/**
+	 * What the connection currently holding connectionLock is doing, for
+	 * rejectBusy() to report to everyone else - written under the lock (see
+	 * runSession()), read without it by threads that only want to build a BUSY
+	 * message. A torn or stale read only makes that message's elapsed time
+	 * slightly off, never anything worse, so no further synchronization is worth
+	 * it. Null whenever the lock's holder is not actually running a command
+	 * right now (e.g. sitting at a --human prompt between commands, or reading a
+	 * MULTI_LINE parameter off a slow client) - rejectBusy() still says BUSY
+	 * then, just without a command name to name.
+	 */
+	private volatile String currentCommand;
+	private volatile long currentCommandStartedAtNanos;
 
 	public ClideDaemon(final Path projectRoot, final PrintMode printMode, final Collection<Command> commands) {
 		this.projectRoot = projectRoot;
@@ -134,33 +177,112 @@ public final class ClideDaemon {
 		context.setPrintMode(printMode);
 
 		final ServerSocket serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
+		// Otherwise this thread would sit inside accept() with nothing to wake it -
+		// harmless before this change (there was nothing else for it to do), but now
+		// it is also this loop's only chance to notice isShutdownRequested() after a
+		// "terminate" that some OTHER connection's thread set (see
+		// serveOrRejectIfBusy()): with each connection on its own thread, this loop
+		// no longer returns from serving one client in between to check.
+		serverSocket.setSoTimeout(1000);
 		DaemonLock.write(projectRoot, serverSocket.getLocalPort());
 		Runtime.getRuntime()
 				.addShutdownHook(new Thread(() -> shutdown(session, serverSocket), "clide-daemon-shutdown"));
 		System.out.println("Daemon ready on port " + serverSocket.getLocalPort());
 
 		while (context.isShutdownRequested() == false)
-			serveOneClient(serverSocket, context);
+			acceptClient(serverSocket, context);
 
 		shutdown(session, serverSocket);
 	}
 
 	/**
-	 * Handles a single client connection end to end. Returns on that client's own
-	 * EOF, on "exit"/"quit" (this connection only), or on "terminate" (this
-	 * connection, and the whole daemon via run()'s loop condition).
+	 * Accepts the next connection and immediately hands it to its own thread,
+	 * returning at once to accept whatever comes after it - see this class' own
+	 * doc for why a second connection is now welcomed at the socket level even
+	 * while the first is still being served: only one of them will ever actually
+	 * run a command (see connectionLock), and the other is told BUSY and closed
+	 * right away (see serveOrRejectIfBusy(), rejectBusy()) instead of hanging
+	 * silently the way it used to.
 	 */
-	private void serveOneClient(final ServerSocket serverSocket, final ClideContext context) throws IOException {
-		// fresh connection: an earlier exit/quit must not leak into this one, and
-		// neither must a max_results somebody else set - see ClideContext.
-		context.resetPerConnectionSettings();
-		try (Socket client = serverSocket.accept();
-				BufferedReader reader = new BufferedReader(
-						new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
-				PrintStream out = new PrintStream(client.getOutputStream(), true, StandardCharsets.UTF_8)) {
-			runSession(reader, out, context);
+	private void acceptClient(final ServerSocket serverSocket, final ClideContext context) throws IOException {
+		final Socket client;
+		try {
+			client = serverSocket.accept();
+		} catch (final SocketTimeoutException e) {
+			return; // nobody connected in the last second - just gives run() a chance to notice shutdown
+		}
+
+		new Thread(() -> serveOrRejectIfBusy(client, context), "clide-client").start();
+	}
+
+	/**
+	 * tryLock()'s two outcomes: this thread is now the one and only connection
+	 * being served, exactly as when a single thread served every connection in
+	 * turn (see this class' own doc) - or it is not, and client is told BUSY and
+	 * closed at once (see rejectBusy()) rather than left to hang on a read that
+	 * may not return for minutes.
+	 *
+	 * Everything that reads or writes ClideContext - resetPerConnectionSettings()
+	 * included - happens only after this thread actually holds connectionLock,
+	 * so at most one thread ever touches context at a time, the same invariant
+	 * the old single-thread design got for free.
+	 *
+	 * The RuntimeException catch is new, and worth calling out: before this
+	 * change, the daemon had exactly one thread for its entire life, so an
+	 * escaping RuntimeException here (a bug CommandDispatcher did not expect)
+	 * unwound all the way out of run() and killed the whole process - see
+	 * ResultEnvelope.unexpectedPayload()'s own doc, written for exactly that
+	 * failure mode, and Main.main(), which catches nothing either. Every
+	 * connection now runs on its own thread, so the same bug today only ends
+	 * that one connection; printStackTrace() rather than swallowing it, so
+	 * whoever is running this daemon in the foreground still sees it happened.
+	 */
+	private void serveOrRejectIfBusy(final Socket client, final ClideContext context) {
+		if (connectionLock.tryLock() == false) {
+			rejectBusy(client);
+			return;
+		}
+
+		try {
+			// fresh connection: an earlier exit/quit must not leak into this one, and
+			// neither must a max_results somebody else set - see ClideContext.
+			context.resetPerConnectionSettings();
+			try (Socket c = client;
+					BufferedReader reader = new BufferedReader(
+							new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
+					PrintStream out = new PrintStream(c.getOutputStream(), true, StandardCharsets.UTF_8)) {
+				runSession(reader, out, context);
+			} catch (final IOException e) {
+				// this client's connection broke - the daemon stays up for the next one
+			} catch (final RuntimeException e) {
+				e.printStackTrace();
+			}
+		} finally {
+			currentCommand = null;
+			connectionLock.unlock();
+		}
+	}
+
+	/**
+	 * Tells a client it cannot be served right now instead of leaving it to hang
+	 * on a read that may never come back - see this class' own doc. Renders the
+	 * same ?ERROR envelope every other refusal uses (ResultEnvelope, with no
+	 * Command to ask for a body - the same shape runSession() already falls back
+	 * to for UNKNOWN_KEYWORD), so a client parses this exactly like any other
+	 * error rather than needing a special case just for it.
+	 */
+	private void rejectBusy(final Socket client) {
+		final String runningNow = currentCommand;
+		final String message = runningNow == null
+				? "the daemon is already serving another client - try again shortly"
+				: "the daemon is busy running '" + runningNow + "' (started "
+						+ TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - currentCommandStartedAtNanos)
+						+ "s ago) - a rebuild can take up to 5 minutes, try again shortly";
+
+		try (Socket c = client; PrintStream out = new PrintStream(c.getOutputStream(), true, StandardCharsets.UTF_8)) {
+			out.println(ResultEnvelope.render(CommandResult.error(ErrorCode.BUSY, message), ""));
 		} catch (final IOException e) {
-			// this client's connection broke - the daemon stays up for the next one
+			// this client is already gone - nothing left to tell it
 		}
 	}
 
@@ -254,7 +376,18 @@ public final class ClideDaemon {
 			// Every check that stands between a parameter and a command running lives
 			// in CommandDispatcher, which the Lua bridge calls too - see its class doc
 			// for why they cannot live here any more.
-			printResult(out, command, CommandDispatcher.dispatch(context, command, out::println, params), printMode);
+			//
+			// currentCommand/currentCommandStartedAtNanos bracket exactly this call -
+			// set just before, cleared right after - so a BUSY message another
+			// connection's thread builds in the meantime (see rejectBusy()) names the
+			// command actually running, not whichever one happened to run last; cleared
+			// again (belt and suspenders) in serveOrRejectIfBusy()'s finally, in case
+			// this method returns some other way first.
+			currentCommand = keyword;
+			currentCommandStartedAtNanos = System.nanoTime();
+			final CommandResult result = CommandDispatcher.dispatch(context, command, out::println, params);
+			currentCommand = null;
+			printResult(out, command, result, printMode);
 			if (context.isShutdownRequested() || context.isDisconnectRequested())
 				return;
 		}
