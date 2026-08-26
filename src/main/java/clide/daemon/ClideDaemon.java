@@ -127,7 +127,7 @@ public final class ClideDaemon {
 
 		System.out.print("(2/4) Initializing IDE ...");
 		final Path jdtlsHome = JdtlsHome.resolve();
-		final JdtlsLauncher launcher = new JdtlsLauncher(jdtlsHome);
+		final JdtlsLauncher launcher = new JdtlsLauncher(jdtlsHome, projectRoot);
 		final Md5Repository md5Repository = new Md5Repository(projectRoot);
 		final FilesRepository filesRepository = new FilesRepository(projectRoot, md5Repository);
 		final JdtlsSession session = new JdtlsSession(launcher, filesRepository);

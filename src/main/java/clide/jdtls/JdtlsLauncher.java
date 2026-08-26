@@ -18,10 +18,12 @@ import java.util.zip.ZipInputStream;
 public class JdtlsLauncher {
 
 	private final Path jdtlsHome;
+	private final Path projectRoot;
 	private Process process;
 
-	public JdtlsLauncher(final Path jdtlsHome) {
+	public JdtlsLauncher(final Path jdtlsHome, final Path projectRoot) {
 		this.jdtlsHome = jdtlsHome;
+		this.projectRoot = projectRoot;
 	}
 
 	public boolean isRunning() {
@@ -40,7 +42,14 @@ public class JdtlsLauncher {
 
 		final Path launcherJar = findEquinoxLauncher();
 		final Path sharedConfig = findSharedConfig();
-		final Path dataDir = Files.createTempDirectory("clide-jdtls-data");
+		// A stable, per-project directory rather than a fresh temp one - see
+		// JdtlsWorkspace's own doc for why a *second* start on the same project can
+		// find its previous import/index state here instead of rebuilding it from
+		// nothing. Files.createDirectories() where createTempDirectory() used to
+		// create the (empty, random) directory for us - this one may already exist,
+		// from an earlier start on this same project.
+		final Path dataDir = JdtlsWorkspace.resolveFor(projectRoot);
+		Files.createDirectories(dataDir);
 
 		final List<String> command = new ArrayList<>();
 		command.add(javaExecutable());
@@ -68,15 +77,54 @@ public class JdtlsLauncher {
 	}
 
 	/**
+	 * Waits up to timeoutSeconds for jdtls to exit <em>on its own</em>, having
+	 * already been asked to via the LSP "shutdown" request + "exit" notification
+	 * (see JdtlsSession.stop(), which calls this before falling back to stop()
+	 * below). "On its own" matters here: jdtls' own exit() handler
+	 * (org.eclipse.jdt.ls.core.internal.handlers.JDTLanguageServer, external to
+	 * this codebase - decompiled and read to confirm this) runs
+	 * IWorkspace.save(true, ...) - a real, not-instant save of the whole
+	 * workspace's state - before it lets the process exit cleanly. That work only
+	 * starts once jdtls' own dispatch thread gets around to the "exit"
+	 * notification, which is necessarily *after* JdtlsSession.stop()'s notify()
+	 * call already returned - notify(), like every LSP notification, never waits
+	 * for anything.
+	 *
+	 * Calling stop() immediately after notify()'s return - what this method
+	 * exists to stop happening - sends SIGTERM into the middle of that save,
+	 * every time, on every project big enough for the save to still be running
+	 * when the signal arrives. The next time jdtls opens the same workspace
+	 * (see JdtlsWorkspace), it finds one saved mid-write and says so: "The
+	 * workspace exited with unsaved changes in the previous session; refreshing
+	 * workspace to recover changes" - and pays for that recovery with a
+	 * ProjectRegistryRefreshJob measured at 12-15x its cold-start cost on a
+	 * PlantUML-sized project (1.5s clean vs 18-22s recovering) - the entire
+	 * reason a persistent, reused workspace (JdtlsWorkspace) was not paying for
+	 * itself: the time it saved on re-import was being lost right back to this.
+	 *
+	 * Returns true once the process has exited - on its own just now, or already
+	 * had before this was even called - false if timeoutSeconds ran out first,
+	 * in which case the caller still has stop() as a backstop for a jdtls that is
+	 * genuinely stuck rather than merely still saving.
+	 */
+	public boolean awaitExit(final long timeoutSeconds) throws InterruptedException {
+		if (isRunning() == false)
+			return true;
+
+		return process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+	}
+
+	/**
 	 * Sends the process a polite SIGTERM, then waits for it to actually exit
-	 * before returning - not fire-and-forget. jdtls runs its own graceful
-	 * shutdown on that signal (on top of the LSP "shutdown"/"exit" handshake
-	 * JdtlsSession.stop() already ran before calling this), which can include
-	 * writing .project back on its own (see EclipseProjectFiles' class doc) -
-	 * callers that clean up after that write (ClideDaemon.shutdown()) need the
-	 * process, and whatever it does on the way out, to be fully done first.
-	 * Force-kills if it hasn't exited within the timeout, so a stuck process
-	 * never wedges daemon shutdown.
+	 * before returning - not fire-and-forget. Force-kills if it hasn't exited
+	 * within the timeout, so a stuck process never wedges daemon shutdown.
+	 *
+	 * A backstop, meant to be reached only when awaitExit() above already gave
+	 * jdtls' own graceful exit a real chance and it still did not take it - see
+	 * awaitExit()'s own doc for why calling this any earlier defeats a
+	 * persistent workspace's entire point. Still safe to call unconditionally
+	 * (JdtlsSession.stop() does, every time): a process that already exited on
+	 * its own makes isRunning() false and this a no-op.
 	 */
 	public void stop() {
 		if (isRunning() == false)

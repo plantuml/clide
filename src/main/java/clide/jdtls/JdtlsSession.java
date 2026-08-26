@@ -1453,9 +1453,29 @@ public class JdtlsSession {
 		return matcher.matches() && matcher.group(1).equals(simpleClassName);
 	}
 
+	/** See stop()'s own doc for where this number comes from. */
+	private static final long GRACEFUL_EXIT_TIMEOUT_SECONDS = 30;
+
 	/**
-	 * Attempts a graceful LSP shutdown, then stops the underlying process either
-	 * way.
+	 * Attempts a graceful LSP shutdown, gives jdtls a real chance to actually
+	 * exit on its own in reaction to it, then stops the underlying process
+	 * either way.
+	 *
+	 * The pause before launcher.stop() is not a nicety - see
+	 * JdtlsLauncher.awaitExit()'s own doc for the failure mode it exists to
+	 * avoid: sending SIGTERM right after the "exit" notification, before jdtls'
+	 * own exit() handler finishes saving the workspace, which is exactly what
+	 * used to turn a persistent, reused workspace (JdtlsWorkspace) into no
+	 * saving at all - the next open would find it unclean and pay to recover
+	 * it, wiping out whatever the reuse itself had saved.
+	 *
+	 * GRACEFUL_EXIT_TIMEOUT_SECONDS (30s) was chosen empirically: a full
+	 * IWorkspace.save() on a PlantUML-sized project (3606 files) was measured
+	 * completing - process exiting on its own, no signal sent at all - well
+	 * within a few seconds; 30s leaves ample room above that measurement
+	 * without making "terminate" feel broken on a jdtls that is genuinely
+	 * stuck (which still gets the full stop() treatment below once this
+	 * returns false).
 	 */
 	public void stop() {
 		if (client != null && ready) {
@@ -1466,6 +1486,12 @@ public class JdtlsSession {
 				// best effort - fall through to hard stop below
 			}
 			client.close();
+
+			try {
+				launcher.awaitExit(GRACEFUL_EXIT_TIMEOUT_SECONDS);
+			} catch (final InterruptedException e) {
+				Thread.currentThread().interrupt();
+			}
 		}
 		ready = false;
 		launcher.stop();
