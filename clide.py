@@ -188,7 +188,28 @@ def relay(sock: socket.socket, source: "IO[bytes]") -> None:
 			chunk = os.read(source.fileno(), CHUNK_SIZE)
 			if not chunk:
 				break
-			sock.sendall(chunk)
+			try:
+				sock.sendall(chunk)
+			except OSError:
+				# The daemon already closed its side of the socket - typically
+				# rejectBusy() writing its "?ERROR BUSY" envelope and closing
+				# right away (see ClideDaemon.rejectBusy()), which output_thread
+				# is already reading and printing concurrently on its own
+				# thread, same as it does for a daemon that answers before this
+				# process has finished sending (see this function's own doc).
+				# source - this process' own stdin, or a --lua script's content
+				# - is simply abandoned mid-read at this point: there is
+				# nothing left worth sending once the daemon has hung up, and
+				# the daemon's own message, already on stdout, is the whole
+				# explanation - repeating it here as a second message would
+				# only be noise. Stopping quietly here, rather than letting
+				# sendall's BrokenPipeError/ConnectionResetError propagate out
+				# of main() as an unhandled traceback, is the fix: a client
+				# that loses the BUSY race while relay() is mid-send used to
+				# exit on a raw Python stack trace instead of the same clean
+				# "?ERROR BUSY..." line a client that loses the race before
+				# ever sending anything already got.
+				break
 	finally:
 		# Tells the daemon this client has nothing more to send - the read
 		# direction stays open for whatever the daemon still has to say. For a
