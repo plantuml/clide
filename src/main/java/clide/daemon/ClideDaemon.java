@@ -74,10 +74,14 @@ import clide.lua.LuaBridge;
  * request at a time - but now via connectionLock (a plain mutual-exclusion
  * lock) rather than via there being only one thread able to serve anyone at
  * all: acceptClient() hands every connection its own thread, and
- * serveOrRejectIfBusy() has a second connection told BUSY and closed
- * immediately (see rejectBusy()) instead of left hanging. As a side effect, a
- * bug that throws all the way out of one connection's command now only takes
- * that one connection down, not the whole process - see
+ * serveOrRejectIfBusy() waits a bounded amount of time for its turn
+ * (awaitConnectionSlot(), see connectionLock's own doc) before giving up and
+ * telling a second connection BUSY (see rejectBusy()) - bounded, so this is
+ * still nothing like the old indistinguishable-from-dead hang, just no longer
+ * an instant refusal for the ordinary case of a command that finishes well
+ * inside that bound. As a side effect of every connection running on its own
+ * thread, a bug that throws all the way out of one connection's command now
+ * only takes that one connection down, not the whole process - see
  * serveOrRejectIfBusy()'s own doc.
  */
 public final class ClideDaemon {
@@ -88,11 +92,49 @@ public final class ClideDaemon {
 
 	/**
 	 * Held for as long as one connection is being served - see this class' own
-	 * doc for why this exists at all. tryLock() (never lock()) is the whole
-	 * point: a connection that cannot be served right now is told so at once
-	 * (see rejectBusy()), never queued silently behind the one being served.
+	 * doc for why this exists at all. Never lock() - a connection has to be
+	 * able to give up rather than wait forever, since jdtls only ever handles
+	 * one request at a time and a rebuild can legitimately take minutes (see
+	 * this class' own doc) - but not the bare no-argument tryLock() either any
+	 * more: awaitConnectionSlot() waits up to BUSY_WAIT_SECONDS via repeated
+	 * short-timeout tryLock(long, TimeUnit) calls instead of refusing on the
+	 * first miss, so a second connection that arrives while an ordinary
+	 * command is still running gets served automatically once that command
+	 * finishes, rather than being told BUSY for something that was already
+	 * about to clear up. Only a connection still waiting once the whole budget
+	 * is spent - or one that arrives while jdtls is genuinely stuck well past
+	 * what any of this daemon's own commands should take - ever reaches
+	 * rejectBusy(). The short per-attempt timeout (see
+	 * BUSY_WAIT_POLL_MILLIS), not one long blocking wait, is what lets a
+	 * waiting connection also notice a "terminate" requested in the meantime
+	 * (see awaitConnectionSlot()) instead of sitting past it.
 	 */
 	private final ReentrantLock connectionLock = new ReentrantLock();
+
+	/**
+	 * How long serveOrRejectIfBusy() waits for connectionLock to free up
+	 * before giving up and rejecting a connection BUSY - see
+	 * awaitConnectionSlot(). Comfortably above every ordinary command's own
+	 * cost (a full rebuild is ~9-14s on a PlantUML-sized project, see
+	 * JDTLS.md/LUA.md; rejectBusy()'s own message still separately warns a
+	 * rebuild "can take up to 5 minutes" for the rarer, larger case that even
+	 * this budget will not cover), so the common case - a second connection
+	 * arriving while the first is mid-command, not mid-crisis - is served
+	 * automatically instead of making its caller retry by hand.
+	 */
+	private static final long BUSY_WAIT_SECONDS = 60;
+
+	/**
+	 * The per-attempt timeout awaitConnectionSlot() waits on tryLock(long,
+	 * TimeUnit) for, repeated up to BUSY_WAIT_SECONDS total - short enough
+	 * that a "terminate" requested by whoever currently holds connectionLock
+	 * is noticed within about a second of connectionLock actually freeing up,
+	 * rather than this thread sleeping past it for however much of
+	 * BUSY_WAIT_SECONDS was left. Mirrors the same tradeoff
+	 * serverSocket.setSoTimeout(1000) already makes in run()'s own accept
+	 * loop, for the same reason - see run()'s own doc.
+	 */
+	private static final long BUSY_WAIT_POLL_MILLIS = 1000;
 
 	/**
 	 * What the connection currently holding connectionLock is doing, for
@@ -211,9 +253,21 @@ public final class ClideDaemon {
 	 * returning at once to accept whatever comes after it - see this class' own
 	 * doc for why a second connection is now welcomed at the socket level even
 	 * while the first is still being served: only one of them will ever actually
-	 * run a command (see connectionLock), and the other is told BUSY and closed
-	 * right away (see serveOrRejectIfBusy(), rejectBusy()) instead of hanging
-	 * silently the way it used to.
+	 * run a command (see connectionLock), and the other waits its turn, bounded,
+	 * rather than hanging silently the way it used to (see
+	 * serveOrRejectIfBusy(), awaitConnectionSlot(), rejectBusy()).
+	 *
+	 * setDaemon(true): belt and suspenders alongside awaitConnectionSlot()'s own
+	 * shutdown check, not a substitute for it - a thread parked in this daemon's
+	 * bounded wait already notices "terminate" on its own within about a second
+	 * (see BUSY_WAIT_POLL_MILLIS) and exits on its own well before this would
+	 * ever matter. It exists for whatever awaitConnectionSlot() does not
+	 * anticipate: main() never calls System.exit() (see Main.main()), so the
+	 * JVM only exits on its own once every non-daemon thread has finished, and
+	 * before this class waited at all, a "clide-client" thread's own lifetime
+	 * was always short enough that this was never worth thinking about. A
+	 * thread that can now legitimately sit for up to BUSY_WAIT_SECONDS is
+	 * worth not being able to outlive "terminate" by mistake.
 	 */
 	private void acceptClient(final ServerSocket serverSocket, final ClideContext context) throws IOException {
 		final Socket client;
@@ -223,15 +277,19 @@ public final class ClideDaemon {
 			return; // nobody connected in the last second - just gives run() a chance to notice shutdown
 		}
 
-		new Thread(() -> serveOrRejectIfBusy(client, context), "clide-client").start();
+		final Thread clientThread = new Thread(() -> serveOrRejectIfBusy(client, context), "clide-client");
+		clientThread.setDaemon(true);
+		clientThread.start();
 	}
 
 	/**
-	 * tryLock()'s two outcomes: this thread is now the one and only connection
-	 * being served, exactly as when a single thread served every connection in
-	 * turn (see this class' own doc) - or it is not, and client is told BUSY and
-	 * closed at once (see rejectBusy()) rather than left to hang on a read that
-	 * may not return for minutes.
+	 * awaitConnectionSlot()'s two outcomes: this thread is now the one and only
+	 * connection being served, exactly as when a single thread served every
+	 * connection in turn (see this class' own doc) - or connectionLock never
+	 * freed up within BUSY_WAIT_SECONDS (or "terminate" was requested while
+	 * this thread was still waiting for it), and the client is told BUSY and
+	 * closed (see rejectBusy()) rather than left to hang on a read that may
+	 * never come back.
 	 *
 	 * Everything that reads or writes ClideContext - resetPerConnectionSettings()
 	 * included - happens only after this thread actually holds connectionLock,
@@ -249,7 +307,7 @@ public final class ClideDaemon {
 	 * whoever is running this daemon in the foreground still sees it happened.
 	 */
 	private void serveOrRejectIfBusy(final Socket client, final ClideContext context) {
-		if (connectionLock.tryLock() == false) {
+		if (awaitConnectionSlot(context) == false) {
 			rejectBusy(client);
 			return;
 		}
@@ -271,6 +329,47 @@ public final class ClideDaemon {
 		} finally {
 			currentCommand = null;
 			connectionLock.unlock();
+		}
+	}
+
+	/**
+	 * Waits up to BUSY_WAIT_SECONDS for connectionLock to free up, returning
+	 * true holding it - or false, holding nothing, if the whole budget ran out
+	 * first or "terminate" was requested by whoever currently holds it while
+	 * this thread was still waiting. Polls in BUSY_WAIT_POLL_MILLIS steps
+	 * (tryLock(long, TimeUnit), never the unbounded lock()) rather than one
+	 * long blocking wait for the same reason run()'s own accept loop polls via
+	 * serverSocket.setSoTimeout(1000) instead of blocking in accept(): a
+	 * connection sitting here has to notice a shutdown requested in the
+	 * meantime within about a second of connectionLock actually freeing up,
+	 * not sleep past it for however much of the budget happened to be left -
+	 * see BUSY_WAIT_POLL_MILLIS's own doc.
+	 *
+	 * The shutdown check runs between poll attempts, not before the first one:
+	 * a connection already accepted by the time "terminate" lands is served
+	 * exactly the same either way (see runSession()'s own
+	 * isShutdownRequested() guard, which the very first command line is
+	 * already subject to), so checking here first would only save, at most,
+	 * one BUSY_WAIT_POLL_MILLIS-long tryLock() call - not worth a second,
+	 * separate check.
+	 */
+	private boolean awaitConnectionSlot(final ClideContext context) {
+		// A local deadline, not a field: this method runs concurrently on every
+		// "clide-client" thread currently waiting (see acceptClient()), each with
+		// its own budget - a shared field here would let one waiter's elapsed
+		// time bleed into another's.
+		final long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(BUSY_WAIT_SECONDS);
+		while (true) {
+			try {
+				if (connectionLock.tryLock(BUSY_WAIT_POLL_MILLIS, TimeUnit.MILLISECONDS))
+					return true;
+			} catch (final InterruptedException e) {
+				Thread.currentThread().interrupt();
+				return false;
+			}
+
+			if (context.isShutdownRequested() || System.nanoTime() >= deadlineNanos)
+				return false;
 		}
 	}
 
