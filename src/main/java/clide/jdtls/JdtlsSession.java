@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -68,6 +69,32 @@ public class JdtlsSession {
 	 * named after synchronisation rather than after builds.
 	 */
 	private Snapshot syncedSnapshot = Snapshot.empty();
+
+	/**
+	 * Counts down exactly once, the moment jdtls' own "language/status"
+	 * notification reports {"type": "ServiceReady"} - see handleStatus() and
+	 * waitForServiceReady(). Confirmed against the vendored jdtls build
+	 * (org.eclipse.jdt.ls.core.internal.handlers.JDTLanguageServer) that this is
+	 * sent only after JobHelpers.waitForBuildJobs() returns, i.e. after the
+	 * initial import *and* the build/indexing it triggers have both finished -
+	 * not merely after the LSP handshake. A fresh JdtlsSession never reaches
+	 * ServiceReady twice, so one CountDownLatch(1) for the session's whole life
+	 * is enough; nothing here ever needs to "un-ready" it again.
+	 */
+	private final CountDownLatch serviceReady = new CountDownLatch(1);
+
+	/**
+	 * The most recent "language/status" jdtls sent, rendered as "type: message"
+	 * (or just "type" when jdtls sent no message) - null until the first one
+	 * arrives. Read by ClideDaemon to say *why* it is busy (still indexing,
+	 * rather than a second genuine client) when rejecting a connection - see
+	 * lastStatus() and ClideDaemon.rejectBusy(). Written from the notification
+	 * thread (see handleStatus()), read from any thread that wants a BUSY
+	 * message; volatile is enough since a torn/stale read only makes that
+	 * message very slightly out of date, the same tolerance ClideDaemon already
+	 * accepts for its own currentCommand.
+	 */
+	private volatile String lastStatus;
 
 	public JdtlsSession(final JdtlsLauncher launcher, final FilesRepository filesRepository) {
 		this.launcher = launcher;
@@ -1497,32 +1524,95 @@ public class JdtlsSession {
 		launcher.stop();
 	}
 
+	/**
+	 * Drains LspClient's own notification queue for this session's whole life -
+	 * every server-to-client message that is neither a response to a pending
+	 * request nor a server-to-client request (see LspClient.dispatch()) lands
+	 * here, not just the two methods actually handled below. Anything else
+	 * (e.g. window/logMessage, window/showMessage) is read off the queue and
+	 * dropped on purpose: reading it is still required so the queue - bounded
+	 * at 1000, see LspClient - never fills up and starts silently discarding
+	 * newer notifications instead.
+	 */
 	private void processNotifications() {
 		try {
 			while (true) {
 				final Monomorphic notification = client.notifications().take();
-				if ("textDocument/publishDiagnostics".equals(notification.getOrNull("method").stringOrNull()) == false)
-					continue;
-
-				final Monomorphic params = notification.getOrNull("params");
-				final String uri = params.getOrNull("uri").stringOrNull();
-				if (uri == null)
-					continue;
-
-				diagnosticsByUri.put(uri, new ArrayList<>(params.getOrNull("diagnostics").elementsOf()));
+				final String method = notification.getOrNull("method").stringOrNull();
+				if ("textDocument/publishDiagnostics".equals(method))
+					handlePublishDiagnostics(notification.getOrNull("params"));
+				else if ("language/status".equals(method))
+					handleStatus(notification.getOrNull("params"));
 			}
 		} catch (final InterruptedException e) {
 			Thread.currentThread().interrupt();
 		}
 	}
 
+	private void handlePublishDiagnostics(final Monomorphic params) {
+		final String uri = params.getOrNull("uri").stringOrNull();
+		if (uri == null)
+			return;
+
+		diagnosticsByUri.put(uri, new ArrayList<>(params.getOrNull("diagnostics").elementsOf()));
+	}
+
+	/**
+	 * jdtls' own indexing/build progress, as a {"type": ..., "message": ...}
+	 * StatusReport (org.eclipse.jdt.ls.core.internal.StatusReport, confirmed
+	 * against the vendored jdtls build) - "type" is one of Starting/Started/
+	 * Message/Error/ServiceReady/ProjectStatus (see
+	 * org.eclipse.jdt.ls.core.internal.ServiceStatus). Only ServiceReady is
+	 * acted on (see serviceReady); every type is kept in lastStatus so a BUSY
+	 * message has something concrete to show even before that point (e.g.
+	 * "Starting: Init...", "Message: Indexing 3600 files").
+	 */
+	private void handleStatus(final Monomorphic params) {
+		final String type = params.getOrNull("type").stringOrNull();
+		final String message = params.getOrNull("message").stringOrNull();
+		lastStatus = message == null ? type : type + ": " + message;
+
+		if ("ServiceReady".equals(type))
+			serviceReady.countDown();
+	}
+
+	/**
+	 * The most recent "language/status" jdtls sent, or null before the first
+	 * one has arrived (e.g. jdtls has not been started at all yet, or started
+	 * too recently for even its first "Starting" report to have landed). See
+	 * lastStatus's own field doc.
+	 */
+	public String lastStatus() {
+		return lastStatus;
+	}
+
+	/**
+	 * Whether jdtls has reported ServiceReady - i.e. the initial import *and*
+	 * the build/indexing it triggers have both actually finished, not just the
+	 * LSP handshake (initialize/initialized, see start()). False for the whole
+	 * time a project is still being indexed in the background, which is
+	 * exactly the window ClideDaemon.rejectBusy() wants to tell apart from a
+	 * genuine second client - see its own doc.
+	 */
+	public boolean isIndexingComplete() {
+		return serviceReady.getCount() == 0;
+	}
+
+	/**
+	 * Blocks until jdtls reports ServiceReady (see handleStatus()) or
+	 * timeoutSeconds elapses, whichever comes first - best-effort, not a hard
+	 * requirement: a caller that times out here is not wrong to go on, since
+	 * every jdtls request already carries its own timeout and will fail loudly
+	 * on its own if the model genuinely is not ready yet. What this used to do
+	 * - Thread.sleep(Math.min(timeoutSeconds, 15)) - looked like it was waiting
+	 * for indexing but never actually checked jdtls' own state, and silently
+	 * capped a 240s budget (see start()) down to 15s; on a project the size of
+	 * PlantUML (3600+ files) that is nowhere near enough, so "Daemon ready"
+	 * ended up being printed while jdtls was still indexing underneath it -
+	 * see JDTLS.md, section 4.
+	 */
 	private void waitForServiceReady(final long timeoutSeconds) throws InterruptedException {
-		// Best-effort: jdtls reports "Started"/"ServiceReady" via language/status once
-		// indexing is done, but on a project this small it's not essential to wait for
-		// -
-		// a short fixed delay is simpler and was sufficient during validation
-		// (JDTLS.md).
-		Thread.sleep(TimeUnit.SECONDS.toMillis(Math.min(timeoutSeconds, 15)));
+		serviceReady.await(timeoutSeconds, TimeUnit.SECONDS);
 	}
 
 	private Monomorphic initializeParams() {

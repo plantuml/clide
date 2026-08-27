@@ -270,19 +270,43 @@ def main() -> None:
 	script_path, args = parse_script_path(args)
 	project_root = parse_project_root(args)
 
-	state = probe(project_root)
-	if not state.live:
-		sys.exit(daemon_not_found_message(project_root, state))
+	# Deliberately NOT probe() here, even though probe() (is_reachable(), even)
+	# exists for exactly this "is a daemon there" question and is kept around
+	# as the Python-side mirror of DaemonLock.probe() on the Java side. Calling
+	# it first would open a real TCP connection to the daemon purely to check
+	# liveness, then immediately close it without sending a byte - and the
+	# daemon has no way to tell that throwaway connection apart from a genuine
+	# client (see ClideDaemon.serveOrRejectIfBusy()): it accepts it, spends its
+	# one connectionLock slot on it, and only releases that slot once
+	# reader.readLine() sees the probe close its socket and returns EOF. That
+	# release is fast but not instantaneous, and the very next connection this
+	# same invocation makes - connect(), a few lines below, for the real
+	# session - can arrive before it, and lose the race: BUSY, on a daemon
+	# with no real second client anywhere. Confirmed empirically against this
+	# fix: ~1 in 5 runs of a plain "help/exit" against an otherwise idle,
+	# fully-warm daemon (see the accompanying patch notes) got BUSY before
+	# this change, purely from clide.py racing against itself. connect()
+	# below already answers "is it live" at least as well as probe() would -
+	# a successful connect *is* the live session, one socket instead of two -
+	# so probe() is only reached now on the path where connect() itself just
+	# failed, to build a message for the human.
+	lock = read_lock(project_root)
+	if lock is None:
+		sys.exit(daemon_not_found_message(project_root, DaemonState(live=False, dead=False, port=None, pid=None)))
 
-	sock = connect(state.port)
+	port, pid = lock
+	sock = connect(port)
 	if sock is None:
-		# LIVE per probe() an instant ago, yet unreachable now - a race (the
-		# daemon just died), not the ordinary "never was one"/"already dead"
-		# cases above, worth its own message rather than reusing either.
-		sys.exit(f"clide: daemon for {project_root} stopped answering while connecting "
-				f"(pid {state.pid}, port {state.port})")
+		# A lock file names a port/pid, but nothing answered there just now -
+		# whether that daemon crashed a while ago (an ordinary stale lock) or
+		# died in the instant of this very connect() attempt is not something
+		# this script can tell apart without the second connection this change
+		# exists to avoid, and the two read the same to a human either way:
+		# "not responding, check whether it crashed" (see
+		# daemon_not_found_message()).
+		sys.exit(daemon_not_found_message(project_root, DaemonState(live=False, dead=True, port=port, pid=pid)))
 
-	banner = f"*** clide connected to daemon (pid {state.pid}) for {project_root}\n"
+	banner = f"*** clide connected to daemon (pid {pid}) for {project_root}\n"
 	sys.stdout.buffer.write(banner.encode("utf-8"))
 	sys.stdout.buffer.flush()
 

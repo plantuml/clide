@@ -108,6 +108,16 @@ public final class ClideDaemon {
 	private volatile String currentCommand;
 	private volatile long currentCommandStartedAtNanos;
 
+	/**
+	 * Set once in run(), as soon as the session exists - null only for the
+	 * brief window before that. Read (without connectionLock: see
+	 * currentCommand's own doc for why that is fine) by rejectBusy() to say
+	 * *why* the daemon is busy when the reason is jdtls still indexing in the
+	 * background rather than a second genuine client - see
+	 * JdtlsSession.isIndexingComplete()/lastStatus().
+	 */
+	private volatile JdtlsSession session;
+
 	public ClideDaemon(final Path projectRoot, final PrintMode printMode, final Collection<Command> commands) {
 		this.projectRoot = projectRoot;
 		this.printMode = printMode;
@@ -131,6 +141,7 @@ public final class ClideDaemon {
 		final Md5Repository md5Repository = new Md5Repository(projectRoot);
 		final FilesRepository filesRepository = new FilesRepository(projectRoot, md5Repository);
 		final JdtlsSession session = new JdtlsSession(launcher, filesRepository);
+		this.session = session;
 		// Says where jdtls lives, because nothing else does and the answer is not
 		// guessable: it is a shared per-user cache directory named after the
 		// archive's fingerprint, not anything under this project - see JdtlsHome.
@@ -274,16 +285,36 @@ public final class ClideDaemon {
 	private void rejectBusy(final Socket client) {
 		final String runningNow = currentCommand;
 		final String message = runningNow == null
-				? "the daemon is already serving another client - try again shortly"
+				? "the daemon is already serving another client - try again shortly" + indexingNote()
 				: "the daemon is busy running '" + runningNow + "' (started "
 						+ TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - currentCommandStartedAtNanos)
-						+ "s ago) - a rebuild can take up to 5 minutes, try again shortly";
+						+ "s ago) - a rebuild can take up to 5 minutes, try again shortly" + indexingNote();
 
 		try (Socket c = client; PrintStream out = new PrintStream(c.getOutputStream(), true, StandardCharsets.UTF_8)) {
 			out.println(ResultEnvelope.render(CommandResult.error(ErrorCode.BUSY, message), ""));
 		} catch (final IOException e) {
 			// this client is already gone - nothing left to tell it
 		}
+	}
+
+	/**
+	 * Appended to a BUSY message when jdtls itself is the reason the connection
+	 * holding connectionLock is taking so long: still indexing in the
+	 * background (see JdtlsSession.isIndexingComplete()) rather than genuinely
+	 * serving a second client. Empty once indexing has completed, or before
+	 * session exists at all - a plain "try again shortly" is the whole story
+	 * then. This is what tells apart "BUSY because someone else is really
+	 * connected" from "BUSY because the one command actually running is stuck
+	 * behind jdtls' own initial indexing" - see this class' own doc and
+	 * JDTLS.md, section 4.
+	 */
+	private String indexingNote() {
+		final JdtlsSession current = session;
+		if (current == null || current.isIndexingComplete())
+			return "";
+
+		final String status = current.lastStatus();
+		return " (jdtls is still indexing" + (status == null ? "" : ": " + status) + ")";
 	}
 
 	/**
