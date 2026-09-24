@@ -45,9 +45,9 @@ public class RunTestsCommand extends Command {
 				could report a dependency's tests as the project's.
 
 				Everything else works as run_test describes - no build tool,
-				a forked JVM on the classpath jdtls reports, Jupiter and
-				Vintage engines both available, failures reported as
-				"path:line: name".
+				a forked JVM on the classpath jdtls reports, assertions
+				enabled, Jupiter and Vintage engines both available, failures
+				reported as "path:line: name".
 
 			ERRORS
 				<filter> must be exactly "all" or "failures" - anything

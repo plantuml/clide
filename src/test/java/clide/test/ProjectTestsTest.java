@@ -1,6 +1,7 @@
 package clide.test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.List;
 
@@ -67,6 +68,18 @@ class ProjectTestsTest {
 
 	private static String skip(final String name) {
 		return String.join("\t", TestRunnerMain.SKIP, "demo.T", name, name + "()", "desactive");
+	}
+
+	@Test
+	@DisplayName("la JVM de test tourne avec -ea, avant la classe principale")
+	void testJvmEnablesAssertions() {
+		final List<String> command = ProjectTests.command("java", List.of("a.jar", "b"),
+				new String[] { "--class", "demo.CalcTest" });
+
+		// Placé après la classe principale, -ea serait un argument de TestRunnerMain
+		// et non une option de la JVM : la position compte autant que la présence.
+		assertEquals(List.of("java", "-ea", "-cp", "a.jar" + java.io.File.pathSeparator + "b",
+				TestRunnerMain.class.getName(), "--class", "demo.CalcTest"), command);
 	}
 
 }

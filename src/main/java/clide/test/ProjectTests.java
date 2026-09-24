@@ -40,6 +40,11 @@ import clide.model.TestOutcome;
  * clide's jar goes LAST on the classpath: a project shipping its own JUnit
  * keeps it, and clide only fills in what is missing.
  *
+ * The test JVM runs with assertions enabled (-ea), as it does under Gradle
+ * (Test.enableAssertions) and Maven Surefire (enableAssertions), both true by
+ * default. Without it, an assert in the code under test is silently skipped: a
+ * test clide reports as passing would fail under the project's own build.
+ *
  * Deliberately does NOT recompile first. A test run therefore reports the state
  * of the last build, not of the files on disk - run rebuild after editing, or
  * the answer is about code that no longer exists.
@@ -129,6 +134,25 @@ public final class ProjectTests {
 	// Forking
 	// ------------------------------------------------------------------
 
+	/**
+	 * The test JVM's command line. Package-private so that what it holds - -ea
+	 * above all, whose absence no test failure would ever reveal - is checked
+	 * without starting a JVM.
+	 */
+	static List<String> command(final String javaExecutable, final List<String> classpath, final String[] selector) {
+		final List<String> command = new ArrayList<>();
+		command.add(javaExecutable);
+		// Same default as Gradle and Maven Surefire: see the class comment.
+		command.add("-ea");
+		command.add("-cp");
+		command.add(String.join(java.io.File.pathSeparator, classpath));
+		command.add(TestRunnerMain.class.getName());
+		// selector is 2 elements for "--class <name>"/"--scan <root>", 3 for
+		// "--method <class> <target>" - see TestSelector.selector().
+		command.addAll(List.of(selector));
+		return command;
+	}
+
 	private static Outcome fork(final ClideContext context, final List<String> classpath, final String[] selector,
 			final long timeoutSeconds) {
 		final List<String> own = ownClasspath();
@@ -142,14 +166,7 @@ public final class ProjectTests {
 			if (full.contains(entry) == false)
 				full.add(entry);
 
-		final List<String> command = new ArrayList<>();
-		command.add(JdtlsLauncher.javaExecutable());
-		command.add("-cp");
-		command.add(String.join(java.io.File.pathSeparator, full));
-		command.add(TestRunnerMain.class.getName());
-		// selector is 2 elements for "--class <name>"/"--scan <root>", 3 for
-		// "--method <class> <target>" - see TestSelector.selector().
-		command.addAll(List.of(selector));
+		final List<String> command = command(JdtlsLauncher.javaExecutable(), full, selector);
 
 		final Process process;
 		try {

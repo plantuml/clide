@@ -521,6 +521,9 @@ compiles against, *after* whatever jars the project keeps in its own `.clide/`
 nothing to commit: a project needs no JUnit jar in `.clide/` for its test
 sources to compile, and adding one only shadows what clide already brings.
 (This is also why clide has to be run from the jar — see "Getting started".)
+The test JVM runs with assertions enabled (`-ea`), as Gradle and Maven
+Surefire do by default: an `assert` in the code under test fails the test
+instead of being silently skipped.
 On a very large suite with
 missing external dependencies (e.g. a system tool some tests call out to),
 `run_tests` may never finish in a reasonable time; prefer a targeted

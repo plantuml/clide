@@ -61,6 +61,10 @@ public class RunTestCommand extends Command {
 				its own JUnit keeps it: clide's jar goes last on the
 				classpath and only fills in what is missing.
 
+				Assertions are enabled (-ea), as under Gradle and Maven
+				Surefire: an assert in the code under test is checked, and
+				fails the test like any other exception.
+
 				Each failure is reported as "path:line" plus the test's
 				name - a stack frame carries no column, so this is one
 				notch short of a full <position>: add the column of the
