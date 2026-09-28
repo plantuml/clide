@@ -47,7 +47,10 @@ project, that owns the actual jdtls session and does all the work; and a
 Python **client**, `clide.py`, that connects to an already-running daemon and
 relays commands to it. There is no Java client anymore — starting the daemon
 and talking to it are two distinct, deliberate steps, never one command that
-does both.
+does both. Both steps are `python3` from the outside — `start_clide.py` for
+the first, `clide.py` for the second — the daemon is still a JVM program
+underneath, but nothing about using clide requires typing `java` yourself
+any more than it requires typing `ant`.
 
 **Build the daemon with `ant` only, never with `gradlew`/Gradle.** The Gradle
 wrapper downloads its distribution from `services.gradle.org`, a domain
@@ -55,7 +58,8 @@ not reachable from a Claude sandbox (403 verified) — `gradlew`/
 `gradlew.bat` will therefore always fail in this environment. `ant`
 compiles and packages `clide.jar` with no network access needed.
 
-**And run that jar** — `java -jar clide.jar [--human] <project>` — never the
+**And run that jar** — `java -jar clide.jar [--human] <project>`, which is
+exactly what `start_clide.py` runs on your behalf (see Step 1) — never the
 compiled classes with `lib/` on the classpath. `clide.jar` is not just a
 packaging convenience: it carries resources the code reads at runtime, and a
 classes-based run has none of them. jdtls itself is one
@@ -68,25 +72,31 @@ shows up in the *opened project* instead: `rebuild` reports a wave of
 touched, which reads exactly like a project whose classpath is broken. It is
 not — the clide that was asked is.
 
-**Step 1 — start the daemon.** `java -jar clide.jar <project-path>` starts a
-daemon dedicated to that project — one per project, building it the first
+**Step 1 — start the daemon.** `python3 start_clide.py <project-path>` starts
+a daemon dedicated to that project — one per project, building it the first
 time, staying alive across many later client connections so they don't pay
 that cost again. It runs in the **foreground** and blocks: backgrounding it
-(`nohup java -jar clide.jar <project-path> &`, a systemd unit, a screen/tmux
-session, whatever fits) is entirely up to whoever starts it — clide itself no
-longer forks or detaches on its own. `java -jar clide.jar --human
-<project-path>` starts that same daemon in HUMAN print mode instead of the
-default AI mode — see below. **The mode is fixed for the daemon's whole
-lifetime once it starts; there is no way to change it short of restarting
-the daemon**, and every client that connects afterward, whichever mode it
-relays, is served in that one mode.
+(`nohup python3 start_clide.py <project-path> &`, a systemd unit, a
+screen/tmux session, whatever fits) is entirely up to whoever starts it —
+clide itself no longer forks or detaches on its own, and `start_clide.py`
+does not either (for now — see its own module docstring). `python3
+start_clide.py --human <project-path>` starts that same daemon in HUMAN print
+mode instead of the default AI mode — see below. **The mode is fixed for the
+daemon's whole lifetime once it starts; there is no way to change it short of
+restarting the daemon**, and every client that connects afterward, whichever
+mode it relays, is served in that one mode. `start_clide.py` itself takes no
+other flags: it resolves `java` (on PATH) and `clide.jar` (next to itself)
+and fails with a clear message, rather than a raw OS error, when either is
+missing — the latter naming `ant dist` as the fix.
 
 **If the daemon is not already running, nothing starts it automatically —
 not the client, not anything else.** A client finding no daemon for a
-project fails with a message naming the `java -jar clide.jar` command to run
+project fails with a message naming the `start_clide.py` command to run
 first. This is deliberate: starting the daemon means picking `--ia` or
 `--human` for its whole lifetime, a choice nothing should make silently on a
-caller's behalf.
+caller's behalf — including `start_clide.py` itself, which only ever starts a
+daemon when it is run on purpose, never as a fallback from `clide.py` or
+anything else.
 
 **Step 2 — connect a client.** `python3 clide.py <project-path>` connects to
 the daemon already running for that project and relays this process' own
@@ -98,7 +108,8 @@ printed (that was moved to the daemon's own `--human`, above): every case
 this script does not recognize, or a daemon it cannot reach, ends in a
 message on stderr and a non-zero exit, never a silent substitute. Needs
 nothing beyond Python's own standard library, and no `clide.jar` sitting next
-to it — it never reads or execs one.
+to it — it never reads or execs one (that is `start_clide.py`'s one and only
+job, and only when it is the one being run).
 
 Two levels of built-in help:
 

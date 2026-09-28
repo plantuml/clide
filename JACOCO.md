@@ -25,10 +25,10 @@ une nouvelle conversation.
   dernier build (`rebuild` doit être lancé après une édition).
 - Contrainte d'environnement forte : **clide doit se builder uniquement avec
   `ant`** (jamais `gradlew`/Gradle — `services.gradle.org` retourne 403 depuis
-  la sandbox Claude) et tourner uniquement via `java -jar clide.jar
-  <project>` (jamais classes + `lib/` sur le classpath — `clide.jar` embarque
-  des ressources lues au runtime, comme le zip jdtls et les jars JUnit
-  vendor).
+  la sandbox Claude) et tourner uniquement via le jar packagé (`python3
+  start_clide.py <project>`, qui lance `java -jar clide.jar <project>` pour
+  toi — jamais classes + `lib/` sur le classpath : `clide.jar` embarque des
+  ressources lues au runtime, comme le zip jdtls et les jars JUnit vendor).
 
 ## Objectif
 

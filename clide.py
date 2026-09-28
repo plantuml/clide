@@ -34,7 +34,7 @@ Usage:
 
 Starting the daemon is a separate, earlier step - not this script's job:
 
-    java -jar clide.jar [--human] <project path>
+    python3 start_clide.py [--human] <project path>
 """
 
 import os
@@ -266,7 +266,7 @@ def parse_project_root(args: List[str]) -> str:
 
 
 def daemon_not_found_message(project_root: str, state: DaemonState) -> str:
-	start_command = f"java -jar clide.jar [--human] {project_root}"
+	start_command = f"python3 start_clide.py [--human] {project_root}"
 
 	if state.dead:
 		return (
@@ -284,7 +284,7 @@ def main() -> None:
 	if HUMAN_FLAG in args:
 		sys.exit(
 			"clide.py takes no --human flag: the print mode is fixed when the daemon "
-			"itself is started (java -jar clide.jar --human <project>), not per "
+			"itself is started (python3 start_clide.py --human <project>), not per "
 			"connection - see CLAUDE.md."
 		)
 

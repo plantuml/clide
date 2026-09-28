@@ -34,15 +34,21 @@ refactoring engine, inside a transaction that can be rolled back.
 clide has two parts, started separately, in that order:
 
 - a Java **daemon**, one per project, that owns the jdtls session and does
-  all the work — started with `java -jar clide.jar <project-path>`;
+  all the work — started with `python3 start_clide.py <project-path>`;
 - a Python **client**, `clide.py`, with no dependency outside the standard
   library, that connects to an already-running daemon and relays commands
   to it — started with `python3 clide.py <project-path>`.
 
+Both are `python3` from the outside; the daemon is still a JVM process
+underneath (`start_clide.py` just runs `java -jar clide.jar [--human]
+<project-path>` on your behalf), but nothing about using clide requires
+typing `java` yourself.
+
 The daemon and the client are never the same command: starting the daemon
 means picking its print mode (default machine-readable, or `--human`) for
 its whole lifetime, and nothing starts a daemon automatically on a client's
-behalf.
+behalf — including `start_clide.py` itself, which only ever starts one when
+it is the command being run, never as a fallback from anything else.
 
 A session can also be scripted in Lua instead of driven command by command:
 `python3 clide.py --lua <script.lua> <project-path>` — useful for a
@@ -61,10 +67,11 @@ ant dist    # builds clide.jar
 ant test    # runs the test suite
 ```
 
-**Always run the packaged jar** (`java -jar clide.jar <project-path>`),
-never the compiled classes with `lib/` on the classpath by hand — `clide.jar`
-carries resources (a bundled jdtls, JUnit jars for the target project) that
-the code reads at runtime and that a classes-only run silently doesn't have.
+**Always run the packaged jar** (`python3 start_clide.py <project-path>`,
+which runs `java -jar clide.jar <project-path>` for you), never the compiled
+classes with `lib/` on the classpath by hand — `clide.jar` carries resources
+(a bundled jdtls, JUnit jars for the target project) that the code reads at
+runtime and that a classes-only run silently doesn't have.
 
 jdtls itself is bundled inside `clide.jar` — nothing to install separately —
 and the `.project`/`.classpath` files jdtls needs are generated and cleaned

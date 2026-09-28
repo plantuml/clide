@@ -92,3 +92,31 @@ Ce script ne doit jamais retomber sur `clide.jar` pour quoi que ce soit —
 ni fallback, ni auto-start du daemon. Le jour où un cas n'est pas couvert,
 la bonne réponse est un message d'erreur clair, jamais un `exec`/`subprocess`
 vers Java.
+
+## `start_clide.py` — démarre le daemon, en Python
+
+Même règles de base que `clide.py` ci-dessus : pas de build, pas de
+dépendance hors bibliothèque standard, tabulations, `python3 -m py_compile
+start_clide.py` au minimum, et un smoke test réel (démarrer un daemon sur un
+petit projet avec ce script, s'y connecter avec `clide.py`, envoyer
+`help`/`exit`, puis `terminate`) avant de considérer un changement terminé.
+
+Son rôle est le symétrique de celui de `clide.py`, pas son complément : là où
+`clide.py` ne doit jamais toucher à `clide.jar`, `start_clide.py` n'existe
+que pour ça — lancer `java -jar clide.jar [--human] <project>` à la place de
+qui l'exécute, pour qu'il n'y ait plus besoin de taper `java` soi-même (voir
+CLAUDE.md, « Getting started »). Ce qui reste interdit : que ce soit un
+*fallback* que `clide.py` ou n'importe quel autre code appellerait de
+lui-même — seul un humain (ou un agent) qui lance `start_clide.py`
+explicitement doit jamais démarrer un daemon. Garder les deux scripts
+strictement séparés est ce qui permet à `clide.py` de garder son invariant
+ci-dessus sans exception.
+
+Volontairement minimal pour l'instant : premier plan, bloquant, aucune
+tentative de détacher le daemon de la durée de vie de ce script, aucune
+attente active jusqu'à ce que le daemon soit prêt (rien à attendre — l'appel
+ne rend la main que lorsque le daemon s'arrête), aucun verrou contre deux
+lancements concurrents sur le même projet. Étendre l'un de ces points est une
+vraie extension de conception (voir le docstring du module), pas un simple
+ajustement — n'y toucher qu'avec la même rigueur que pour ajouter une
+commande côté daemon, jamais en édition rapide.

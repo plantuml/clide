@@ -146,7 +146,8 @@ extrait dans le projet cible, et jdtls n'y résout plus JUnit. Symptôme :
 
 …par dizaines, sur des fichiers auxquels personne n'a touché. Sur clide
 lui-même, 30 erreurs de ce genre, qui s'évaporent en relançant exactement le
-même code avec `java -jar clide.jar`.
+même code avec `python3 start_clide.py` (qui lance `java -jar clide.jar`
+pour toi — voir CLAUDE.md).
 
 Ce qui rend ce piège coûteux n'est pas la panne, c'est le diagnostic : rien
 n'annonce une ressource manquante, donc on conclut que le **projet cible** a un
@@ -238,7 +239,7 @@ Utilise `help` (liste + arité de chaque commande) et **`man <commande>`**
 (page détaillée, sections ERRORS / SEE ALSO) : ils sont intégrés et font
 autorité sur `CLAUDE.md` en cas de désaccord — un désaccord entre les deux
 étant lui-même un résultat à rapporter. Démarrer le daemon avec `--human`
-(`java -jar clide.jar --human <projet>`) active les prompts `> READY` /
+(`python3 start_clide.py --human <projet>`) active les prompts `> READY` /
 `> <paramètre> ?` pour toute la durée de vie de ce daemon, utile pour
 explorer à la main, à éviter en pipe — ça ne se choisit plus par connexion.
 
