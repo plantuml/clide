@@ -22,6 +22,13 @@ safe to run the moment this script's own process ends successfully - that is
 the whole point: knowing the daemon is ready is what this script now does
 that a bare `java -jar clide.jar` command line never could tell you itself.
 
+While it waits, it also echoes the daemon's own boot trace - the log file's
+new content as it is written - to this script's stdout (see
+wait_for_ready()/echo_new_log_output()), so what you see running
+`start_clide.py` reads the same as running `java -jar clide.jar` directly
+would, even though the daemon's own stdout is, underneath, a file rather
+than this script's terminal.
+
 If a daemon already answers for this project when this script starts, it
 reports that daemon as ready and starts nothing new - calling this script
 again is safe, not a way to end up with two daemons for one project.
@@ -59,7 +66,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List, NamedTuple, Optional, Tuple
+from typing import IO, List, NamedTuple, Optional, Tuple
 
 import clide
 
@@ -159,13 +166,21 @@ def spawn_detached(command: List[str], log_path: Path) -> subprocess.Popen:
 	error, or on Ctrl+C: see main()), the same as it would if backgrounded by
 	hand with `nohup ... &` or a systemd unit (see CLAUDE.md).
 
+	Opened "wb" (truncated), not "ab" like the old ClideClient.ensureDaemon()
+	this otherwise mirrors: main() only ever calls this once there is no live
+	daemon for the project already (see its own probe() check), so whatever
+	is left in an existing log at that point is a past run's story, not this
+	one's - and tail_log_while_waiting() below reads this same file from its
+	very start, which would otherwise replay that old content as if it were
+	live output the moment this call is made.
+
 	stdin is DEVNULL, not inherited either: the daemon never reads from it (it
 	only ever talks over the TCP socket clide.py connects to - see
 	ClideDaemon), and a detached process has no terminal of its own to read
 	from in the first place.
 	"""
 	log_path.parent.mkdir(parents=True, exist_ok=True)
-	log_file = open(log_path, "ab")  # noqa: SIM115 - closed by the Popen call below owning its fd
+	log_file = open(log_path, "wb")  # noqa: SIM115 - closed by the Popen call below owning its fd
 
 	popen_kwargs = {}
 	if os.name == "posix":
@@ -207,7 +222,43 @@ class WaitOutcome(NamedTuple):
 	exited_with: Optional[int]
 
 
-def wait_for_ready(process: "subprocess.Popen[bytes]", project_root: str) -> WaitOutcome:
+def open_log_tail(log_path: Path) -> Optional[IO[bytes]]:
+	"""A read handle on log_path, positioned at its start, for
+	wait_for_ready() to poll for new bytes as the daemon writes them - or None
+	if it can't be opened for reading right now, which is not fatal to
+	anything this script actually promises (see its caller): the daemon's own
+	progress is still all there in the file itself, this only loses the
+	live copy of it on this script's own stdout while waiting.
+	"""
+	try:
+		return open(log_path, "rb")
+	except OSError as error:
+		print(f"start_clide.py: could not tail {log_path} live ({error}) - waiting silently; "
+				f"its own output is still all there once this returns.")
+		return None
+
+
+def echo_new_log_output(tail: Optional[IO[bytes]]) -> None:
+	"""Copies whatever log bytes have appeared since the last call straight to
+	this script's own stdout, unprocessed - the same bytes the daemon itself
+	would have printed here without this script in between (see the module
+	docstring), including a build stage's own " [OK]" landing on the line
+	`System.out.print()` started earlier rather than a fresh one. Flushed
+	explicitly for the same reason clide.py's pump_socket_to_stdout() already
+	is: sys.stdout.buffer on its own is block-buffered, and a short chunk
+	would otherwise sit unseen until enough further output arrives to fill
+	that buffer.
+	"""
+	if tail is None:
+		return
+
+	chunk = tail.read()
+	if chunk:
+		sys.stdout.buffer.write(chunk)
+		sys.stdout.buffer.flush()
+
+
+def wait_for_ready(process: "subprocess.Popen[bytes]", project_root: str, log_path: Path) -> WaitOutcome:
 	"""Blocks until either the daemon this script just launched answers on the
 	port it wrote to its own lock file (see clide.probe(), imported rather
 	than re-implemented so the two scripts can never disagree on what counts
@@ -215,24 +266,36 @@ def wait_for_ready(process: "subprocess.Popen[bytes]", project_root: str) -> Wai
 	see ClideDaemon), or that same process exits on its own first - a crash,
 	a bad project path, a port bind failure, anything that means it will
 	never become ready and this script must say so instead of waiting
-	forever.
+	forever. Meanwhile, echoes log_path's own new content to this script's
+	stdout as it is written (see echo_new_log_output()) - the daemon's boot
+	trace reads exactly as it would running `java -jar clide.jar` directly,
+	the one thing lost by redirecting it to a file instead of inheriting it
+	(see spawn_detached()).
 
-	Deliberately no timeout beyond that: a big project's first build (jdtls
-	extraction plus its own indexing) can take minutes, not seconds, and
-	guessing a cutoff that is safe for both a small project and PlantUML
-	itself is not a number this script can pick honestly - see the module
-	docstring.
+	Deliberately no timeout beyond "the daemon answers or its process exits":
+	a big project's first build (jdtls extraction plus its own indexing) can
+	take minutes, not seconds, and guessing a cutoff that is safe for both a
+	small project and PlantUML itself is not a number this script can pick
+	honestly - see the module docstring.
 	"""
-	while True:
-		exit_code = process.poll()
-		if exit_code is not None:
-			return WaitOutcome(ready=None, exited_with=exit_code)
+	tail = open_log_tail(log_path)
+	try:
+		while True:
+			echo_new_log_output(tail)
 
-		state = clide.probe(project_root)
-		if state.live:
-			return WaitOutcome(ready=state, exited_with=None)
+			exit_code = process.poll()
+			if exit_code is not None:
+				echo_new_log_output(tail)  # whatever landed between the read above and this exit becoming visible
+				return WaitOutcome(ready=None, exited_with=exit_code)
 
-		time.sleep(POLL_INTERVAL_SECONDS)
+			state = clide.probe(project_root)
+			if state.live:
+				return WaitOutcome(ready=state, exited_with=None)
+
+			time.sleep(POLL_INTERVAL_SECONDS)
+	finally:
+		if tail is not None:
+			tail.close()
 
 
 def main() -> None:
@@ -256,7 +319,7 @@ def main() -> None:
 			f"waiting for it to be ready (see {log_path} for its own progress) ...")
 
 	try:
-		outcome = wait_for_ready(process, project_root)
+		outcome = wait_for_ready(process, project_root, log_path)
 	except KeyboardInterrupt:
 		sys.exit(f"start_clide.py: stopped waiting, not the daemon - pid {process.pid} keeps starting in the "
 				f"background (it was launched detached before this wait began). Check {log_path}, or just run "

@@ -79,7 +79,12 @@ that cost again. Unlike the raw `java` command it runs on your behalf,
 `start_clide.py` **detaches the daemon and waits for it to be ready before
 returning** — its own process ends, but the daemon keeps running,
 unaffected, and `python3 clide.py <project-path>` is safe to run the moment
-`start_clide.py` reports success. There is no fixed timeout: a large
+`start_clide.py` reports success. While it waits, it echoes the daemon's own
+boot trace to its own stdout as the daemon writes it, so what a `--human`
+session's boot looks like on screen is the same either way — this script or
+the raw `java` command — even though the daemon's own output underneath is,
+now, a file rather than this script's terminal. There is no fixed timeout: a
+large
 project's first build can take minutes, so it waits for either readiness or
 the daemon's own process exiting on its own (reported as an error, with the
 end of its boot log inline — the full log is `.clide/tmp/.clide-daemon.log`

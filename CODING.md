@@ -102,8 +102,10 @@ et envoyer `help`/`exit`/`terminate` avec `clide.py`, mais aussi : relancer
 `start_clide.py` sur un projet déjà démarré (doit rester idempotent, aucun
 second daemon), vérifier que le processus lancé survit bien après la fin de
 `start_clide.py` lui-même (détachement réel, pas juste un sous-processus
-ordinaire), et lire `.clide/tmp/.clide-daemon.log` pour s'assurer qu'il
-contient bien toute la trace de boot.
+ordinaire), vérifier que la trace de boot du daemon s'affiche bien en direct
+sur la sortie standard de `start_clide.py` pendant l'attente (pas seulement
+présente après coup dans le fichier), et lire `.clide/tmp/.clide-daemon.log`
+pour s'assurer qu'il contient lui aussi bien toute cette même trace.
 
 Une différence avec `clide.py` : `start_clide.py` importe `clide` (`import
 clide`) pour relire le même fichier de verrou de la même façon
