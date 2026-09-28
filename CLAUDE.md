@@ -75,19 +75,36 @@ not — the clide that was asked is.
 **Step 1 — start the daemon.** `python3 start_clide.py <project-path>` starts
 a daemon dedicated to that project — one per project, building it the first
 time, staying alive across many later client connections so they don't pay
-that cost again. It runs in the **foreground** and blocks: backgrounding it
-(`nohup python3 start_clide.py <project-path> &`, a systemd unit, a
-screen/tmux session, whatever fits) is entirely up to whoever starts it —
-clide itself no longer forks or detaches on its own, and `start_clide.py`
-does not either (for now — see its own module docstring). `python3
-start_clide.py --human <project-path>` starts that same daemon in HUMAN print
-mode instead of the default AI mode — see below. **The mode is fixed for the
-daemon's whole lifetime once it starts; there is no way to change it short of
-restarting the daemon**, and every client that connects afterward, whichever
-mode it relays, is served in that one mode. `start_clide.py` itself takes no
-other flags: it resolves `java` (on PATH) and `clide.jar` (next to itself)
-and fails with a clear message, rather than a raw OS error, when either is
-missing — the latter naming `ant dist` as the fix.
+that cost again. Unlike the raw `java` command it runs on your behalf,
+`start_clide.py` **detaches the daemon and waits for it to be ready before
+returning** — its own process ends, but the daemon keeps running,
+unaffected, and `python3 clide.py <project-path>` is safe to run the moment
+`start_clide.py` reports success. There is no fixed timeout: a large
+project's first build can take minutes, so it waits for either readiness or
+the daemon's own process exiting on its own (reported as an error, with the
+end of its boot log inline — the full log is `.clide/tmp/.clide-daemon.log`
+under the project). Running `start_clide.py` again for a project that
+already has a daemon up is safe and does nothing but say so — it never
+starts a second one. Interrupting `start_clide.py` itself (Ctrl+C) only ever
+stops *it* from waiting; the daemon, already detached before the wait began,
+keeps starting regardless. `python3 start_clide.py --human <project-path>`
+starts that same daemon in HUMAN print mode instead of the default AI mode —
+see below. **The mode is fixed for the daemon's whole lifetime once it
+starts; there is no way to change it short of restarting the daemon**, and
+every client that connects afterward, whichever mode it relays, is served in
+that one mode. `start_clide.py` itself takes no other flags: it resolves
+`java` (on PATH) and `clide.jar` (next to itself) and fails with a clear
+message, rather than a raw OS error, when either is missing — the latter
+naming `ant dist` as the fix.
+
+Because the daemon ends up detached rather than owned by a foreground
+process, `start_clide.py` is not the right fit for a process supervisor that
+wants to track the daemon as its own main process (systemd's plain
+`Type=simple`, a foreground Docker entrypoint...) — run
+`java -jar clide.jar [--human] <project-path>` directly for that instead,
+backgrounding it yourself however fits (`nohup ... &`, a systemd unit, a
+screen/tmux session): clide itself no longer forks or detaches on its own,
+which is exactly why `start_clide.py` exists for everyone else.
 
 **If the daemon is not already running, nothing starts it automatically —
 not the client, not anything else.** A client finding no daemon for a

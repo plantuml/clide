@@ -95,11 +95,22 @@ vers Java.
 
 ## `start_clide.py` — démarre le daemon, en Python
 
-Même règles de base que `clide.py` ci-dessus : pas de build, pas de
-dépendance hors bibliothèque standard, tabulations, `python3 -m py_compile
-start_clide.py` au minimum, et un smoke test réel (démarrer un daemon sur un
-petit projet avec ce script, s'y connecter avec `clide.py`, envoyer
-`help`/`exit`, puis `terminate`) avant de considérer un changement terminé.
+Même règles de base que `clide.py` ci-dessus : pas de build, tabulations,
+`python3 -m py_compile start_clide.py` au minimum, et un smoke test réel
+avant de considérer un changement terminé — pas seulement démarrer un daemon
+et envoyer `help`/`exit`/`terminate` avec `clide.py`, mais aussi : relancer
+`start_clide.py` sur un projet déjà démarré (doit rester idempotent, aucun
+second daemon), vérifier que le processus lancé survit bien après la fin de
+`start_clide.py` lui-même (détachement réel, pas juste un sous-processus
+ordinaire), et lire `.clide/tmp/.clide-daemon.log` pour s'assurer qu'il
+contient bien toute la trace de boot.
+
+Une différence avec `clide.py` : `start_clide.py` importe `clide` (`import
+clide`) pour relire le même fichier de verrou de la même façon
+(`clide.probe()`) — délibéré, pour que les deux scripts ne puissent jamais
+diverger sur ce qui compte comme « daemon prêt ». Ce n'est pas une exception
+à la règle « pas de dépendance hors bibliothèque standard » : `clide.py`
+reste cette seule dépendance, pas un paquet externe.
 
 Son rôle est le symétrique de celui de `clide.py`, pas son complément : là où
 `clide.py` ne doit jamais toucher à `clide.jar`, `start_clide.py` n'existe
@@ -112,11 +123,14 @@ explicitement doit jamais démarrer un daemon. Garder les deux scripts
 strictement séparés est ce qui permet à `clide.py` de garder son invariant
 ci-dessus sans exception.
 
-Volontairement minimal pour l'instant : premier plan, bloquant, aucune
-tentative de détacher le daemon de la durée de vie de ce script, aucune
-attente active jusqu'à ce que le daemon soit prêt (rien à attendre — l'appel
-ne rend la main que lorsque le daemon s'arrête), aucun verrou contre deux
-lancements concurrents sur le même projet. Étendre l'un de ces points est une
-vraie extension de conception (voir le docstring du module), pas un simple
-ajustement — n'y toucher qu'avec la même rigueur que pour ajouter une
-commande côté daemon, jamais en édition rapide.
+Détache le daemon (groupe de processus séparé) et attend qu'il réponde avant
+de rendre la main — voir le docstring du module pour le détail (pourquoi pas
+de timeout, ce qui se passe si le daemon meurt avant d'être prêt, pourquoi
+Ctrl+C sur ce script n'arrête jamais le daemon lui-même). Ce qui reste
+volontairement absent : un vrai verrou inter-processus contre deux lancements
+qui démarreraient à l'instant près en même temps sur le même projet — la
+vérification « déjà en vie » au début de `main()` couvre le cas séquentiel
+(relancer après un premier succès) mais pas cette course-là. L'ajouter un
+jour est une vraie extension de conception, pas un simple ajustement — n'y
+toucher qu'avec la même rigueur que pour ajouter une commande côté daemon,
+jamais en édition rapide.

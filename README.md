@@ -42,7 +42,10 @@ clide has two parts, started separately, in that order:
 Both are `python3` from the outside; the daemon is still a JVM process
 underneath (`start_clide.py` just runs `java -jar clide.jar [--human]
 <project-path>` on your behalf), but nothing about using clide requires
-typing `java` yourself.
+typing `java` yourself. `start_clide.py` detaches the daemon and waits for it
+to become ready before returning, so `clide.py <project-path>` is safe to run
+the moment it reports success; running it again for a project that already
+has a daemon up is safe too — it just says so, it never starts a second one.
 
 The daemon and the client are never the same command: starting the daemon
 means picking its print mode (default machine-readable, or `--human`) for

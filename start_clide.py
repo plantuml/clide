@@ -6,66 +6,98 @@ directly, only python3 - same as talking to an already-running daemon
 already only ever meant (`clide.py`, never a Java client - see its own
 docstring).
 
-For now this script does exactly what that command line did, and nothing
-more: it resolves `java` (on PATH, same as the command line it replaces
-relied on) and `clide.jar` (next to this script - the two are meant to live
-side by side, same as `clide.py` already does), forwards --human and the
-project path unchanged, and runs the result in the foreground, blocking,
-with this process' own stdin/stdout/stderr simply inherited by the daemon -
-a --human session's `> READY`/`> <parameter> ?` prompts and jdtls' own boot
-trace on stderr read exactly as they would without this script in between.
-Backgrounding the daemon (`nohup ... &`, a systemd unit, a screen/tmux
-session...) is still up to whoever runs this script, exactly as it was for
-the java command it replaces - see CLAUDE.md, "Step 1".
+What this script does: resolves `java` (on PATH) and `clide.jar` (next to
+this script - the two are meant to live side by side, same as `clide.py`
+already does), forwards --human and the project path unchanged, and launches
+the daemon *detached* from this script's own lifetime - its own process
+group (see spawn_detached()), stdout/stderr redirected to a log file instead
+of inherited, so it keeps running long after this script has exited, exactly
+as intended for something meant to stay up "across many later client
+connections" (see CLAUDE.md). It then waits - polling the same lock file
+clide.py itself reads (see probe(), imported from clide.py rather than
+re-implemented, so the two can never disagree on what counts as "ready") -
+and returns only once the daemon answers, or exits early with a clear error
+if the daemon dies before that. Either way, `python3 clide.py <project>` is
+safe to run the moment this script's own process ends successfully - that is
+the whole point: knowing the daemon is ready is what this script now does
+that a bare `java -jar clide.jar` command line never could tell you itself.
 
-Deliberately not more than that yet: this script does not detach the daemon
-from its own lifetime, does not wait for the daemon to be ready before
-returning (there is nothing to wait for - it only returns once the daemon
-itself has stopped), and does not guard against two invocations racing to
-start the same project's daemon at once (DaemonLock only ever detects one
-already running, on the Java side or clide.py's - starting one is still
-first-come, unserialized). Doing any of that safely - a startup lock,
-somewhere for the daemon's own boot output to go once nothing is left
-attached to its stdout, a decision on whether the daemon should keep running
-after this script's own process ends - is a follow-up, not folded into this
-first version.
+If a daemon already answers for this project when this script starts, it
+reports that daemon as ready and starts nothing new - calling this script
+again is safe, not a way to end up with two daemons for one project.
+
+What this deliberately does NOT do: guard against two invocations racing to
+launch a fresh daemon for the same project at the same instant (the
+already-running check above closes the common, sequential case - calling
+this script again after an earlier one succeeded - not two calls landing in
+the same instant, which would need a real cross-process lock this version
+does not add); pick a boot timeout to give up after (see wait_for_ready() -
+a large project's first build can take minutes, so this waits for either
+readiness or the daemon's own process exiting, never on a clock); or keep
+the daemon running once THIS SCRIPT is asked to stop being kept running
+itself - Ctrl+C here only interrupts the wait, never the daemon, since it is
+already detached before the wait begins (see main()).
+
+Because the daemon ends up detached, with nothing printing to a terminal
+anyone is watching live, this script is not the right fit for a process
+supervisor that wants to own and track the daemon as its own main process
+(systemd's plain Type=simple, a foreground Docker entrypoint...) - run
+`java -jar clide.jar [--human] <project>` directly for that, unchanged; this
+script only ever wraps that exact command line, it does not replace it.
 
 Usage:
 
     python3 start_clide.py [--human] <project path>
 
 Connecting to the daemon this starts is clide.py's job, not this script's -
-run it separately once this one reports the daemon is up (--human mode) or
-simply keeps running (AI mode, where nothing is printed until a client
-connects - see CLAUDE.md).
+run it separately once this one has returned.
 """
 
 import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, NamedTuple, Optional, Tuple
+
+import clide
 
 JAR_NAME = "clide.jar"
+
+# The daemon's own boot trace and everything the JVM itself might print
+# (a stack trace on a port bind failure, "Picked up JAVA_TOOL_OPTIONS...",
+# whatever else nothing here can predict) - kept next to the other files
+# clide leaves in the project's own staging directory (clide.STAGING_DIR),
+# and under the SAME name (.clide-daemon.log) the old Java client
+# (ClideClient, before clide.py replaced it - see HISTORY.md) used for
+# exactly the same purpose, back when it also started the daemon itself.
+LOG_FILE_NAME = ".clide-daemon.log"
+
+# How often to check whether the daemon has become reachable yet, once it
+# has been launched - see wait_for_ready(). Small enough that "ready" is
+# reported promptly once it actually is, large enough not to spend this
+# script's time doing nothing but probing a daemon that is still busy
+# extracting jdtls or indexing a large project.
+POLL_INTERVAL_SECONDS = 0.3
+
+# How many of the log file's own last lines to show inline when the daemon
+# exits before becoming ready - enough to usually catch the actual error
+# without dumping an entire boot trace back at whoever is reading this
+# script's own error message.
+LOG_TAIL_LINES = 20
 
 # Must keep matching PrintMode.HUMAN_FLAG on the Java side, and HUMAN_FLAG in
 # clide.py - the same flag, just forwarded here instead of rejected.
 HUMAN_FLAG = "--human"
 
-# The exit code this script reports when Ctrl+C ends the daemon it started -
-# the shell's own convention (128 + signal number) for "killed by SIGINT",
-# used here for the same reason a shell would: this script did not fail, the
-# daemon it was watching was interrupted, on purpose.
-SIGINT_EXIT_CODE = 130
-
 
 def parse_args(args: List[str]) -> Tuple[bool, str]:
 	"""(human, project_root) from argv[1:] - mirrors clide.py's own
 	parse_project_root(), including project_root's lexical (no symlink
-	resolution) normalization, kept for consistency even though nothing here
-	has to agree with a lock file's own path the way clide.py does: this
-	script never reads or writes one, the daemon it starts does that itself.
+	resolution) normalization: this DOES have to agree with the path the
+	daemon will use to name its own lock file, unlike the first version of
+	this script - see probe() below, which reads that same lock file.
 	"""
 	human = HUMAN_FLAG in args
 	remaining = [arg for arg in args if arg != HUMAN_FLAG]
@@ -83,7 +115,7 @@ def parse_args(args: List[str]) -> Tuple[bool, str]:
 def find_java() -> str:
 	"""The `java` this script runs `-jar clide.jar` with - resolved from PATH,
 	same as the command line it replaces already relied on. Checked explicitly
-	rather than left to subprocess.call() to fail on, so a missing JDK is
+	rather than left to subprocess.Popen() to fail on, so a missing JDK is
 	reported in clide's own terms instead of an OS-level "No such file or
 	directory" naming an executable the person never typed themselves.
 	"""
@@ -115,30 +147,130 @@ def find_jar() -> str:
 	return str(jar)
 
 
+def spawn_detached(command: List[str], log_path: Path) -> subprocess.Popen:
+	"""Launches command with its stdout/stderr going to log_path (created
+	fresh, its parent directory too if this is the very first thing clide
+	ever writes there - same reason ClideClient.ensureDaemon() used to create
+	it itself rather than depend on the daemon having done so first, see
+	HISTORY.md) instead of being inherited, and in its own process group
+	(start_new_session on POSIX, CREATE_NEW_PROCESS_GROUP on Windows) instead
+	of this script's - the two together are what let the daemon keep running,
+	unaffected, after this script's own process exits (successfully, on an
+	error, or on Ctrl+C: see main()), the same as it would if backgrounded by
+	hand with `nohup ... &` or a systemd unit (see CLAUDE.md).
+
+	stdin is DEVNULL, not inherited either: the daemon never reads from it (it
+	only ever talks over the TCP socket clide.py connects to - see
+	ClideDaemon), and a detached process has no terminal of its own to read
+	from in the first place.
+	"""
+	log_path.parent.mkdir(parents=True, exist_ok=True)
+	log_file = open(log_path, "ab")  # noqa: SIM115 - closed by the Popen call below owning its fd
+
+	popen_kwargs = {}
+	if os.name == "posix":
+		popen_kwargs["start_new_session"] = True
+	elif os.name == "nt":
+		popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
+	try:
+		return subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT,
+				**popen_kwargs)
+	finally:
+		log_file.close()  # the child has its own duplicated fd by now; this process no longer needs one
+
+
+def log_tail(log_path: Path) -> str:
+	"""The log file's own last LOG_TAIL_LINES lines, for an error message that
+	needs to show why the daemon died without requiring a second command -
+	best-effort: an unreadable or missing log is not this function's problem
+	to raise, the caller already has a real error of its own to report.
+	"""
+	try:
+		lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+	except OSError:
+		return "(could not read the log)"
+
+	return "\n".join(lines[-LOG_TAIL_LINES:])
+
+
+class WaitOutcome(NamedTuple):
+	"""Exactly one of the two is ever set - see wait_for_ready(). Kept separate
+	from clide.DaemonState rather than folding "the process already exited"
+	into one of its existing fields (port/pid) with a special meaning: a
+	repurposed field is exactly the kind of thing CLAUDE.md/RESULTS.md warn
+	against elsewhere in clide's own payloads, for the same reason - a reader
+	should never have to remember that pid sometimes means something else.
+	"""
+
+	ready: Optional["clide.DaemonState"]
+	exited_with: Optional[int]
+
+
+def wait_for_ready(process: "subprocess.Popen[bytes]", project_root: str) -> WaitOutcome:
+	"""Blocks until either the daemon this script just launched answers on the
+	port it wrote to its own lock file (see clide.probe(), imported rather
+	than re-implemented so the two scripts can never disagree on what counts
+	as "ready" - the exact moment DaemonLock.write() runs on the Java side,
+	see ClideDaemon), or that same process exits on its own first - a crash,
+	a bad project path, a port bind failure, anything that means it will
+	never become ready and this script must say so instead of waiting
+	forever.
+
+	Deliberately no timeout beyond that: a big project's first build (jdtls
+	extraction plus its own indexing) can take minutes, not seconds, and
+	guessing a cutoff that is safe for both a small project and PlantUML
+	itself is not a number this script can pick honestly - see the module
+	docstring.
+	"""
+	while True:
+		exit_code = process.poll()
+		if exit_code is not None:
+			return WaitOutcome(ready=None, exited_with=exit_code)
+
+		state = clide.probe(project_root)
+		if state.live:
+			return WaitOutcome(ready=state, exited_with=None)
+
+		time.sleep(POLL_INTERVAL_SECONDS)
+
+
 def main() -> None:
 	human, project_root = parse_args(sys.argv[1:])
+
+	already = clide.probe(project_root)
+	if already.live:
+		print(f"start_clide.py: daemon already running on port {already.port} (pid {already.pid}) "
+				f"for {project_root} - ready to use, nothing started.")
+		return
 
 	command = [find_java(), "-jar", find_jar()]
 	if human:
 		command.append(HUMAN_FLAG)
 	command.append(project_root)
 
-	# Foreground and blocking, exactly like typing the java command directly -
-	# see the module docstring for why this script goes no further than that
-	# for now. No stdio redirection: this process' own stdin/stdout/stderr are
-	# simply the daemon's, unchanged, so nothing about what a --human session
-	# prints, or how jdtls' own boot trace on stderr reads, differs from
-	# running that command line without this script in between.
-	try:
-		return_code = subprocess.call(command)
-	except KeyboardInterrupt:
-		# The terminal delivered Ctrl+C to both processes at once (same
-		# process group, same as it would without this script in between) -
-		# nothing left for this script itself to do once the daemon it
-		# started has already seen it too.
-		return_code = SIGINT_EXIT_CODE
+	log_path = Path(project_root) / clide.STAGING_DIR / LOG_FILE_NAME
+	process = spawn_detached(command, log_path)
 
-	sys.exit(return_code)
+	print(f"start_clide.py: daemon starting for {project_root} (pid {process.pid}, detached) - "
+			f"waiting for it to be ready (see {log_path} for its own progress) ...")
+
+	try:
+		outcome = wait_for_ready(process, project_root)
+	except KeyboardInterrupt:
+		sys.exit(f"start_clide.py: stopped waiting, not the daemon - pid {process.pid} keeps starting in the "
+				f"background (it was launched detached before this wait began). Check {log_path}, or just run "
+				f"start_clide.py again shortly: it will report the same daemon as ready once it is, without "
+				f"starting a second one.")
+
+	if outcome.exited_with is not None:
+		sys.exit(f"start_clide.py: the daemon for {project_root} exited before becoming ready "
+				f"(exit code {outcome.exited_with}) - see {log_path}, last {LOG_TAIL_LINES} line(s):\n"
+				f"{log_tail(log_path)}")
+
+	state = outcome.ready
+	print(f"start_clide.py: daemon ready on port {state.port} (pid {state.pid}) for {project_root} - "
+			f"python3 clide.py {project_root} is ready to use.")
 
 
 if __name__ == "__main__":
