@@ -453,6 +453,25 @@ build today).
 |---|---|
 | `print_diagnostics <all\|errors>` | Re-displays the diagnostics from the last build (`all`: everything, `errors`: errors only), without recompiling anything. |
 | `rebuild <all\|errors>` | Recompiles the target project and refreshes the semantic model — see above. |
+| `check_javadoc <path regex>` | Runs the JDK's own javadoc tool over every file whose path matches `<path regex>` and reports its diagnostics — a broken `{@link}` chief among them. |
+
+`check_javadoc` never touches jdtls or the diagnostics `rebuild`/
+`print_diagnostics` report — it runs `javax.tools.ToolProvider.
+getSystemDocumentationTool()` fresh on every call, the same tool Gradle's own
+`javadoc` task uses, so the messages read back are worded identically to what
+a `gradle javadoc` run shows (`reference not found: ...`, for instance).
+`<path regex>` only picks which files are *documented*; what a `{@link}`
+inside them can resolve against is always the project's whole conventional
+source layout, never narrowed to the matched set — and the doclet also
+builds each matched file's own package-summary page, which means fully
+parsing every other file in its package, so a finding can occasionally name
+a sibling file `<path regex>` never matched on its own. No project classpath
+is set (only sourcepath), so a `{@link}` to a type that exists solely in an
+external library can misreport as broken — accepted for now, since the
+failure this command exists to catch (a reference to a type no longer
+anywhere in the project's own sources) is unaffected. Findings are
+deduplicated by (file, line, message) before being shown, since the doclet
+reports the same problem once per generated page that mentions it.
 
 ### Text search
 

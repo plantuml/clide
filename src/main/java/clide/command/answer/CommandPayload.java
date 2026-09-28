@@ -3,6 +3,7 @@ package clide.command.answer;
 import java.util.List;
 
 import clide.model.CodeLocation;
+import clide.model.Diagnostic;
 import clide.model.DiagnosticsReport;
 import clide.model.Listing;
 import clide.model.NarrowableMethod;
@@ -212,6 +213,37 @@ public sealed interface CommandPayload {
 				removedImports = List.copyOf(removedImports);
 			}
 		}
+	}
+
+	/**
+	 * The javadoc problems found in one or more files - check_javadoc.
+	 *
+	 * matchedFileCount is every file &lt;path regex&gt; matched, whether or not
+	 * javadoc actually had something to say about it - the same convention
+	 * RemoveUnusedImports.matchedFileCount follows, and for the same reason:
+	 * "3 file(s) matched, 0 problem(s)" is a more useful answer than staying
+	 * silent about the two files that turned out clean.
+	 *
+	 * diagnostics is deduplicated by (file, line, message) before it ever
+	 * reaches here - the underlying doclet reports the same problem once per
+	 * generated page that happens to mention it, and a caller has no use for
+	 * three identical lines about one broken {@literal @}link. errorCount/
+	 * warningCount/fileCount are tallied over that deduplicated set, in full,
+	 * before Listing caps it - exactly like DiagnosticsReport's own counts,
+	 * and for the same reason: max_results narrows what is shown, never what
+	 * the answer claims about the project.
+	 *
+	 * Not built on DiagnosticsReport itself, despite sharing its shape almost
+	 * field for field: DiagnosticsReport's own doc ties it to "the last
+	 * build" and its tracked field specifically to whether jdtls held any
+	 * diagnostics - neither statement is true here, since check_javadoc never
+	 * touches jdtls and runs the JDK's own javadoc tool fresh on every call.
+	 * Reusing it would either leave tracked meaningless or repurpose it, and
+	 * either way the next reader of DiagnosticsReport's doc would be reading
+	 * about a guarantee that no longer holds for every payload built on it.
+	 */
+	record JavadocCheck(int matchedFileCount, Listing<Diagnostic> diagnostics, int errorCount, int warningCount,
+			int fileCount) implements CommandPayload {
 	}
 
 	/**

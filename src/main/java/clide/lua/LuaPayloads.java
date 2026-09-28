@@ -84,6 +84,7 @@ public final class LuaPayloads {
 		case CommandPayload.NarrowableMethods found -> map("subject", found.subject(), "methods",
 				listing(found.methods(), LuaPayloads::narrowableMethod));
 		case CommandPayload.MoveClass moved -> movedClass(moved);
+		case CommandPayload.JavadocCheck checked -> javadocCheck(checked);
 		};
 	}
 
@@ -112,6 +113,12 @@ public final class LuaPayloads {
 
 	private static Object fileChange(final CommandPayload.RemoveUnusedImports.FileChange file) {
 		return map("path", file.path(), "removedImports", new ArrayList<Object>(file.removedImports()));
+	}
+
+	private static Object javadocCheck(final CommandPayload.JavadocCheck checked) {
+		return map("matchedFileCount", (long) checked.matchedFileCount(), "diagnostics",
+				listing(checked.diagnostics(), LuaPayloads::diagnostic), "errorCount", (long) checked.errorCount(),
+				"warningCount", (long) checked.warningCount(), "fileCount", (long) checked.fileCount());
 	}
 
 	private static Object movedClass(final CommandPayload.MoveClass moved) {

@@ -7,6 +7,7 @@ import clide.command.HelpCommand;
 import clide.command.ManualCommand;
 import clide.command.ResearchRegexCommand;
 import clide.command.SetMaxResultsCommand;
+import clide.command.diagnostics.CheckJavadocCommand;
 import clide.command.diagnostics.PrintDiagnosticsCommand;
 import clide.command.diagnostics.RebuildCommand;
 import clide.command.edit.MoveClassCommand;
@@ -70,6 +71,7 @@ public final class CommandRepository {
 		registered.add(new TerminateCommand());
 		registered.add(new RebuildCommand());
 		registered.add(new PrintDiagnosticsCommand());
+		registered.add(new CheckJavadocCommand());
 		registered.add(new ResearchRegexCommand());
 		registered.add(new FindSymbolCommand());
 		registered.add(new HoverCommand());

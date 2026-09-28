@@ -768,6 +768,35 @@ rebuilt: 0 error(s)
 remove_unused_imports: 2 file(s) matched, nothing to remove
 ```
 
+### `JavadocCheck`
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `matchedFileCount` | `int` | fichiers dont le chemin matche `<path regex>` — documentés, avec ou sans finding |
+| `diagnostics` | `Listing<Diagnostic>` | dédupliqués par (fichier, ligne, message), puis plafonnés |
+| `errorCount` | `int` | compté sur **tous** les findings dédupliqués, avant plafonnement |
+| `warningCount` | `int` | idem |
+| `fileCount` | `int` | nombre de fichiers porteurs d'au moins un finding |
+
+Produit par `check_javadoc`. Réutilise le `Diagnostic` du compilateur (même
+champs, même `display()`) mais n'est volontairement **pas** un
+`DiagnosticsReport` : ce dernier documente « ce que jdtls a dit du dernier
+build », `tracked` compris — deux affirmations qui ne tiennent pas ici,
+puisque `check_javadoc` ne touche jamais jdtls et relance le vrai outil
+javadoc à chaque appel. Voir `CommandPayload.JavadocCheck` pour le détail de
+ce choix.
+
+```
+check_javadoc: 1 file(s) matched
+src/main/java/net/sourceforge/plantuml/style/parser/MergedStyleNode.java:
+  [warning] line 80: reference not found: net.sourceforge.plantuml.style.StyleSignature
+javadoc: 0 error(s), 1 warning(s) in 1 file(s)
+```
+
+```
+check_javadoc: 2 file(s) matched, no javadoc problems found
+```
+
 ### `MoveClass`
 
 | Champ | Type | Rôle |
@@ -885,6 +914,7 @@ set_max_results: max_results 100 -> 3
 | `search_regex` | `SearchMatches` | oui |
 | `print_diagnostics` | `Diagnostics` | oui |
 | `rebuild` | `Rebuild` | oui |
+| `check_javadoc` | `JavadocCheck` | oui |
 | `run_test` | `TestRun` | oui |
 | `run_tests` | `TestRun` | oui |
 | `list_modified_files` | `ModifiedFiles` | oui |

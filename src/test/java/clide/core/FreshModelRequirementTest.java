@@ -69,7 +69,8 @@ class FreshModelRequirementTest {
 		// sans effet : CommandDispatcher n'appelle ModelSync que dans la branche
 		// needsJdtlsSession(). Le scan de fichiers n'est donc jamais paye par un
 		// help, un exit ou un open_transaction.
-		for (final String keyword : List.of("help", "man", "exit", "open_transaction", "search_regex"))
+		for (final String keyword : List.of("help", "man", "exit", "open_transaction", "search_regex",
+				"check_javadoc"))
 			assertFalse(commandNamed(keyword).needsJdtlsSession(), keyword + " ne parle pas a jdtls");
 	}
 
