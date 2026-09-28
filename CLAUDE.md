@@ -133,6 +133,19 @@ nothing beyond Python's own standard library, and no `clide.jar` sitting next
 to it — it never reads or execs one (that is `start_clide.py`'s one and only
 job, and only when it is the one being run).
 
+**The project path itself can be left out** — `python3 clide.py` alone
+defaults to the last project `start_clide.py` started or confirmed running,
+recorded for exactly this purpose in clide's own per-user cache directory
+(same place jdtls is extracted to, see below) and announced on stdout when
+used, so the substitution is never silent. `clide.py` only ever *reads* that
+default; it is never written except by `start_clide.py` — a plain
+`clide.py <project-path>` with an explicit path never changes what a later
+bare `clide.py` would default to on its own, and `clide.py` never records a
+default on its own initiative either, consistent with the rest of this
+section. There is still only one daemon per project, so this is purely about
+not retyping a path already given to `start_clide.py` moments earlier — it
+answers "which project", never "which daemon within it".
+
 Two levels of built-in help:
 
 - `help` — every command with its parameters and one-line description.

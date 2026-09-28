@@ -33,6 +33,15 @@ If a daemon already answers for this project when this script starts, it
 reports that daemon as ready and starts nothing new - calling this script
 again is safe, not a way to end up with two daemons for one project.
 
+It also records project_path as the one `clide.py` should default to next
+time it's run with no project path at all (see clide.write_last_project(),
+called unconditionally from main() below) - so a plain `python3 clide.py`
+right after this script finishes just works, without retyping the path.
+This is the only writer of that default; `clide.py` itself only ever reads
+it (see its own docstring) - it never records a default on its own, since
+that would be exactly the kind of silent fallback it otherwise refuses to
+do.
+
 What this deliberately does NOT do: guard against two invocations racing to
 launch a fresh daemon for the same project at the same instant (the
 already-running check above closes the common, sequential case - calling
@@ -300,6 +309,14 @@ def wait_for_ready(process: "subprocess.Popen[bytes]", project_root: str, log_pa
 
 def main() -> None:
 	human, project_root = parse_args(sys.argv[1:])
+
+	# Recorded unconditionally, before anything else below can exit early -
+	# "the project this script was most recently pointed at" is the whole of
+	# what clide.py's own default_project_or_exit() promises, regardless of
+	# whether the daemon this call finds or starts ever becomes ready. See
+	# clide.write_last_project()'s own doc for why this script is the one
+	# that writes it, never clide.py itself.
+	clide.write_last_project(project_root)
 
 	already = clide.probe(project_root)
 	if already.live:

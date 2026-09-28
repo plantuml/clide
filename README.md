@@ -46,6 +46,9 @@ typing `java` yourself. `start_clide.py` detaches the daemon and waits for it
 to become ready before returning, so `clide.py <project-path>` is safe to run
 the moment it reports success; running it again for a project that already
 has a daemon up is safe too — it just says so, it never starts a second one.
+It also remembers that project path, so a bare `python3 clide.py` — no path
+at all — defaults to it; passing a path explicitly still works exactly as
+before and never changes what that default is.
 
 The daemon and the client are never the same command: starting the daemon
 means picking its print mode (default machine-readable, or `--human`) for

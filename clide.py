@@ -29,8 +29,14 @@ starts one itself, and never re-execs java to fall back to anything.
 
 Usage:
 
-    python3 clide.py <project path>
-    python3 clide.py --lua <script path> <project path>
+    python3 clide.py [project path]
+    python3 clide.py --lua <script path> [project path]
+
+The project path can be left out: see read_last_project()/
+default_project_or_exit() - it then defaults to the last one start_clide.py
+started or confirmed running, announced on stdout so the substitution is
+never silent. There is no such fallback for which daemon to connect to
+within that project - there is only ever one per project.
 
 Starting the daemon is a separate, earlier step - not this script's job:
 
@@ -46,6 +52,13 @@ from typing import IO, List, NamedTuple, Optional, Tuple
 
 STAGING_DIR = ".clide/tmp"
 LOCK_FILE_NAME = ".clide.lock"
+
+# The one file clide keeps outside of any project's own directory - see
+# cache_dir()/read_last_project()/write_last_project(). Lives alongside the
+# extracted jdtls tree (jdtls-<crc>, see JdtlsHome.java on the Java side),
+# which is why it shares that same per-user cache root rather than getting
+# one of its own.
+LAST_PROJECT_FILE_NAME = "last-project"
 
 # Same budget DaemonLock.PROBE_TIMEOUT_MILLIS gives the daemon on the Java
 # side: long enough that a merely slow reply isn't mistaken for a dead
@@ -247,20 +260,119 @@ def parse_script_path(args: List[str]) -> Tuple[Optional[str], List[str]]:
 	return None, args
 
 
+def cache_dir() -> Path:
+	"""clide's own per-user cache directory - mirrors JdtlsHome.cacheRoot() on
+	the Java side closely enough to agree with it: %LOCALAPPDATA%\\clide on
+	Windows (falling back to <home>\\AppData\\Local\\clide if that variable
+	isn't set), ~/Library/Caches/clide on macOS, $XDG_CACHE_HOME/clide or
+	~/.cache/clide elsewhere. The Java side extracts jdtls under a
+	fingerprinted subdirectory of this same root (jdtls-<crc>); this script
+	only ever adds one plain file next to it (LAST_PROJECT_FILE_NAME) - never
+	its own jdtls-shaped subdirectory, so the two can never collide.
+	"""
+	home = Path.home()
+
+	if sys.platform == "win32":
+		local_app_data = os.environ.get("LOCALAPPDATA")
+		if local_app_data:
+			return Path(local_app_data) / "clide"
+		return home / "AppData" / "Local" / "clide"
+
+	if sys.platform == "darwin":
+		return home / "Library" / "Caches" / "clide"
+
+	xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
+	if xdg_cache_home:
+		return Path(xdg_cache_home) / "clide"
+	return home / ".cache" / "clide"
+
+
+def read_last_project() -> Optional[str]:
+	"""The project path start_clide.py most recently started or confirmed
+	running (see write_last_project()), or None if nothing has been recorded
+	yet, or the file can't be read - treated the same as "nothing recorded",
+	exactly how read_lock() treats an unparseable lock file (see its own doc):
+	there is nothing usable to report either way.
+	"""
+	try:
+		text = (cache_dir() / LAST_PROJECT_FILE_NAME).read_text(encoding="utf-8").strip()
+	except OSError:
+		return None
+
+	return text or None
+
+
+def write_last_project(project_root: str) -> None:
+	"""Records project_root as the one clide.py should default to next time
+	it's run with no project path (see default_project_or_exit() below) -
+	called from start_clide.py's main(), never from here: this script only
+	ever reads this file, it does not write it (see the module docstring's
+	own "never falls back to anything on its own" invariant - recording a
+	default silently on a plain `clide.py <project>` call would be exactly
+	that, just for a different fallback).
+
+	Best-effort: failing to remember a default is a lost convenience, never a
+	reason to fail whatever actually asked to start or confirm a daemon.
+	"""
+	try:
+		directory = cache_dir()
+		directory.mkdir(parents=True, exist_ok=True)
+		(directory / LAST_PROJECT_FILE_NAME).write_text(project_root + "\n", encoding="utf-8")
+	except OSError as error:
+		print(f"start_clide.py: could not remember {project_root} as the last project ({error}) - "
+				f"clide.py will need an explicit path next time.", file=sys.stderr)
+
+
+def default_project_or_exit() -> str:
+	"""The project path to fall back to when clide.py is run with none at all
+	- the last one start_clide.py started or confirmed running. Announced on
+	stdout, exactly like the "*** clide connected to daemon..." banner
+	main() prints further down: a substituted project is never a silent one,
+	same principle, same place a human would already be looking.
+
+	Exits with a clear message, distinct from the ordinary usage one, if
+	nothing has been recorded yet - "run start_clide.py first" is a more
+	useful thing to say than "you forgot an argument" when there was never a
+	default this call could have used instead.
+	"""
+	recorded = read_last_project()
+	if recorded is None:
+		sys.exit(
+			"clide.py: no project given, and none started yet with start_clide.py to fall back to - "
+			"pass a project path, or run start_clide.py first."
+		)
+
+	# Re-normalized rather than trusted as-is: this file is only ever written
+	# already absolute (see write_last_project()), but re-applying abspath()
+	# here is what parse_project_root()'s other branch already does for an
+	# explicit argument, and costs nothing to also do for a recorded one -
+	# including the unlikely case of someone having hand-edited the file.
+	project_root = os.path.abspath(recorded)
+	banner = f"*** clide: no project given - using the last one started with start_clide.py: {project_root}\n"
+	sys.stdout.buffer.write(banner.encode("utf-8"))
+	sys.stdout.buffer.flush()
+	return project_root
+
+
 def parse_project_root(args: List[str]) -> str:
 	"""The single "<project path>" argument left once --lua (and the script path
-	it consumed) has been stripped - mirrors Main.parseProjectRoot() on the Java
-	side, including its lexical (no symlink resolution) normalization: this has
-	to agree with the path the daemon used to name its own lock file even when
-	the project path (or an ancestor of it) is a symlink, and Java's
+	it consumed) has been stripped, or, if none was given at all,
+	default_project_or_exit()'s answer - mirrors Main.parseProjectRoot() on the
+	Java side, including its lexical (no symlink resolution) normalization:
+	this has to agree with the path the daemon used to name its own lock file
+	even when the project path (or an ancestor of it) is a symlink, and Java's
 	Path.resolve() would not have.
 	"""
-	if len(args) != 1:
-		sys.exit("Usage: clide.py [--lua <script path>] <project path>")
+	if len(args) > 1:
+		sys.exit("Usage: clide.py [--lua <script path>] [project path]")
 
-	project_root = os.path.abspath(args[0])
+	project_root = os.path.abspath(args[0]) if args else default_project_or_exit()
+
 	if not os.path.isdir(project_root):
-		sys.exit(f"Not a directory: {project_root}")
+		if args:
+			sys.exit(f"Not a directory: {project_root}")
+		sys.exit(f"clide: the last project started with start_clide.py no longer exists: {project_root} - "
+				f"pass a project path explicitly.")
 
 	return project_root
 

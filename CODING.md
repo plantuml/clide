@@ -93,6 +93,17 @@ ni fallback, ni auto-start du daemon. Le jour où un cas n'est pas couvert,
 la bonne réponse est un message d'erreur clair, jamais un `exec`/`subprocess`
 vers Java.
 
+Le chemin du projet peut être omis (`python3 clide.py` seul) : dans ce cas,
+et dans ce cas seulement, il se rabat sur `read_last_project()` — le dernier
+chemin enregistré par `start_clide.py` (voir plus bas), jamais par ce script
+lui-même. `clide.py` ne fait qu'y lire ; il ne l'écrit jamais, ni sur un appel
+avec chemin explicite ni ailleurs — l'écrire ici serait exactement le genre
+de rattrapage silencieux que ce script s'interdit déjà pour `clide.jar`. Le
+message qui accompagne cette substitution (annoncé sur stdout, comme la
+bannière « *** clide connected to daemon... ») n'est pas cosmétique : sans
+lui, un chemin par défaut resterait invisible jusqu'à ce qu'il pointe vers le
+mauvais projet.
+
 ## `start_clide.py` — démarre le daemon, en Python
 
 Même règles de base que `clide.py` ci-dessus : pas de build, tabulations,
@@ -112,7 +123,21 @@ clide`) pour relire le même fichier de verrou de la même façon
 (`clide.probe()`) — délibéré, pour que les deux scripts ne puissent jamais
 diverger sur ce qui compte comme « daemon prêt ». Ce n'est pas une exception
 à la règle « pas de dépendance hors bibliothèque standard » : `clide.py`
-reste cette seule dépendance, pas un paquet externe.
+reste cette seule dépendance, pas un paquet externe. Même import pour
+`clide.write_last_project()` : c'est `start_clide.py`, jamais `clide.py`, qui
+enregistre le projet par défaut (voir plus haut) — `main()` l'appelle sans
+condition, avant même de savoir si un daemon existant répond ou si un
+nouveau va démarrer, parce que « le dernier projet passé à ce script » ne
+dépend pas de ce qui lui arrive ensuite. `clide.cache_dir()` mirrore `JdtlsHome.cacheRoot()` côté Java (même logique
+par OS : `%LOCALAPPDATA%\clide` sous Windows, `~/Library/Caches/clide` sous
+macOS, `$XDG_CACHE_HOME/clide` ou `~/.cache/clide` ailleurs) — mais lit
+directement `sys.platform`/l'environnement plutôt que de les recevoir en
+paramètre comme le fait la version Java (`cacheRoot(osName, userHome, env)`,
+justement pour rester testable sans machine réelle). Il n'existe pour
+l'instant aucune suite de tests automatisés côté Python (le smoke test réel
+reste la seule vérification pour `clide.py`/`start_clide.py`) ; si l'un est
+ajouté un jour, paramétrer `cache_dir()` de la même façon avant d'écrire un
+test dessus plutôt que de mocker `sys.platform`/`os.environ` à la main.
 
 Son rôle est le symétrique de celui de `clide.py`, pas son complément : là où
 `clide.py` ne doit jamais toucher à `clide.jar`, `start_clide.py` n'existe
