@@ -135,7 +135,14 @@ public final class LuaBridge {
 			for (final Warning warning : result.warnings())
 				out.println(ResultEnvelope.WARNING_PREFIX + warning.code() + ": " + warning.message());
 
-			if (result.isError())
+			// A run that completed with failures is a result, not a refusal: the failing
+			// tests are exactly what a script came for, and raising would leave it with
+			// a line of text saying that some failed. The text protocol keeps reporting
+			// it as an ERROR ("did my tests pass" must not be readable as yes from the
+			// status alone); here the script reads failed and tests.items instead. A
+			// run that could not happen at all (nothing found, runner broken, timeout)
+			// still raises.
+			if (result.isError() && result.code() != ErrorCode.TEST_FAILURES)
 				return lua.error(new LuaScriptError(LuaErrors.text(result)));
 
 			lua.push(LuaPayloads.toLua(result.payload()), Lua.Conversion.FULL);

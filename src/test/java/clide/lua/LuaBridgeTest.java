@@ -10,13 +10,23 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import clide.CommandRepository;
+import clide.PrintMode;
+import clide.annotation.Help;
+import clide.annotation.Keyword;
+import clide.command.answer.CommandPayload;
+import clide.command.answer.CommandResult;
+import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
+import clide.core.Command;
+import clide.model.Listing;
+import clide.model.TestOutcome;
 import clide.core.FilesRepository;
 
 /**
@@ -114,6 +124,64 @@ class LuaBridgeTest {
 				""");
 
 		assertEquals("false\t?ERROR FILE_NOT_FOUND\ntest_classpath_prefix\ttrue\tbefore.jar\ntrue\n", printed);
+	}
+
+	/** A command answering like run_test on a red suite: an ERROR that still carries the failures. */
+	public static class RedRunCommand extends Command {
+
+		@Keyword("red_run")
+		@Help("Test stand-in: a run that completed with one failure.")
+		public RedRunCommand() {
+		}
+
+		@Override
+		public boolean needsJdtlsSession() {
+			return false;
+		}
+
+		@Override
+		public CommandResult executeCommand(final ClideContext context, final String... params) {
+			final TestOutcome failure = new TestOutcome(TestOutcome.Status.FAILED, "case.puml", "", List.of("boom"), "");
+			return CommandResult.error(ErrorCode.TEST_FAILURES, "1 test(s) failed out of 2", "",
+					new CommandPayload.TestRun("Demo", 1, 1, 0, 5L, Listing.of(List.of(failure), 100), true));
+		}
+
+		@Override
+		public String render(final CommandResult result, final PrintMode printMode) {
+			return "red_run";
+		}
+	}
+
+	/** A command that cannot run at all, as a run_test with nothing to run would be. */
+	public static class BrokenRunCommand extends RedRunCommand {
+
+		@Keyword("broken_run")
+		@Help("Test stand-in: a run that could not happen.")
+		public BrokenRunCommand() {
+		}
+
+		@Override
+		public CommandResult executeCommand(final ClideContext context, final String... params) {
+			return CommandResult.error(ErrorCode.TEST_RUNNER_BROKEN, "no runner");
+		}
+	}
+
+	@Test
+	@DisplayName("une suite rouge rend sa table à Lua, avec les tests en échec ; une exécution impossible lève")
+	void redRunIsAResultNotARefusal(@TempDir final Path project) {
+		final PrintStream out = new PrintStream(written, true, StandardCharsets.UTF_8);
+		final ClideContext context = new ClideContext(new FilesRepository(project, null), null,
+				List.of(new RedRunCommand(), new BrokenRunCommand()));
+
+		new LuaBridge(context, out).run("""
+				local run = red_run()
+				print(run.failed, run.tests.items[1].status, run.tests.items[1].name)
+				local ok, err = pcall(broken_run)
+				print(ok, err)
+				""");
+
+		assertEquals("1\tfailed\tcase.puml\nfalse\t?ERROR TEST_RUNNER_BROKEN: no runner\n",
+				normalized(written.toString(StandardCharsets.UTF_8)));
 	}
 
 	@Test

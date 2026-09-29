@@ -839,6 +839,13 @@ Four things are worth knowing before writing one:
   `pcall` catches, and an uncaught one stops the script and comes back as
   `?ERROR LUA_SCRIPT_FAILED`. A script that wants to handle a failure wraps
   that call in `pcall`; one that does not, stops.
+  One exception: a `run_test`/`run_tests` that completed **with failing tests**
+  returns its table (`failed`, `tests.items`, each with `status`, `name` and
+  `messageLines`) instead of raising — the failures are what the script came
+  for, and an error string would not carry them. The text protocol still
+  reports it as an ERROR, so read `failed` rather than assuming a returned
+  table means a green run. A run that could not happen (nothing found, runner
+  broken, timeout) still raises.
 
 The script gets Lua's `base`, `string`, `table` and `math` libraries — no `io`,
 no `os`: everything it touches, it touches through a command. `exit`, `quit`
