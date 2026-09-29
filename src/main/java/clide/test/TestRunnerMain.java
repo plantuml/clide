@@ -266,7 +266,7 @@ public final class TestRunnerMain {
 		private void recordSkip(final TestIdentifier identifier, final String reason) {
 			skipped++;
 			out.println(String.join("\t", SKIP, className(identifier), methodName(identifier),
-					escape(identifier.getDisplayName()), escape(reason)));
+					escape(displayName(identifier)), escape(reason)));
 		}
 
 		@Override
@@ -277,7 +277,7 @@ public final class TestRunnerMain {
 			if (result.getStatus() == TestExecutionResult.Status.SUCCESSFUL) {
 				succeeded++;
 				out.println(String.join("\t", PASS, className(identifier), methodName(identifier),
-						escape(identifier.getDisplayName())));
+						escape(displayName(identifier))));
 				return;
 			}
 
@@ -299,8 +299,35 @@ public final class TestRunnerMain {
 			failed++;
 			final Throwable thrown = result.getThrowable().orElse(null);
 			out.println(String.join("\t", FAIL, className(identifier), methodName(identifier),
-					escape(identifier.getDisplayName()), escape(describe(thrown)),
+					escape(displayName(identifier)), escape(describe(thrown)),
 					escape(frameIn(thrown, className(identifier))), escape(originFrame(thrown))));
+		}
+
+		/**
+		 * The name a test is told apart by: its own display name, prefixed with the
+		 * dynamic containers around it ("state/junction.puml").
+		 *
+		 * A @TestFactory that groups its tests by folder gives two tests of the same
+		 * name in two folders the same display name, the same class and the same
+		 * method - and JUnit's unique id only numbers them (#3, #7). Without the
+		 * container the two records are identical, and a failure cannot be told from
+		 * its namesake. Only dynamic containers count: a @Nested class is already
+		 * in the class name, and the template a @ParameterizedTest invocation sits in
+		 * is already in the method name.
+		 */
+		private String displayName(final TestIdentifier identifier) {
+			final StringBuilder name = new StringBuilder(identifier.getDisplayName());
+			Optional<TestIdentifier> parent = plan == null ? Optional.empty() : plan.getParent(identifier);
+			while (parent.isPresent() && isDynamicContainer(parent.get())) {
+				name.insert(0, parent.get().getDisplayName() + "/");
+				parent = plan.getParent(parent.get());
+			}
+
+			return name.toString();
+		}
+
+		private boolean isDynamicContainer(final TestIdentifier identifier) {
+			return identifier.getUniqueIdObject().getLastSegment().getType().equals("dynamic-container");
 		}
 
 		private String className(final TestIdentifier identifier) {

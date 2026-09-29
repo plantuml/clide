@@ -95,6 +95,29 @@ class TestRunnerMainExecutionTest {
 	}
 
 	@Test
+	@DisplayName("deux tests dynamiques de même nom dans deux dossiers ne portent pas le même nom")
+	void dynamicContainersAreKeptInTheName() {
+		// Le cas de VegaTest : un conteneur par dossier, et le même nom de fichier
+		// dans deux dossiers. Sans le conteneur, l'échec de "second/nested" était
+		// indiscernable du succès de "first" - même classe, même méthode, même nom.
+		final Run run = runClass("DynamicContainers");
+
+		assertEquals(TestRunnerMain.EXIT_FAILURES, run.exit, run.toString());
+		run.assertSummary(3, 2, 1, 0);
+
+		final List<String> failed = TestRunnerMain.parseRecord(run.recordsOf(TestRunnerMain.FAIL).get(0));
+		assertEquals("second/nested/case.puml", failed.get(3));
+
+		final List<String> passed = new ArrayList<>();
+		for (final String record : run.recordsOf(TestRunnerMain.PASS))
+			passed.add(TestRunnerMain.parseRecord(record).get(3));
+
+		assertTrue(passed.contains("first/case.puml"), passed.toString());
+		// Sans conteneur, le nom reste celui du test - rien n'est préfixé pour rien.
+		assertTrue(passed.contains("bare.puml"), passed.toString());
+	}
+
+	@Test
 	@DisplayName("@Test, @ParameterizedTest et @RepeatedTest mélangés font bien neuf tests")
 	void mixedShapesAreAllCounted() {
 		// Le cas silencieux : l'ancien comptage annonçait « 2 test(s), 9 passed »,

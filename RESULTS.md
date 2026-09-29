@@ -651,6 +651,14 @@ identité de test unique, et les deux lignes se lisent pareil. Redondant avec la
 localisation qui précède, mais lisible seul, ce qu'une ligne extraite d'une
 suite de plusieurs centaines finit toujours par être.
 
+Le nom d'un test dynamique (`@TestFactory`) est précédé des conteneurs
+dynamiques qui l'entourent, séparés par `/` :
+`test.vega.VegaTest.testAllPumlFiles state/junction-pseudostate.puml`. Sans eux,
+deux tests du même nom rangés dans deux dossiers (`state/` et `scxml/`) étaient
+indiscernables, même classe, même méthode. Seuls les conteneurs *dynamiques*
+comptent : une classe `@Nested` est déjà dans le nom de classe, et le gabarit
+d'un `@ParameterizedTest` est déjà dans le nom de méthode.
+
 ### `Transaction`
 
 | Champ | Type | Rôle |
