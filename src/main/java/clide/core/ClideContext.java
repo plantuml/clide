@@ -1,9 +1,14 @@
 package clide.core;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 import clide.PrintMode;
 import clide.jdtls.JdtlsSession;
@@ -60,6 +65,11 @@ public class ClideContext {
 	private boolean disconnectRequested;
 	private PrintMode printMode = PrintMode.AI;
 	private int maxResults = DEFAULT_MAX_RESULTS;
+	private final Map<String, String> testEnvironment = new LinkedHashMap<>();
+	private final List<String> testClasspathPrefix = new ArrayList<>();
+
+	/** What set_test_env accepts as a variable name - what a shell would call one. */
+	private static final Pattern ENVIRONMENT_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
 	public ClideContext(final FilesRepository filesRepository, final JdtlsSession session, Collection<Command> commands) {
 		this.filesRepository = filesRepository;
@@ -176,13 +186,70 @@ public class ClideContext {
 	}
 
 	/**
+	 * Environment variables added to the JVM run_test and run_tests fork, on top
+	 * of the daemon's own - see set_test_env. Read-only view, in the order they
+	 * were set.
+	 *
+	 * Per connection, like maxResults and for the same reason: a variable
+	 * inherited from an earlier session, with no way to notice it was set, changes
+	 * what a test does (VEGA_FORCE_WRITE rewrites reference files) without anyone
+	 * having asked for it.
+	 */
+	public Map<String, String> getTestEnvironment() {
+		return Collections.unmodifiableMap(testEnvironment);
+	}
+
+	/**
+	 * Adds or replaces one variable of the test JVM's environment and returns the
+	 * value it had before, or null if it was not set by this connection.
+	 *
+	 * @throws IllegalArgumentException if name is not a plain variable name
+	 */
+	public String setTestEnvironment(final String name, final String value) {
+		if (ENVIRONMENT_NAME.matcher(name).matches() == false)
+			throw new IllegalArgumentException("'" + name
+					+ "' is not a valid environment variable name - expected letters, digits and _, not starting with a digit");
+
+		return testEnvironment.put(name, value);
+	}
+
+	/**
+	 * Classpath entries put in front of the project's own for run_test and
+	 * run_tests - see set_test_classpath_prefix. Read-only view.
+	 *
+	 * In front, not behind: the first entry that holds a class wins, so a jar
+	 * listed here replaces the project's compiled classes of the same name, which
+	 * is what "run these tests against that build" means. Per connection, for the
+	 * reason getTestEnvironment() gives.
+	 */
+	public List<String> getTestClasspathPrefix() {
+		return Collections.unmodifiableList(testClasspathPrefix);
+	}
+
+	/** Replaces the whole prefix, returning the previous one. Entries are not checked here. */
+	public List<String> setTestClasspathPrefix(final List<String> entries) {
+		final List<String> previous = List.copyOf(testClasspathPrefix);
+		testClasspathPrefix.clear();
+		testClasspathPrefix.addAll(entries);
+		return previous;
+	}
+
+	/** Forgets every set_test_env and set_test_classpath_prefix of this connection. */
+	public void resetTestSettings() {
+		testEnvironment.clear();
+		testClasspathPrefix.clear();
+	}
+
+	/**
 	 * Puts back everything a connection is allowed to change for itself alone -
 	 * called by ClideDaemon.serveOneClient() before a new client is served. Today:
-	 * the disconnect flag an earlier exit/quit may have left set, and maxResults.
+	 * the disconnect flag an earlier exit/quit may have left set, maxResults, and
+	 * the test environment and classpath prefix.
 	 */
 	public void resetPerConnectionSettings() {
 		disconnectRequested = false;
 		maxResults = DEFAULT_MAX_RESULTS;
+		resetTestSettings();
 	}
 
 	/** "terminate": end this connection and shut the whole daemon down. */

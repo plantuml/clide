@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,6 +57,44 @@ class ProjectTestsTest {
 		final List<String> records = List.of(pass("a"), "PLUSTARD\tquelque\tchose", fail("b"));
 
 		assertArrayEquals(new int[] { 1, 1, 0 }, ProjectTests.tally(records));
+	}
+
+	@Test
+	@DisplayName("le préfixe passe devant le projet, qui passe devant clide")
+	void prefixComesFirst() {
+		final List<String> full = ProjectTests.assembleClasspath(List.of("/before.jar"),
+				List.of("/bin", "/junit-old.jar"), List.of("/clide.jar"));
+
+		assertEquals(List.of("/before.jar", "/bin", "/junit-old.jar", "/clide.jar"), full);
+	}
+
+	@Test
+	@DisplayName("une entrée déjà présente reste à sa première place, sans doublon")
+	void noEntryTwice() {
+		final List<String> full = ProjectTests.assembleClasspath(List.of("/a.jar"), List.of("/bin", "/a.jar"),
+				List.of("/bin", "/clide.jar"));
+
+		assertEquals(List.of("/a.jar", "/bin", "/clide.jar"), full);
+	}
+
+	@Test
+	@DisplayName("sans préfixe, l'ordre est celui d'avant : projet puis clide")
+	void withoutPrefixNothingChanges() {
+		final List<String> full = ProjectTests.assembleClasspath(List.of(), List.of("/bin"), List.of("/clide.jar"));
+
+		assertEquals(List.of("/bin", "/clide.jar"), full);
+	}
+
+	@Test
+	@DisplayName("les variables demandées arrivent dans l'environnement de la JVM fille, celles du daemon restent")
+	void environmentIsAppliedOnTopOfTheDaemons() {
+		final ProcessBuilder builder = new ProcessBuilder("java");
+		final int before = builder.environment().size();
+
+		ProjectTests.applyEnvironment(builder, Map.of("CLIDE_TEST_PROBE", "on"));
+
+		assertEquals("on", builder.environment().get("CLIDE_TEST_PROBE"));
+		assertEquals(before + 1, builder.environment().size());
 	}
 
 	private static String pass(final String name) {

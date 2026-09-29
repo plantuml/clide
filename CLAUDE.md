@@ -576,6 +576,9 @@ when they do; `set_max_results <count>` changes it for the session.
 |---|---|
 | `run_test <position>` | Runs the test that `<position>` designates: the whole class if `<position>` names the test class, that single method otherwise. Takes the `<position>` notation, not a fully-qualified class name — a `find_symbol` result pastes in unchanged. |
 | `run_tests <all\|failures>` | Runs all tests in the project. `failures` lists only the failing ones (the only readable output on a suite of real size); totals are always shown either way. |
+| `set_test_env <name> <value>` | Adds an environment variable to the JVM `run_test`/`run_tests` start, for this session only. Prints the previous value (`(unset)` if none). For tests that read `System.getenv()` — the daemon's own environment is the only other way in. |
+| `set_test_classpath_prefix <entries>` | Puts jars or class folders (separated by `:`/`;`) in front of the project's test classpath, for this session only, so the tests run against that build instead of what jdtls compiled — e.g. an older jar, to see whether a test already failed before your change. Every entry must exist. Replaces any earlier prefix. |
+| `reset_test_settings` | Drops both settings above without ending the session. |
 
 `run_test`/`run_tests` work even if the target project has no JUnit jar of
 its own — clide provides whatever is missing. Concretely, the daemon extracts

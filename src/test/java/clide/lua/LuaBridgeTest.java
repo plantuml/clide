@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.DisplayName;
@@ -78,6 +80,40 @@ class LuaBridgeTest {
 				""");
 
 		assertEquals("max_results\t100\t250\n", printed);
+	}
+
+	@Test
+	@DisplayName("set_test_env rend l'ancienne valeur, et refuse un nom qui n'en est pas un")
+	void testEnvironmentFromLua(@TempDir final Path project) {
+		final String printed = run(project, """
+				local first = set_test_env("VEGA_FORCE_WRITE", "true")
+				local second = set_test_env("VEGA_FORCE_WRITE", "false")
+				print(first.name, first.previousValue, first.newValue)
+				print(second.previousValue, second.newValue)
+				local ok, err = pcall(set_test_env, "1BAD", "x")
+				print(ok, err)
+				""");
+
+		assertTrue(printed.startsWith("test_env.VEGA_FORCE_WRITE\t(unset)\ttrue\ntrue\tfalse\nfalse\t?ERROR VALUE_OUT_OF_RANGE:"),
+				printed);
+	}
+
+	@Test
+	@DisplayName("set_test_classpath_prefix refuse une entrée absente, accepte une existante, et reset la retire")
+	void testClasspathPrefixFromLua(@TempDir final Path project) throws IOException {
+		Files.write(project.resolve("before.jar"), new byte[0]);
+
+		final String printed = run(project, """
+				local ok, err = pcall(set_test_classpath_prefix, "nope.jar")
+				print(ok, err:match("^%?ERROR [%u_]+"))
+				local set = set_test_classpath_prefix("before.jar")
+				print(set.name, set.previousValue == "", set.newValue:match("before%.jar$"))
+				reset_test_settings()
+				local again = set_test_classpath_prefix("before.jar")
+				print(again.previousValue == "")
+				""");
+
+		assertEquals("false\t?ERROR FILE_NOT_FOUND\ntest_classpath_prefix\ttrue\tbefore.jar\ntrue\n", printed);
 	}
 
 	@Test

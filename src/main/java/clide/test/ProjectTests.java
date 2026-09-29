@@ -153,6 +153,29 @@ public final class ProjectTests {
 		return command;
 	}
 
+	/**
+	 * The test JVM's classpath, in the order that decides which class wins:
+	 * whatever the connection asked to put in front (set_test_classpath_prefix),
+	 * then the project's own, then clide's - so a project shipping its own JUnit
+	 * keeps it and clide only fills in what is missing. An entry already present
+	 * is kept where it first appears, never listed twice.
+	 */
+	static List<String> assembleClasspath(final List<String> prefix, final List<String> project,
+			final List<String> own) {
+		final List<String> full = new ArrayList<>();
+		for (final List<String> part : List.of(prefix, project, own))
+			for (final String entry : part)
+				if (full.contains(entry) == false)
+					full.add(entry);
+
+		return full;
+	}
+
+	/** What the test JVM sees on top of the daemon's environment - see set_test_env. */
+	static void applyEnvironment(final ProcessBuilder builder, final Map<String, String> extra) {
+		builder.environment().putAll(extra);
+	}
+
 	private static Outcome fork(final ClideContext context, final List<String> classpath, final String[] selector,
 			final long timeoutSeconds) {
 		final List<String> own = ownClasspath();
@@ -160,17 +183,15 @@ public final class ProjectTests {
 			return Outcome.broken(ErrorCode.TEST_RUNNER_BROKEN,
 					"clide cannot locate its own classpath, so it cannot hand the JUnit platform to the test JVM");
 
-		// Project first, clide last: a project shipping its own JUnit keeps it.
-		final List<String> full = new ArrayList<>(classpath);
-		for (final String entry : own)
-			if (full.contains(entry) == false)
-				full.add(entry);
+		final List<String> full = assembleClasspath(context.getTestClasspathPrefix(), classpath, own);
 
 		final List<String> command = command(JdtlsLauncher.javaExecutable(), full, selector);
 
 		final Process process;
 		try {
-			process = new ProcessBuilder(command).directory(context.getProjectRoot().toFile()).start();
+			final ProcessBuilder builder = new ProcessBuilder(command).directory(context.getProjectRoot().toFile());
+			applyEnvironment(builder, context.getTestEnvironment());
+			process = builder.start();
 		} catch (final IOException e) {
 			return Outcome.broken(ErrorCode.TEST_RUNNER_BROKEN, "could not start the test JVM: " + e.getMessage());
 		}
