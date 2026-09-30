@@ -35,6 +35,8 @@ import clide.command.testrun.RunTestsCommand;
 import clide.command.transaction.CommitTransactionCommand;
 import clide.command.transaction.DiffTransactionCommand;
 import clide.command.transaction.ListModifiedFilesCommand;
+import clide.command.snapshot.ChangedSinceCommand;
+import clide.command.snapshot.SnapshotCommand;
 import clide.command.transaction.OpenTransactionCommand;
 import clide.command.transaction.RestoreFileCommand;
 import clide.command.transaction.RollbackTransactionCommand;
@@ -97,6 +99,9 @@ public final class CommandRepository {
 		registered.add(new RenameCommand());
 		registered.add(new RemoveUnusedImportsCommand());
 		registered.add(new MoveClassCommand());
+
+		registered.add(new SnapshotCommand());
+		registered.add(new ChangedSinceCommand());
 
 		registered.add(new OpenTransactionCommand());
 		registered.add(new CommitTransactionCommand());

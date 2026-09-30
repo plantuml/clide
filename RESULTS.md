@@ -47,6 +47,9 @@ CommandResult                          l'enveloppe, identique pour toute command
     ├── Transaction     id, action, path
     ├── ModifiedFiles   transactionId, files ──► Listing<String>
     ├── Diff            transactionId, path, unifiedDiff
+    ├── Snapshotted     id, glob, fileCount, replaced
+    ├── Changes         id, glob, fileCount,
+    │                   changes ───────────────► Listing<ChangedFile>
     ├── CommandList     commands ──────────────► Listing<CommandSummary>
     └── Setting         name, previousValue, newValue
 
@@ -887,6 +890,45 @@ help - Lists every available command with its parameters - one line each, or an 
 Mode HUMAN (daemon démarré avec `java -jar clide.jar --human`) : le même
 contenu en table ASCII à largeur fixe.
 
+### `Snapshotted`
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `id` | `String` | le nom choisi par le client |
+| `glob` | `String` | ce que le snapshot couvre, tel qu'écrit |
+| `fileCount` | `int` | combien de fichiers correspondaient — 0 est une réponse valide |
+| `replaced` | `boolean` | le nom existait déjà, son ancien snapshot est perdu |
+
+Produit par `snapshot`.
+
+```
+snapshot: vega = 357 file(s) matching src/test/resources/vega/**.svg
+```
+
+### `Changes`
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `id` | `String` | le snapshot interrogé |
+| `glob` | `String` | ce qu'il couvre |
+| `fileCount` | `int` | combien de fichiers correspondent **maintenant** — à lire face au nombre de changements |
+| `changes` | `Listing<ChangedFile>` | ce qui a bougé, plafonné ; le total reste exact |
+
+`ChangedFile` : `path` (relatif au projet, avec `/`), `type` (`created`,
+`changed`, `deleted`), `md5Before` et `md5After` (`""` quand le fichier
+n'existait pas encore, ou n'existe plus — une chaîne vide plutôt qu'une clé
+absente).
+
+Produit par `changed_since`. La comparaison porte sur le **contenu** : un fichier
+réécrit à l'identique n'est pas un changement. Le snapshot ne bouge pas : redemander
+donne la même réponse, cumulée depuis sa prise.
+
+```
+changed_since: 2 file(s) since vega (357 match src/test/resources/vega/**.svg now)
+[changed] src/test/resources/vega/a.svg  55de8a6d… -> dc60e17e…
+[created] src/test/resources/vega/b.svg  311ce225…
+```
+
 ### `Setting`
 
 | Champ | Type | Rôle |
@@ -931,6 +973,8 @@ set_max_results: max_results 100 -> 3
 | `man` | `Text` | non |
 | `help` | `CommandList` | non (délibérément) |
 | `set_max_results` | `Setting` | non |
+| `snapshot` | `Snapshotted` | non |
+| `changed_since` | `Changes` | oui |
 | `open_transaction` | `Transaction` | non |
 | `commit_transaction` | `Transaction` | non |
 | `rollback_transaction` | `Transaction` | non |

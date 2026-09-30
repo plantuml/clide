@@ -8,6 +8,7 @@ import java.util.Map;
 
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandSummary;
+import clide.model.ChangedFile;
 import clide.model.CodeLocation;
 import clide.model.Diagnostic;
 import clide.model.DiagnosticsReport;
@@ -77,6 +78,10 @@ public final class LuaPayloads {
 				"unifiedDiff", diff.unifiedDiff());
 		case CommandPayload.CommandList commands -> map("commands",
 				listing(commands.commands(), LuaPayloads::commandSummary));
+		case CommandPayload.Snapshotted taken -> map("id", taken.id(), "glob", taken.glob(), "fileCount",
+				(long) taken.fileCount(), "replaced", taken.replaced());
+		case CommandPayload.Changes moved -> map("id", moved.id(), "glob", moved.glob(), "fileCount",
+				(long) moved.fileCount(), "changes", listing(moved.changes(), LuaPayloads::changedFile));
 		case CommandPayload.Setting setting -> map("name", setting.name(), "previousValue", setting.previousValue(),
 				"newValue", setting.newValue());
 		case CommandPayload.Rename renamed -> renamed(renamed);
@@ -144,6 +149,11 @@ public final class LuaPayloads {
 
 		return map("items", items, "totalCount", (long) listing.totalCount(), "maxResults",
 				(long) listing.maxResults(), "truncated", listing.truncated());
+	}
+
+	private static Object changedFile(final ChangedFile file) {
+		return map("path", file.path(), "type", name(file.type()), "md5Before", file.md5Before(), "md5After",
+				file.md5After());
 	}
 
 	private static Object position(final Position position) {

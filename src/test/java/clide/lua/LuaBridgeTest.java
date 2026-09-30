@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -181,6 +181,38 @@ class LuaBridgeTest {
 				""");
 
 		assertEquals("1\tfailed\tcase.puml\nfalse\t?ERROR TEST_RUNNER_BROKEN: no runner\n",
+				normalized(written.toString(StandardCharsets.UTF_8)));
+	}
+
+	@Test
+	@DisplayName("snapshot puis changed_since rendent des tables, avec les md5 avant et après, d'un script à l'autre")
+	void snapshotFromLua(@TempDir final Path project) throws IOException {
+		Files.createDirectories(project.resolve("refs"));
+		Files.writeString(project.resolve("refs/a.svg"), "old");
+
+		// Un seul contexte pour les deux scripts, comme le daemon : le snapshot
+		// vit dans le contexte, pas dans la connexion qui l'a pris.
+		final PrintStream out = new PrintStream(written, true, StandardCharsets.UTF_8);
+		final ClideContext context = new ClideContext(new FilesRepository(project, null), null,
+				CommandRepository.commands);
+
+		new LuaBridge(context, out).run("""
+				local taken = snapshot("s", "refs/**.svg")
+				print(taken.id, taken.fileCount, taken.replaced)
+				print(#changed_since("s").changes.items)
+				""");
+		assertEquals("s\t1\tfalse\n0\n", normalized(written.toString(StandardCharsets.UTF_8)));
+
+		Files.writeString(project.resolve("refs/a.svg"), "new");
+		Files.writeString(project.resolve("refs/b.svg"), "born");
+		written.reset();
+
+		new LuaBridge(context, out).run("""
+				for _, f in ipairs(changed_since("s").changes.items) do
+				  print(f.path, f.type, f.md5Before ~= "", f.md5After ~= "")
+				end
+				""");
+		assertEquals("refs/a.svg\tchanged\ttrue\ttrue\nrefs/b.svg\tcreated\tfalse\ttrue\n",
 				normalized(written.toString(StandardCharsets.UTF_8)));
 	}
 

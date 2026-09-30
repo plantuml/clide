@@ -780,6 +780,24 @@ left broken; `print_diagnostics` or `find_reference` on the fresh position
 this command returns finds it to fix by hand. See "Known limitations"
 below for what testing this actually found.
 
+### Watching files: `snapshot` and `changed_since`
+
+| Command | Role |
+|---|---|
+| `snapshot <name> <glob>` | Signs (md5) every file matching `<glob>` — Java glob syntax on the path relative to the project root, written with `/`, any file type: `src/test/resources/vega/**.svg`. Kept under `<name>`; taking the same name again replaces it and says so. |
+| `changed_since <name>` | Lists the files of that glob created, changed or deleted since the snapshot, with their md5 before and after. Compares content, never the modification time. Does not move the snapshot: asking again answers again. |
+
+These watch anything you name and have **nothing to do with jdtls**: a file
+they cover changing never makes the model stale, is never reported to jdtls, and
+`rebuild` does not count it. Snapshots belong to the daemon, not to a connection,
+so one taken in a script or an earlier session is found by the next; they are lost
+when the daemon stops. `.git`, `.gradle` and `.clide` are never looked into.
+
+The use they were made for: take a snapshot of a folder of reference files
+before something that may rewrite them (a test run that regenerates its
+expected outputs), then `changed_since` says exactly which ones moved — created
+ones included, which a failing test never reports.
+
 ### Help and session
 
 | Command | Role |

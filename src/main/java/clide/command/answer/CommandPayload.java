@@ -5,6 +5,7 @@ import java.util.List;
 import clide.model.CodeLocation;
 import clide.model.Diagnostic;
 import clide.model.DiagnosticsReport;
+import clide.model.ChangedFile;
 import clide.model.Listing;
 import clide.model.NarrowableMethod;
 import clide.model.SearchMatch;
@@ -132,6 +133,25 @@ public sealed interface CommandPayload {
 			if (path == null)
 				throw new IllegalArgumentException("path must not be null - use \"\" when it does not apply");
 		}
+	}
+
+	/**
+	 * A named snapshot was taken: which glob it covers and how many files matched.
+	 * replaced tells that the name was already in use and its earlier snapshot is
+	 * gone. A fileCount of 0 is a valid answer - a snapshot of nothing is how to
+	 * notice that files appear later.
+	 */
+	record Snapshotted(String id, String glob, int fileCount, boolean replaced) implements CommandPayload {
+	}
+
+	/**
+	 * What moved since a named snapshot, for the files its glob covers: created,
+	 * changed and deleted, each with its md5 before and after. fileCount is how
+	 * many files match the glob now, so that "2 changed" can be read against how
+	 * many were looked at.
+	 */
+	record Changes(String id, String glob, int fileCount, Listing<ChangedFile> changes)
+			implements CommandPayload {
 	}
 
 	/** The files a transaction has modified so far - diff_transaction with no path. */

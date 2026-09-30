@@ -3,11 +3,13 @@ package clide.core;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
+import java.util.function.Predicate;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -106,10 +108,37 @@ public class FilesRepository {
 		return files;
 	}
 
+	/**
+	 * Every file of the project whose path, relative to the project root, matches
+	 * matcher - signed like a source file, whatever its extension.
+	 *
+	 * For what a caller chose to watch, never for what jdtls is told about:
+	 * currentSourceFiles() stays the only scan that feeds the model. Only the
+	 * directories that can never hold something to watch are skipped
+	 * (SKIPPED_ANYWHERE: .git, .gradle, and .clide, where the blobs themselves
+	 * live); a top-level build directory is not, since the matcher is an explicit
+	 * request and "src/test/resources/**" or "build/reports/**" equally are one.
+	 */
+	public Set<SourceFile> currentFiles(final PathMatcher matcher) throws IOException {
+		final List<Path> paths = paths(path -> matcher.matches(projectRoot.relativize(path))
+				&& isSkippedAnywhere(path) == false);
+		final SourceFile[] signed = signInParallel(paths);
+
+		final Set<SourceFile> files = new LinkedHashSet<>();
+		for (final SourceFile file : signed)
+			if (file != null)
+				files.add(file);
+
+		return files;
+	}
+
 	private List<Path> sourcePaths() throws IOException {
+		return paths(path -> path.toString().endsWith(".java") && isSkipped(path) == false);
+	}
+
+	private List<Path> paths(final Predicate<Path> wanted) throws IOException {
 		try (Stream<Path> walk = Files.walk(projectRoot)) {
-			return walk.filter(path -> path.toString().endsWith(".java")).filter(path -> isSkipped(path) == false)
-					.toList();
+			return walk.filter(wanted).filter(Files::isRegularFile).toList();
 		}
 	}
 
@@ -155,10 +184,10 @@ public class FilesRepository {
 	 * only against the project's own top level.
 	 */
 	private boolean isSkipped(final Path path) {
+		if (isSkippedAnywhere(path))
+			return true;
+
 		final Path relative = projectRoot.relativize(path);
-		for (final Path segment : relative)
-			if (SKIPPED_ANYWHERE.contains(segment.toString()))
-				return true;
 
 		// getName(0) is the first segment of a path relative to the root, so this
 		// asks "is the top-level directory this file sits under a build directory",
@@ -167,6 +196,15 @@ public class FilesRepository {
 			return false;
 
 		return SKIPPED_ROOT_DIRECTORIES.contains(relative.getName(0).toString());
+	}
+
+	/** Whether path sits under a directory that is skipped wherever it is - .git, .gradle, .clide. */
+	private boolean isSkippedAnywhere(final Path path) {
+		for (final Path segment : projectRoot.relativize(path))
+			if (SKIPPED_ANYWHERE.contains(segment.toString()))
+				return true;
+
+		return false;
 	}
 
 	/**

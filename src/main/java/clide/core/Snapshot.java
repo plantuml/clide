@@ -2,6 +2,7 @@ package clide.core;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -62,6 +63,24 @@ public final class Snapshot {
 			result.files.put(file.sourceFilePath(), file);
 
 		return result;
+	}
+
+	/**
+	 * The snapshot of every file matching matcher, whatever its extension - what a
+	 * caller asked to watch, as opposed to build(), which is what jdtls has to be
+	 * told about. The two never mix: nothing taken here reaches JdtlsSession.
+	 */
+	public static Snapshot build(FilesRepository filesRepository, PathMatcher matcher) throws IOException {
+		final Snapshot result = new Snapshot();
+		for (final SourceFile file : filesRepository.currentFiles(matcher))
+			result.files.put(file.sourceFilePath(), file);
+
+		return result;
+	}
+
+	/** How many files this snapshot recorded. */
+	public int size() {
+		return files.size();
 	}
 
 	/**

@@ -72,6 +72,15 @@ public enum ErrorCode {
 	/** A path expected to be a directory was not one. */
 	NOT_A_DIRECTORY,
 
+	/** A snapshot name that is empty, too long, or made of anything but letters, digits, '_', '-' and '.'. */
+	INVALID_SNAPSHOT_ID,
+
+	/** A glob that does not parse - the message carries the position of the fault. */
+	INVALID_GLOB,
+
+	/** changed_since was asked about a snapshot name nobody took - the message lists the ones that exist. */
+	NO_SUCH_SNAPSHOT,
+
 	// ------------------------------------------------------------------
 	// Position: resolving <file-content-md5>:<file path>:<line>:<column>:<name> against the project
 	// ------------------------------------------------------------------

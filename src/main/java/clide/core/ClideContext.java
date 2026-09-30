@@ -61,6 +61,7 @@ public class ClideContext {
 	private final FilesRepository filesRepository;
 	private final JdtlsSession session;
 	private final TransactionStack transactions;
+	private final NamedSnapshots namedSnapshots = new NamedSnapshots();
 	private boolean shutdownRequested;
 	private boolean disconnectRequested;
 	private PrintMode printMode = PrintMode.AI;
@@ -113,6 +114,15 @@ public class ClideContext {
 
 	public JdtlsSession getCurrentSession() {
 		return session;
+	}
+
+	/**
+	 * The snapshots clients took by name (snapshot, changed_since). Held by the
+	 * daemon, so they outlive the connection that took them and are deliberately
+	 * not part of resetPerConnectionSettings() - see NamedSnapshots.
+	 */
+	public NamedSnapshots getNamedSnapshots() {
+		return namedSnapshots;
 	}
 
 	/** The stack of currently-open transactions for this project - see TransactionStack, CLAUDE.md. */
