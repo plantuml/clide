@@ -75,6 +75,9 @@ public enum ErrorCode {
 	/** A snapshot name that is empty, too long, or made of anything but letters, digits, '_', '-' and '.'. */
 	INVALID_SNAPSHOT_ID,
 
+	/** read_lines was given a path that leaves the project root. */
+	PATH_OUTSIDE_PROJECT,
+
 	/** A glob that does not parse - the message carries the position of the fault. */
 	INVALID_GLOB,
 

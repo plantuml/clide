@@ -82,6 +82,8 @@ public final class LuaPayloads {
 				(long) taken.fileCount(), "replaced", taken.replaced());
 		case CommandPayload.Changes moved -> map("id", moved.id(), "glob", moved.glob(), "fileCount",
 				(long) moved.fileCount(), "changes", listing(moved.changes(), LuaPayloads::changedFile));
+		case CommandPayload.Lines read -> map("path", read.path(), "lineCount", (long) read.lineCount(), "lines",
+				listing(read.lines(), line -> map("line", (long) line.line(), "text", line.text())));
 		case CommandPayload.Setting setting -> map("name", setting.name(), "previousValue", setting.previousValue(),
 				"newValue", setting.newValue());
 		case CommandPayload.Rename renamed -> renamed(renamed);

@@ -47,6 +47,8 @@ CommandResult                          l'enveloppe, identique pour toute command
     ├── Transaction     id, action, path
     ├── ModifiedFiles   transactionId, files ──► Listing<String>
     ├── Diff            transactionId, path, unifiedDiff
+    ├── Lines           path, lineCount,
+    │                   lines ─────────────────► Listing<SourceLine>
     ├── Snapshotted     id, glob, fileCount, replaced
     ├── Changes         id, glob, fileCount,
     │                   changes ───────────────► Listing<ChangedFile>
@@ -890,6 +892,23 @@ help - Lists every available command with its parameters - one line each, or an 
 Mode HUMAN (daemon démarré avec `java -jar clide.jar --human`) : le même
 contenu en table ASCII à largeur fixe.
 
+### `Lines`
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `path` | `String` | le fichier lu, relatif au projet, avec `/` |
+| `lineCount` | `int` | combien de lignes a le fichier entier — pour distinguer une plage coupée par la fin du fichier d'une plage plafonnée par `set_max_results` |
+| `lines` | `Listing<SourceLine>` | les lignes demandées, plafonnées ; le total reste exact |
+
+`SourceLine` : `line` (à partir de 1, comme `search_regex`) et `text` (sans fin de ligne).
+
+Produit par `read_lines`. Un `<to>` après la fin est coupé à la dernière ligne ; un `<from>` après la fin est refusé (`LINE_OUT_OF_RANGE`).
+
+```
+src/A.java:3: three
+read_lines: 1 line(s) of src/A.java (5 in the file)
+```
+
 ### `Snapshotted`
 
 | Champ | Type | Rôle |
@@ -973,6 +992,7 @@ set_max_results: max_results 100 -> 3
 | `man` | `Text` | non |
 | `help` | `CommandList` | non (délibérément) |
 | `set_max_results` | `Setting` | non |
+| `read_lines` | `Lines` | non |
 | `snapshot` | `Snapshotted` | non |
 | `changed_since` | `Changes` | oui |
 | `open_transaction` | `Transaction` | non |

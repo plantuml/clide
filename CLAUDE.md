@@ -780,6 +780,15 @@ left broken; `print_diagnostics` or `find_reference` on the fresh position
 this command returns finds it to fix by hand. See "Known limitations"
 below for what testing this actually found.
 
+### Reading lines: `read_lines`
+
+| Command | Role |
+|---|---|
+| `read_lines <path> <from> <to>` | Lines `<from>` to `<to>` (1-based, both included) of a text file, as `path:line: text`. All three parameters are required (clide has no optional argument): one line is `read_lines f n n`. A `<to>` past the end is cut; a `<from>` past the end is `LINE_OUT_OF_RANGE`. The path must stay inside the project (`PATH_OUTSIDE_PROJECT`). Not jdtls: any UTF-8 file. |
+
+It exists for scripts: `search_regex` returns only the matching line, and Lua has
+no `io`, so what surrounds a match was out of reach.
+
 ### Watching files: `snapshot` and `changed_since`
 
 | Command | Role |

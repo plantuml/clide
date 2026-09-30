@@ -185,6 +185,21 @@ class LuaBridgeTest {
 	}
 
 	@Test
+	@DisplayName("read_lines rend une table de lignes numérotées ; une plage hors fichier lève")
+	void readLinesFromLua(@TempDir final Path project) throws IOException {
+		Files.writeString(project.resolve("f.txt"), "a\nb\nc\n");
+
+		final String printed = run(project, """
+				local r = read_lines("f.txt", 2, 9)
+				print(r.path, r.lineCount, #r.lines.items, r.lines.items[1].line, r.lines.items[1].text)
+				local ok, err = pcall(read_lines, "f.txt", 7, 8)
+				print(ok, err:match("^%?ERROR [%u_]+"))
+				""");
+
+		assertEquals("f.txt\t3\t2\t2\tb\nfalse\t?ERROR LINE_OUT_OF_RANGE\n", normalized(printed));
+	}
+
+	@Test
 	@DisplayName("snapshot puis changed_since rendent des tables, avec les md5 avant et après, d'un script à l'autre")
 	void snapshotFromLua(@TempDir final Path project) throws IOException {
 		Files.createDirectories(project.resolve("refs"));

@@ -9,6 +9,7 @@ import clide.model.ChangedFile;
 import clide.model.Listing;
 import clide.model.NarrowableMethod;
 import clide.model.SearchMatch;
+import clide.model.SourceLine;
 import clide.model.SymbolHit;
 import clide.model.TestOutcome;
 /**
@@ -152,6 +153,14 @@ public sealed interface CommandPayload {
 	 */
 	record Changes(String id, String glob, int fileCount, Listing<ChangedFile> changes)
 			implements CommandPayload {
+	}
+
+	/**
+	 * A range of lines of one file - read_lines. path is relative to the project,
+	 * lineCount is how many lines the whole file has (so that a range cut short by
+	 * the end of the file can be told from one that was capped by max_results).
+	 */
+	record Lines(String path, int lineCount, Listing<SourceLine> lines) implements CommandPayload {
 	}
 
 	/** The files a transaction has modified so far - diff_transaction with no path. */
