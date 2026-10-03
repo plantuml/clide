@@ -23,7 +23,10 @@ import clide.command.answer.ErrorCode;
 import clide.core.ClideContext;
 import clide.jdtls.JdtlsLauncher;
 import clide.jdtls.JdtlsSession;
+import clide.profile.ProfileViews;
+import clide.profile.Recording;
 import clide.model.Listing;
+import clide.model.ProfileTable;
 import clide.model.TestOutcome;
 
 /**
@@ -108,15 +111,36 @@ public final class ProjectTests {
 
 	/** run_test: every test of one class, or one single test method. */
 	public static CommandResult runSelection(final ClideContext context, final String[] selector, final String what) {
+		return runSelection(context, selector, what, View.ALL, Recording.none());
+	}
+
+	/** profile_test: run_test, with the test JVM recorded - see profile(). */
+	public static CommandResult profileSelection(final ClideContext context, final String[] selector,
+			final String what) {
+		return profile(context, recording -> runSelection(context, selector, what, View.FAILURES, recording));
+	}
+
+	private static CommandResult runSelection(final ClideContext context, final String[] selector, final String what,
+			final View view, final Recording recording) {
 		final CommandResult wrongShape = onlyOneProject(context);
 		if (wrongShape != null)
 			return wrongShape;
 
-		return run(context, selector, SINGLE_TIMEOUT_SECONDS, View.ALL, "run_test", what);
+		return run(context, selector, SINGLE_TIMEOUT_SECONDS, view, "run_test", what, recording);
 	}
 
 	/** run_tests: everything discoverable in the project's test output folders. */
 	public static CommandResult runEverything(final ClideContext context, final View view) {
+		return runEverything(context, view, Recording.none());
+	}
+
+	/** profile_tests: run_tests, with every test JVM recorded - see profile(). */
+	public static CommandResult profileEverything(final ClideContext context) {
+		return profile(context, recording -> runEverything(context, View.FAILURES, recording));
+	}
+
+	private static CommandResult runEverything(final ClideContext context, final View view,
+			final Recording recording) {
 		final CommandResult wrongShape = onlyOneProject(context);
 		if (wrongShape != null)
 			return wrongShape;
@@ -145,7 +169,7 @@ public final class ProjectTests {
 		long millis = 0;
 		for (final String root : roots) {
 			final Outcome outcome = fork(context, classpath, new String[] { "--scan", root },
-					SUITE_TIMEOUT_SECONDS);
+					SUITE_TIMEOUT_SECONDS, recording);
 			if (outcome.failure != null)
 				return CommandResult.error(outcome.failureCode, outcome.failure);
 
@@ -157,7 +181,7 @@ public final class ProjectTests {
 	}
 
 	private static CommandResult run(final ClideContext context, final String[] selector, final long timeoutSeconds,
-			final View view, final String label, final String what) {
+			final View view, final String label, final String what, final Recording recording) {
 		final List<String> classpath;
 		try {
 			classpath = context.getCurrentSession().testClasspath();
@@ -166,7 +190,7 @@ public final class ProjectTests {
 					"could not read the project classpath from jdtls: " + e.getMessage());
 		}
 
-		final Outcome outcome = fork(context, classpath, selector, timeoutSeconds);
+		final Outcome outcome = fork(context, classpath, selector, timeoutSeconds, recording);
 		if (outcome.failure != null)
 			return CommandResult.error(outcome.failureCode, outcome.failure);
 
@@ -226,7 +250,7 @@ public final class ProjectTests {
 	}
 
 	private static Outcome fork(final ClideContext context, final List<String> classpath, final String[] selector,
-			final long timeoutSeconds) {
+			final long timeoutSeconds, final Recording recording) {
 		final List<String> own = ownClasspath();
 		if (own.isEmpty())
 			return Outcome.broken(ErrorCode.TEST_RUNNER_BROKEN,
@@ -234,8 +258,12 @@ public final class ProjectTests {
 
 		final List<String> full = assembleClasspath(context.getTestClasspathPrefix(), classpath, own);
 
-		final List<String> command = command(JdtlsLauncher.javaExecutable(), context.getTestJvmOptions(), full,
-				selector);
+		// The recording's options come after the connection's own, so that a recording
+		// the connection asked for by hand does not silence the one profile_test needs.
+		final List<String> jvmOptions = new ArrayList<>(context.getTestJvmOptions());
+		jvmOptions.addAll(recording.nextOptions());
+
+		final List<String> command = command(JdtlsLauncher.javaExecutable(), jvmOptions, full, selector);
 
 		final Process process;
 		try {
@@ -523,6 +551,65 @@ public final class ProjectTests {
 				return "";
 			}
 		});
+	}
+
+	// ------------------------------------------------------------------
+	// Profiling
+	// ------------------------------------------------------------------
+
+	/** How many rows of each table a profile_test answer carries: a summary, not the report. */
+	private static final int PROFILE_SUMMARY_ROWS = 10;
+
+	/** The tables a profile_test answer leads with - profile_report has the others. */
+	private static final List<String> PROFILE_SUMMARY_VIEWS = List.of(ProfileViews.HOT, ProfileViews.ALLOC);
+
+	/**
+	 * Runs the tests with a recording, then reads it. The verdict of the tests is
+	 * what the answer is first about: a run with failures stays an ERROR with
+	 * TEST_FAILURES, exactly as run_test reports it, the profile riding along in the
+	 * payload next to the failures. A run that never got as far as reporting tests
+	 * (nothing found, runner broken, timeout) has nothing to profile and is
+	 * returned untouched.
+	 *
+	 * The recording becomes the one profile_report reads, even when the profile
+	 * itself could not be read: a stale one from an earlier run must never be taken
+	 * for this run's.
+	 */
+	private static CommandResult profile(final ClideContext context,
+			final java.util.function.Function<Recording, CommandResult> runner) {
+		final Recording recording;
+		try {
+			recording = Recording.start(context.getProjectRoot());
+		} catch (final IOException e) {
+			return CommandResult.error(ErrorCode.IO_FAILED,
+					"could not prepare the recordings folder " + Recording.DIRECTORY + ": " + e.getMessage());
+		}
+
+		final CommandResult result = runner.apply(recording);
+		if (!(result.payload() instanceof CommandPayload.TestRun run))
+			return result;
+
+		context.setLastRecording(recording);
+
+		final CommandPayload.Profile profile;
+		try {
+			final var scope = context.getProfileScope();
+			final int rows = Math.min(PROFILE_SUMMARY_ROWS, context.getMaxResults());
+			final List<ProfileTable> tables = new ArrayList<>();
+			for (final String view : PROFILE_SUMMARY_VIEWS)
+				tables.add(recording.table(scope, view, ProfileViews.NO_FILTER, rows));
+
+			profile = new CommandPayload.Profile(recording.overview(scope), tables);
+		} catch (final IOException e) {
+			return CommandResult.error(ErrorCode.PROFILE_UNAVAILABLE, "the tests ran (" + run.passed() + " passed, "
+					+ run.failed() + " failed) but their profile cannot be read: " + e.getMessage());
+		}
+
+		final CommandPayload payload = new CommandPayload.Profiled(run, profile);
+		if (result.isError() == false)
+			return CommandResult.ok(payload);
+
+		return CommandResult.error(result.code(), result.message(), result.hint(), payload);
 	}
 
 	// ------------------------------------------------------------------

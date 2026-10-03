@@ -5,11 +5,11 @@ import clide.command.answer.CommandResult;
 import clide.command.answer.ResultEnvelope;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 import clide.model.Listing;
 import clide.model.TestMeasure;
 import clide.model.TestOutcome;
+import clide.util.Units;
 
 /**
  * How a test run reads. Shared by run_test and run_tests, which differ in what
@@ -90,29 +90,12 @@ final class TestRunRendering {
 
 	/** "0.4 ms", "12 ms", "3.2 s": the unit that keeps two significant figures at least. */
 	static String duration(final long nanos) {
-		final double millis = nanos / 1_000_000.0;
-		if (millis >= 10_000)
-			return String.format(Locale.ROOT, "%.1f s", millis / 1000);
-
-		if (millis >= 10)
-			return Math.round(millis) + " ms";
-
-		return String.format(Locale.ROOT, "%.1f ms", millis);
+		return Units.duration(nanos);
 	}
 
 	/** "812 B", "3.2 KB", "41.0 MB": binary multiples, one decimal. */
 	static String size(final long bytes) {
-		if (bytes < 1024)
-			return bytes + " B";
-
-		final String[] units = { "KB", "MB", "GB", "TB" };
-		double value = bytes;
-		int unit = -1;
-		while (value >= 1024 && unit < units.length - 1) {
-			value /= 1024;
-			unit++;
-		}
-		return String.format(Locale.ROOT, "%.1f %s", value, units[unit]);
+		return Units.size(bytes);
 	}
 
 	private static String failure(final TestOutcome test) {

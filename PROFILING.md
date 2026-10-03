@@ -239,7 +239,17 @@ englobante et les classes cachées (lambdas, `/0x…`) ignorées.
 GC) : cinq champs ajoutés à la fin des enregistrements `PASS`/`FAIL` de
 `TestRunnerMain` (`TestMeter`), portés par `TestOutcome.measure()` (`TestMeasure`),
 affichés après chaque test, exposés en Lua, et utilisés par
-`run_tests slowest|heaviest` pour classer. Les phases 1 à 3 restent à faire ;
+`run_tests slowest|heaviest` pour classer.
+**Phase 1 : faite.** `profile_test <position>`, `profile_tests` (sans
+paramètre) et `profile_report <vue> [filtre]` ; le port de `JfrReport` vit dans
+`clide.profile` (`JfrAnalyzer`, `ProfileViews`, `Recording`, `ProfileScope`) et
+les modèles dans `clide.model` (`ProfileOverview`, `ProfileRow`, `ProfileTable`).
+Le JFR va dans `.clide/tmp/profiles/` ; seul le dernier est gardé, par démon.
+Vues : `overview`, `hot`, `inclusive`, `self`, `lines`, `jdk`, `alloc`,
+`alloc_types`, `contention`, plus `callers`/`callees <méthode>`. Les vues `gc`
+et `exceptions` sont dans `overview` (compteurs). Point 5 (portée) : `main` par
+défaut, `set_profile_scope all` pour inclure les tests ; classes cachées
+(lambdas) exclues. Les phases 2 et 3 restent à faire ;
 les points ci-dessous qui ne concernent que la phase 0 sont réglés (point 2 en
 partie : seule la partie « options JVM » de `command()` est faite).
 

@@ -17,6 +17,9 @@ import clide.model.NarrowableMethod;
 import clide.model.Position;
 import clide.model.SearchMatch;
 import clide.model.SymbolHit;
+import clide.model.ProfileOverview;
+import clide.model.ProfileRow;
+import clide.model.ProfileTable;
 import clide.model.TestMeasure;
 import clide.model.TestOutcome;
 
@@ -71,6 +74,9 @@ public final class LuaPayloads {
 		case CommandPayload.Rebuild built -> map("changedFiles", (long) built.changedFiles(), "elapsedMillis",
 				built.elapsedMillis(), "report", diagnosticsReport(built.report()));
 		case CommandPayload.TestRun run -> testRun(run);
+		case CommandPayload.Profile profile -> profile(profile);
+		case CommandPayload.Profiled profiled -> map("run", testRun(profiled.run()), "profile",
+				profile(profiled.profile()));
 		case CommandPayload.Transaction transaction -> map("id", transaction.id(), "action",
 				name(transaction.action()), "path", transaction.path());
 		case CommandPayload.ModifiedFiles modified -> map("transactionId", modified.transactionId(), "files",
@@ -230,6 +236,26 @@ public final class LuaPayloads {
 	private static void putIfKnown(final Map<String, Object> out, final String key, final long value) {
 		if (value >= 0)
 			out.put(key, value);
+	}
+
+	private static Object profile(final CommandPayload.Profile profile) {
+		final ProfileOverview overview = profile.overview();
+		final List<Object> tables = new ArrayList<>();
+		for (final ProfileTable table : profile.tables())
+			tables.add(map("view", table.view(), "unit", table.unit(), "total", table.total(), "rows",
+					listing(table.rows(), LuaPayloads::profileRow)));
+
+		return map("overview",
+				map("recordingMillis", overview.recordingMillis(), "cpuSamples", overview.cpuSamples(),
+						"samplesOutOfScope", overview.samplesOutOfScope(), "gcCount", overview.gcCount(),
+						"gcPausedMillis", overview.gcPausedMillis(), "gcLongestMillis", overview.gcLongestMillis(),
+						"allocatedBytes", overview.allocatedBytes(), "exceptions", overview.exceptions(),
+						"contentionMillis", overview.contentionMillis()),
+				"tables", tables);
+	}
+
+	private static Object profileRow(final ProfileRow row) {
+		return map("value", row.value(), "percent", row.percent(), "location", row.location(), "name", row.name());
 	}
 
 	private static Object testRun(final CommandPayload.TestRun run) {

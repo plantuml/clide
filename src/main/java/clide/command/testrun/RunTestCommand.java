@@ -113,15 +113,24 @@ public class RunTestCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
+		return execute(context, params[0], "run_test", false);
+	}
+
+	/**
+	 * What run_test and profile_test share: the position to a selector, and then the
+	 * run itself, recorded or not. Only the label of an error differs.
+	 */
+	static CommandResult execute(final ClideContext context, final String token, final String label,
+			final boolean profiled) {
 		final JdtlsSession session = context.getCurrentSession();
 
 		final Position position;
 		try {
-			position = PositionParser.parse(context.getFilesRepository(), session, params[0]);
+			position = PositionParser.parse(context.getFilesRepository(), session, token);
 		} catch (final IllegalArgumentException e) {
 			return CommandResults.positionFailure(e);
 		} catch (final IOException | InterruptedException | LspClient.TimeoutException e) {
-			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, "run_test failed: " + e.getMessage());
+			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, label + " failed: " + e.getMessage());
 		}
 
 		final String[] selector;
@@ -137,7 +146,8 @@ public class RunTestCommand extends Command {
 		// rather than read straight off selector[1] so "no test found in ..." still
 		// names the full target, not just the class it was searched in.
 		final String what = selector.length > 2 ? selector[1] + "#" + selector[2] : selector[1];
-		return ProjectTests.runSelection(context, selector, what);
+		return profiled ? ProjectTests.profileSelection(context, selector, what)
+				: ProjectTests.runSelection(context, selector, what);
 	}
 
 	@Override

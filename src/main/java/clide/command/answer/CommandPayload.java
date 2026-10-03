@@ -11,6 +11,8 @@ import clide.model.NarrowableMethod;
 import clide.model.SearchMatch;
 import clide.model.SourceLine;
 import clide.model.SymbolHit;
+import clide.model.ProfileOverview;
+import clide.model.ProfileTable;
 import clide.model.TestOutcome;
 /**
  * The part of a CommandResult that varies from one command to the next - what
@@ -123,6 +125,21 @@ public sealed interface CommandPayload {
 		public int total() {
 			return passed + failed + skipped;
 		}
+	}
+
+	/**
+	 * What a profiled run's recording says: the headline numbers and some tables,
+	 * each a ranked, capped listing - see profile_test and profile_report.
+	 */
+	record Profile(ProfileOverview overview, List<ProfileTable> tables) implements CommandPayload {
+
+		public Profile {
+			tables = List.copyOf(tables);
+		}
+	}
+
+	/** profile_test, profile_tests: the verdict of the tests, then what the run cost. */
+	record Profiled(TestRun run, Profile profile) implements CommandPayload {
 	}
 
 	/** A transaction changed state - open, commit, rollback, restore_file. */

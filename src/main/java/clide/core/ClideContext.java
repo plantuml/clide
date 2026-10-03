@@ -12,6 +12,8 @@ import java.util.regex.Pattern;
 
 import clide.PrintMode;
 import clide.jdtls.JdtlsSession;
+import clide.profile.ProfileScope;
+import clide.profile.Recording;
 
 /**
  * State shared across every command execution for the lifetime of the clide
@@ -69,6 +71,8 @@ public class ClideContext {
 	private final Map<String, String> testEnvironment = new LinkedHashMap<>();
 	private final List<String> testClasspathPrefix = new ArrayList<>();
 	private final List<String> testJvmOptions = new ArrayList<>();
+	private boolean profileIncludesTests;
+	private Recording lastRecording = Recording.none();
 
 	/** What set_test_env accepts as a variable name - what a shell would call one. */
 	private static final Pattern ENVIRONMENT_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
@@ -293,11 +297,45 @@ public class ClideContext {
 		return previous;
 	}
 
-	/** Forgets every set_test_env, set_test_classpath_prefix and set_test_jvm_options of this connection. */
+	/**
+	 * Whether a profile counts the project's test code as its own - see
+	 * set_profile_scope. False by default: the harness around the code under test
+	 * would otherwise be the first hotspot of every profile. Per connection, for the
+	 * reason getTestEnvironment() gives.
+	 */
+	public boolean isProfileIncludingTests() {
+		return profileIncludesTests;
+	}
+
+	public void setProfileIncludingTests(final boolean includeTests) {
+		profileIncludesTests = includeTests;
+	}
+
+	/** What a profile attributes to the project's own code, under the current setting. */
+	public ProfileScope getProfileScope() {
+		return ProfileScope.of(getProjectRoot(), profileIncludesTests);
+	}
+
+	/**
+	 * The recording of the last profile_test/profile_tests - what profile_report
+	 * reads. Deliberately the daemon's and not the connection's, like the named
+	 * snapshots: a profile taken by one session or script is still there for the
+	 * next. Recording.none() until the first profile, and files() is empty then.
+	 */
+	public synchronized Recording getLastRecording() {
+		return lastRecording;
+	}
+
+	public synchronized void setLastRecording(final Recording recording) {
+		lastRecording = recording;
+	}
+
+	/** Forgets every set_test_env, set_test_classpath_prefix, set_test_jvm_options and set_profile_scope of this connection. */
 	public void resetTestSettings() {
 		testEnvironment.clear();
 		testClasspathPrefix.clear();
 		testJvmOptions.clear();
+		profileIncludesTests = false;
 	}
 
 	/**

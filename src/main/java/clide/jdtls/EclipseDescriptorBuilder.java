@@ -34,6 +34,11 @@ public final class EclipseDescriptorBuilder {
 	 */
 	private static final List<String> CONVENTIONAL_TEST_FOLDERS = List.of("src/test/java", "src/test/resources");
 
+	/** Whether a source folder as detectSourceFolders() names it holds tests - see CONVENTIONAL_TEST_FOLDERS. */
+	public static boolean isTestFolder(final String folder) {
+		return CONVENTIONAL_TEST_FOLDERS.contains(folder);
+	}
+
 	/**
 	 * Per-project jar dependency cache - see JDTLS.md. Populated by hand (or by a
 	 * future clide command); clide only reads it.

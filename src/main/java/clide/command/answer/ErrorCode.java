@@ -305,6 +305,16 @@ public enum ErrorCode {
 	MULTI_MODULE_PROJECT,
 
 	// ------------------------------------------------------------------
+	// Profiling
+	// ------------------------------------------------------------------
+
+	/** profile_report before any profile_test/profile_tests: there is no recording to read. */
+	NO_PROFILE,
+
+	/** The recording is missing or unreadable - the JVM that was to write it did not finish, or the file is damaged. */
+	PROFILE_UNAVAILABLE,
+
+	// ------------------------------------------------------------------
 	// remove_unused_imports
 	// ------------------------------------------------------------------
 

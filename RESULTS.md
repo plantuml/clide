@@ -161,6 +161,7 @@ un mensonge, pas un service.
 | jdtls | `SESSION_START_FAILED`, `JDTLS_REQUEST_FAILED`, `BUILD_FAILED` |
 | transactions | `NO_OPEN_TRANSACTION`, `TRANSACTION_REFUSED`, `TRANSACTION_IO_FAILED`, `TERMINATE_REFUSED` |
 | tests | `TEST_FAILURES`, `NO_TEST_FOUND`, `TEST_CLASS_NOT_COMPILED`, `TEST_RUNNER_BROKEN`, `TEST_TIMEOUT`, `NO_OUTPUT_FOLDER`, `CLASSPATH_UNAVAILABLE`, `MULTI_MODULE_PROJECT` |
+| profil | `NO_PROFILE`, `PROFILE_UNAVAILABLE` |
 | divers | `IO_FAILED` |
 
 Les codes de `<position>` sortent tous de `PositionParser.parse()`, qui les
@@ -714,6 +715,30 @@ indiscernables, même classe, même méthode. Seuls les conteneurs *dynamiques*
 comptent : une classe `@Nested` est déjà dans le nom de classe, et le gabarit
 d'un `@ParameterizedTest` est déjà dans le nom de méthode.
 
+### `Profile` et `Profiled`
+
+`Profile` est ce que rend `profile_report` : un `ProfileOverview` (durée
+d'enregistrement, échantillons CPU dont ceux hors portée, GC — nombre, pause
+totale, pause la plus longue —, poids d'allocation échantillonné, exceptions,
+contention en ms) et une liste de `ProfileTable` (`view`, `unit`, `total`,
+`rows` : un `Listing` de `ProfileRow(value, percent, location, name)`).
+`Profiled` est ce que rend `profile_test` : le `TestRun` (verdict, comme
+`run_test`) puis le `Profile` — vues `hot` et `alloc`, dix lignes au plus.
+Un run qui échoue reste une erreur `TEST_FAILURES` et porte quand même son
+`Profiled`. Les lignes de `profile_report` sont plafonnées par `max_results` ;
+le résumé de `profile_test` renvoie vers `profile_report <vue> *` quand il coupe.
+
+```
+profile_test: 3 test(s), 3 passed, 0 failed in 2610 ms
+== overview
+recording     2701 ms
+cpu samples   118  (6 with no frame in the profiled code: harness, JUnit or library-only stacks)
+gc            3 collection(s), 9 ms paused in total, longest 4 ms
+allocation    ~96.0 MB sampled weight
+exceptions    0 thrown
+contention    0 ms blocked or parked in project frames
+```
+
 ### `Transaction`
 
 | Champ | Type | Rôle |
@@ -1025,8 +1050,8 @@ changed_since: 2 file(s) since vega (357 match src/test/resources/vega/**.svg no
 | `previousValue` | `String` | la valeur d'avant |
 | `newValue` | `String` | la valeur d'après |
 
-Produit par `set_max_results`, `set_test_env`, `set_test_classpath_prefix` et
-`set_test_jvm_options`. Porter la valeur précédente est ce qui fait de
+Produit par `set_max_results`, `set_test_env`, `set_test_classpath_prefix`,
+`set_test_jvm_options` et `set_profile_scope` (`profile_scope`, `main` ou `all`). Porter la valeur précédente est ce qui fait de
 la commande sa propre relecture : l'arité fixe du protocole ne laisse aucune
 place à une forme sans argument « montre-moi la valeur courante ».
 
@@ -1057,6 +1082,10 @@ set_test_jvm_options: test_jvm_options '' -> '-Xmx256m -XX:+UseSerialGC'
 | `check_javadoc` | `JavadocCheck` | oui |
 | `run_test` | `TestRun` | oui |
 | `run_tests` | `TestRun` | oui |
+| `profile_test` | `Profiled` | oui (10 lignes par vue) |
+| `profile_tests` | `Profiled` | oui (10 lignes par vue) |
+| `profile_report` | `Profile` | oui |
+| `set_profile_scope` | `Setting` | non |
 | `list_modified_files` | `ModifiedFiles` | oui |
 | `diff_transaction` | `Diff` | non |
 | `hover` | `Text` | non |

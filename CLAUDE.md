@@ -225,6 +225,7 @@ hint: find_symbol Foo locates it
   `JDTLS_REQUEST_FAILED`,
   `BUILD_FAILED`, `SESSION_START_FAILED`, `TEST_FAILURES`, `NO_TEST_FOUND`,
   `TEST_CLASS_NOT_COMPILED`, `TEST_TIMEOUT`, `TEST_RUNNER_BROKEN`,
+  `NO_PROFILE`, `PROFILE_UNAVAILABLE`,
   `MULTI_MODULE_PROJECT`, `NO_OUTPUT_FOLDER`, `CLASSPATH_UNAVAILABLE`,
   `TERMINATE_REFUSED`, `NO_OPEN_TRANSACTION`, `TRANSACTION_REFUSED`,
   `TRANSACTION_IO_FAILED`, `IO_FAILED`,
@@ -579,7 +580,11 @@ when they do; `set_max_results <count>` changes it for the session.
 | `set_test_env <name> <value>` | Adds an environment variable to the JVM `run_test`/`run_tests` start, for this session only. Prints the previous value (`(unset)` if none). For tests that read `System.getenv()` — the daemon's own environment is the only other way in. |
 | `set_test_classpath_prefix <entries>` | Puts jars or class folders (separated by `:`/`;`) in front of the project's test classpath, for this session only, so the tests run against that build instead of what jdtls compiled — e.g. an older jar, to see whether a test already failed before your change. Every entry must exist. Replaces any earlier prefix. |
 | `set_test_jvm_options <options>` | Sets the options of the JVM `run_test`/`run_tests` start (`-Xmx512m -XX:+UseSerialGC -Xlog:gc`…), for this session only. Separated by spaces, a double-quoted stretch is one token. Replaces any earlier options and prints the previous ones; a blank line clears them. They go after `-ea` and before `-cp`. `-cp`/`-classpath`/`--class-path`, `-jar` and anything not starting with `-` are refused. |
-| `reset_test_settings` | Drops the three settings above without ending the session. |
+| `profile_test <position>` | Like `run_test`, in a JVM that records a JFR profile. Prints the test verdict, then an overview (CPU samples, GC, allocation, exceptions, contention) and the top rows of the `hot` (CPU attributed to project methods) and `alloc` views. The recording is kept in `.clide/tmp/profiles/` for `profile_report`. A failing run stays an error and still prints the profile. |
+| `profile_tests` | Same for the whole project. |
+| `profile_report <view> [filter]` | Re-queries the last recording without re-running anything. Views: `overview`, `hot`, `inclusive`, `self`, `lines`, `jdk`, `alloc`, `alloc_types`, `contention`, `callers`, `callees`. `filter` is a case-insensitive substring of the method (`*` = all); `callers`/`callees` need a real method name. Rows are capped by `max_results`. |
+| `set_profile_scope <main\|all>` | What the profile attributes to: the project's main source roots (default) or the test roots too. |
+| `reset_test_settings` | Drops the test settings above, and the profile scope, without ending the session. |
 
 Every test that ran is printed with what it cost, measured in the test JVM
 around the test and its `@BeforeEach`/`@AfterEach`:
