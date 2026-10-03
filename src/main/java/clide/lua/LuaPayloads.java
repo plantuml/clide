@@ -84,6 +84,9 @@ public final class LuaPayloads {
 				(long) moved.fileCount(), "changes", listing(moved.changes(), LuaPayloads::changedFile));
 		case CommandPayload.Lines read -> map("path", read.path(), "lineCount", (long) read.lineCount(), "lines",
 				listing(read.lines(), line -> map("line", (long) line.line(), "text", line.text())));
+		case CommandPayload.LinesDeleted deleted -> map("path", deleted.path(), "md5", deleted.md5(), "lineCount",
+				(long) deleted.lineCount(), "deleted",
+				listing(deleted.deleted(), line -> map("line", (long) line.line(), "text", line.text())));
 		case CommandPayload.Setting setting -> map("name", setting.name(), "previousValue", setting.previousValue(),
 				"newValue", setting.newValue());
 		case CommandPayload.Rename renamed -> renamed(renamed);

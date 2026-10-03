@@ -36,6 +36,7 @@ import clide.command.transaction.CommitTransactionCommand;
 import clide.command.transaction.DiffTransactionCommand;
 import clide.command.transaction.ListModifiedFilesCommand;
 import clide.command.snapshot.ChangedSinceCommand;
+import clide.command.edit.DeleteLinesCommand;
 import clide.command.source.ReadLinesCommand;
 import clide.command.snapshot.SnapshotCommand;
 import clide.command.transaction.OpenTransactionCommand;
@@ -100,6 +101,7 @@ public final class CommandRepository {
 		registered.add(new RenameCommand());
 		registered.add(new RemoveUnusedImportsCommand());
 		registered.add(new MoveClassCommand());
+		registered.add(new DeleteLinesCommand());
 
 		registered.add(new ReadLinesCommand());
 		registered.add(new SnapshotCommand());

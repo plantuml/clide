@@ -212,6 +212,17 @@ public enum ErrorCode {
 	/** The edit jdtls computed could not be applied as given - see EditApplicationException. */
 	EDIT_NOT_APPLICABLE,
 
+	/**
+	 * delete_lines was given a &lt;ranges&gt; list that is not "12", "12-15" or a
+	 * comma-separated mix of both, with a line 0, a range written backwards
+	 * (15-12), or two ranges that overlap. A range past the end of the file is
+	 * LINE_OUT_OF_RANGE instead: that one depends on the file, this one does not.
+	 */
+	INVALID_LINE_RANGES,
+
+	/** delete_lines was given a file that is not a .java source file. */
+	NOT_A_JAVA_FILE,
+
 	/** move_class was given a position that does not name a top-level type declaration. */
 	NOT_A_TOP_LEVEL_TYPE,
 

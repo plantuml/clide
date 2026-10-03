@@ -659,6 +659,7 @@ reconnecting. `--lua` script connections never see this either.
 | `rename <position> <new name>` | Renames the symbol at `<position>` — class, interface, enum, method, field, parameter or local variable — everywhere it is *really* used, and writes the result. |
 | `remove_unused_imports <path regex>` | Deletes every unused import jdtls flagged, from every project file whose path matches `<path regex>`. |
 | `move_class <position> <new package>` | Moves the top-level class/interface/enum at `<position>` to `<new package>`: rewrites its own package declaration, moves its file, and rewrites the import of every other file jdtls can find that references it. |
+| `delete_lines <file> <ranges>` | Deletes lines from one `.java` file. `<file>` is `[<md5>:]<path>` (the md5 of a previous answer makes a stale line number fail with `FILE_MODIFIED` instead of deleting the wrong lines); `<ranges>` is `12`, `12-15` or a mix, `12-15,20,30-32`, numbered as the file is *before* the call. All or nothing: a range past the end is `LINE_OUT_OF_RANGE`, overlapping or backwards ranges are `INVALID_LINE_RANGES`. Answers with the deleted lines and the file's new `md5:path`, ready for the next call. Other lines keep their terminators (CRLF stays CRLF). Requires an open transaction; does not rebuild. |
 
 One command for every kind of symbol, not one per kind: `textDocument/rename`
 is a single request and jdtls resolves for itself what is at that position, so

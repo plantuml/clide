@@ -781,6 +781,25 @@ rebuilt: 0 error(s)
 remove_unused_imports: 2 file(s) matched, nothing to remove
 ```
 
+### `LinesDeleted`
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `path` | `String` | fichier, relatif au projet |
+| `md5` | `String` | signature du fichier **après** l'edit, abrégée comme celle d'une position |
+| `lineCount` | `int` | nombre de lignes restantes |
+| `deleted` | `Listing<SourceLine>` | les lignes supprimées, numérotées comme **avant** la suppression |
+
+Produit par `delete_lines`. `md5` + `path` se collent tels quels devant le
+prochain `delete_lines`. Pas de `errorCount` : la commande ne reconstruit
+pas, `rebuild` puis `print_diagnostics` disent si le projet compile encore.
+
+```
+src/demo/Calc.java:12: int unused = 0;
+src/demo/Calc.java:13: // TODO
+delete_lines: 2 line(s) deleted from src/demo/Calc.java (40 left, now 9f3a1c2e:src/demo/Calc.java)
+```
+
 ### `JavadocCheck`
 
 | Champ | Type | Rôle |
@@ -1002,6 +1021,7 @@ set_max_results: max_results 100 -> 3
 | `rename` | `Rename` | oui (`changedFiles`) |
 | `remove_unused_imports` | `RemoveUnusedImports` | oui (`changedFiles`) |
 | `move_class` | `MoveClass` | oui (`changedFiles`) |
+| `delete_lines` | `LinesDeleted` | oui (`deleted`) |
 | `exit` / `quit` | `Nothing` | — |
 | `terminate` | `Nothing` | — |
 

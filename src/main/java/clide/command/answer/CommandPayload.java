@@ -163,6 +163,18 @@ public sealed interface CommandPayload {
 	record Lines(String path, int lineCount, Listing<SourceLine> lines) implements CommandPayload {
 	}
 
+	/**
+	 * Lines removed from one file - delete_lines. deleted holds the removed lines
+	 * as they were, numbered as they were <i>before</i> the deletion, so that the
+	 * answer alone says whether the right lines went. md5 is the file's signature
+	 * after the edit, abbreviated like a position's, and lineCount its number of
+	 * lines after it: the two things the caller needs to go on without reading
+	 * the file again.
+	 */
+	record LinesDeleted(String path, String md5, int lineCount, Listing<SourceLine> deleted)
+			implements CommandPayload {
+	}
+
 	/** The files a transaction has modified so far - diff_transaction with no path. */
 	record ModifiedFiles(String transactionId, Listing<String> files) implements CommandPayload {
 	}
