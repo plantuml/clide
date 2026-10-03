@@ -42,8 +42,9 @@ CommandResult                          l'enveloppe, identique pour toute command
     │                                              └── diagnostics ► Listing<Diagnostic>
     ├── Rebuild         changedFiles, elapsedMillis, report ► DiagnosticsReport
     ├── TestRun         subject, passed, failed, skipped,
-    │                   elapsedMillis, failuresOnly,
+    │                   elapsedMillis, failuresOnly, order,
     │                   tests ─────────────────► Listing<TestOutcome>
+    │                                              └── measure ► TestMeasure
     ├── Transaction     id, action, path
     ├── ModifiedFiles   transactionId, files ──► Listing<String>
     ├── Diff            transactionId, path, unifiedDiff
@@ -404,6 +405,38 @@ Ce qui est arrivé à un test.
 | `location` | `String` | `src/test/java/demo/CalcTest.java:22` quand jdtls a su placer le test, `""` sinon |
 | `messageLines` | `List<String>` | le message d'échec découpé en lignes (vide pour un succès) ; une liste plutôt qu'une chaîne, pour qu'un handler puisse l'indenter sans la redécouper |
 | `origin` | `String` | d'où l'exception est réellement venue, quand ce n'est pas la ligne du test ; `""` sinon — cas normal d'une assertion échouée |
+| `measure` | `TestMeasure` | ce que le test a coûté ; `TestMeasure.UNKNOWN` pour un test ignoré |
+
+### `TestMeasure`
+
+Ce qu'un test a coûté, mesuré dans la JVM qui l'a exécuté, autour du test et de
+ses `@BeforeEach`/`@AfterEach`. Chaque lecture est un écart entre le début et la
+fin du test.
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `wallNanos` | `long` | durée murale, en nanosecondes |
+| `cpuNanos` | `long` | temps CPU du thread qui a exécuté le test |
+| `allocatedBytes` | `long` | octets alloués par ce même thread |
+| `gcCount` | `long` | collections de la JVM entière pendant le test |
+| `gcMillis` | `long` | temps passé dans ces collections, en millisecondes |
+| `known()` | `boolean` | vrai quand au moins `wallNanos` est connu |
+
+Une lecture que la JVM n'a pas pu faire vaut **-1**, jamais 0 : un test à
+« 0 octet alloué » est un test qui n'alloue rien, pas un test qu'on n'a pas su
+mesurer. Le CPU et l'allocation ne voient que le thread du test — le travail
+confié à des threads du test lui-même n'y figure pas — tandis que les
+collections sont celles de toute la JVM, si bien que les déchets d'un voisin
+peuvent être imputés à un test.
+
+Sur le fil, ce sont cinq champs ajoutés **à la fin** des enregistrements `PASS`
+et `FAIL` de `TestRunnerMain` ; un `SKIP` n'en porte aucun. Un enregistrement
+sans ces champs (un coureur plus ancien) donne `TestMeasure.UNKNOWN`.
+
+Côté Lua, une entrée de `tests.items` expose `wallNanos`, `cpuNanos`,
+`allocatedBytes`, `gcCount` et `gcMillis` — **absents** (donc `nil`) quand la
+lecture est inconnue, pour qu'un script ne puisse pas les additionner en croyant
+sommer des zéros.
 
 ### `CommandSummary`
 
@@ -620,6 +653,7 @@ intacts les diagnostics du build précédent.
 | `elapsedMillis` | `long` | durée |
 | `tests` | `Listing<TestOutcome>` | les entrées, filtrées par `failuresOnly` puis plafonnées |
 | `failuresOnly` | `boolean` | si la liste a été réduite aux échecs |
+| `order` | `String` | `""` : l'ordre d'exécution ; `"time"` : les plus lents d'abord ; `"allocation"` : les plus gourmands d'abord |
 | `total()` | `int` | `passed + failed + skipped` |
 
 Produit par `run_test` et `run_tests`. Les compteurs portent sur le run entier,
@@ -630,9 +664,25 @@ Succès :
 
 ```
 run_test: 3 test(s), 3 passed, 0 failed in 412 ms
-[passed] demo.CalcTest.addWorks
-[passed] demo.CalcTest.chainWorks
-[passed] demo.CalcTest.totalStartsAtZero
+[passed] demo.CalcTest.addWorks (12 ms, cpu 11 ms, alloc 3.2 MB)
+[passed] demo.CalcTest.chainWorks (0.8 ms, cpu 0.8 ms, alloc 41.0 KB)
+[passed] demo.CalcTest.totalStartsAtZero (0.3 ms, cpu 0.3 ms, alloc 12.5 KB)
+```
+
+Chaque test qui a tourné porte son coût entre parenthèses : durée, CPU, octets
+alloués, et `gc 2 x 8 ms` seulement s'il y a eu une collection pendant le test.
+Une lecture inconnue est omise de la parenthèse, pas affichée à zéro.
+
+`run_tests slowest` et `run_tests heaviest` classent au lieu de filtrer : tous
+les tests qui ont tourné, le plus lent (ou le plus gourmand en allocation)
+d'abord, le nom départageant les ex æquo, plafonnés par `max_results`. Les
+tests ignorés n'y figurent pas — rien à classer — et un test sans mesure passe
+après tous ceux qui en ont une.
+
+```
+run_tests: 395 test(s), 391 passed, 0 failed, 4 skipped in 8343 ms, listed slowest first
+[passed] test.vega.VegaTest.testAllPumlFiles state/junction.puml (410 ms, cpu 402 ms, alloc 88.1 MB, gc 1 x 6 ms)
+[passed] test.vega.VegaTest.testAllPumlFiles sequence/boxes.puml (122 ms, cpu 120 ms, alloc 21.4 MB)
 ```
 
 Échec — **le seul cas où un `ERROR` porte un payload** : le statut reste
@@ -971,16 +1021,18 @@ changed_since: 2 file(s) since vega (357 match src/test/resources/vega/**.svg no
 
 | Champ | Type | Rôle |
 |---|---|---|
-| `name` | `String` | le réglage (`max_results` aujourd'hui) |
+| `name` | `String` | le réglage (`max_results`, `test_env.<nom>`, `test_classpath_prefix`, `test_jvm_options`) |
 | `previousValue` | `String` | la valeur d'avant |
 | `newValue` | `String` | la valeur d'après |
 
-Produit par `set_max_results`. Porter la valeur précédente est ce qui fait de
+Produit par `set_max_results`, `set_test_env`, `set_test_classpath_prefix` et
+`set_test_jvm_options`. Porter la valeur précédente est ce qui fait de
 la commande sa propre relecture : l'arité fixe du protocole ne laisse aucune
 place à une forme sans argument « montre-moi la valeur courante ».
 
 ```
 set_max_results: max_results 100 -> 3
+set_test_jvm_options: test_jvm_options '' -> '-Xmx256m -XX:+UseSerialGC'
 ```
 
 ---

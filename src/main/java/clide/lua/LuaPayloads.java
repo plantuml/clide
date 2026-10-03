@@ -17,6 +17,7 @@ import clide.model.NarrowableMethod;
 import clide.model.Position;
 import clide.model.SearchMatch;
 import clide.model.SymbolHit;
+import clide.model.TestMeasure;
 import clide.model.TestOutcome;
 
 /**
@@ -211,8 +212,24 @@ public final class LuaPayloads {
 	}
 
 	private static Object testOutcome(final TestOutcome outcome) {
-		return map("status", name(outcome.status()), "name", outcome.name(), "location", outcome.location(),
-				"messageLines", new ArrayList<Object>(outcome.messageLines()), "origin", outcome.origin());
+		final Map<String, Object> out = map("status", name(outcome.status()), "name", outcome.name(), "location",
+				outcome.location(), "messageLines", new ArrayList<Object>(outcome.messageLines()), "origin",
+				outcome.origin());
+
+		// Absent rather than -1 when not measured: a script reading outcome.wallNanos
+		// must get nil for "unknown", which it can test, not a number it can add up.
+		final TestMeasure measure = outcome.measure();
+		putIfKnown(out, "wallNanos", measure.wallNanos());
+		putIfKnown(out, "cpuNanos", measure.cpuNanos());
+		putIfKnown(out, "allocatedBytes", measure.allocatedBytes());
+		putIfKnown(out, "gcCount", measure.gcCount());
+		putIfKnown(out, "gcMillis", measure.gcMillis());
+		return out;
+	}
+
+	private static void putIfKnown(final Map<String, Object> out, final String key, final long value) {
+		if (value >= 0)
+			out.put(key, value);
 	}
 
 	private static Object testRun(final CommandPayload.TestRun run) {
@@ -225,6 +242,7 @@ public final class LuaPayloads {
 		out.put("elapsedMillis", run.elapsedMillis());
 		out.put("tests", listing(run.tests(), LuaPayloads::testOutcome));
 		out.put("failuresOnly", run.failuresOnly());
+		out.put("order", run.order());
 		return out;
 	}
 

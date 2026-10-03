@@ -11,31 +11,33 @@ import clide.core.ClideContext;
 import clide.core.Command;
 
 /**
- * Forgets what set_test_env and set_test_classpath_prefix set on this
- * connection, so a script can run the same tests twice under different
+ * Forgets what set_test_env, set_test_classpath_prefix and
+ * set_test_jvm_options set on this connection, so a script can run the same tests twice under different
  * conditions without the first run's settings leaking into the second.
  */
 public class ResetTestSettingsCommand extends Command {
 
 	@Keyword("reset_test_settings")
-	@Help("Removes every set_test_env and set_test_classpath_prefix of this session.")
+	@Help("Removes every set_test_env, set_test_classpath_prefix and set_test_jvm_options of this session.")
 	@Manual("""
 			NAME
-				reset_test_settings - drop the test environment and classpath prefix
+				reset_test_settings - drop the test environment, classpath prefix and JVM options
 
 			SYNOPSIS
 				reset_test_settings
 
 			DESCRIPTION
 				Removes every variable set with set_test_env and the prefix set
-				with set_test_classpath_prefix, so the next run_test or
-				run_tests starts the project's own classes with the daemon's own
-				environment. Never fails, and does nothing if nothing was set.
+				with set_test_classpath_prefix and the options set with
+				set_test_jvm_options, so the next run_test or run_tests starts
+				the project's own classes, with the daemon's own environment and
+				no JVM option but -ea. Never fails, and does nothing if nothing
+				was set.
 				A new session starts in that state anyway; this is for going
 				back within one.
 
 			SEE ALSO
-				set_test_env(1), set_test_classpath_prefix(1)
+				set_test_env(1), set_test_classpath_prefix(1), set_test_jvm_options(1)
 			""")
 	public ResetTestSettingsCommand() {
 

@@ -24,8 +24,8 @@ import clide.test.ProjectTests;
 public class RunTestsCommand extends Command {
 
 	@Keyword("run_tests")
-	@Help("Runs every unit test of the project: <all> reports each test, <failures> only the ones that failed.")
-	@Param(type = ParamType.SINGLE_LINE, description = "Filter: all or failures")
+	@Help("Runs every unit test of the project: <all> reports each test, <failures> only the ones that failed, <slowest> and <heaviest> rank them by time and by allocation.")
+	@Param(type = ParamType.SINGLE_LINE, description = "Filter: all, failures, slowest or heaviest")
 	@Manual("""
 			NAME
 				run_tests - run every unit test of the open project
@@ -40,6 +40,22 @@ public class RunTestsCommand extends Command {
 				a suite of any size is the only part worth reading; "all"
 				reports everything. The totals are printed either way.
 
+				"slowest" and "heaviest" rank instead of filtering: every test
+				that ran, the slowest first (wall-clock time) or the one that
+				allocated the most bytes first, cut at max_results like any
+				listing - so the first lines are the ones to look at. Skipped
+				tests are left out, having nothing to rank. Every passed and
+				failed test carries what it cost in all four views: time, CPU
+				time, bytes allocated and garbage collections.
+
+				Those costs are measured in the test JVM, around the test and
+				its @BeforeEach/@AfterEach. CPU time and allocation are those of
+				the thread that ran the test, so work a test hands to threads
+				of its own is not counted in them; the collection count and
+				time are the whole JVM's, so a neighbour's garbage may be
+				charged to a test. A cost the JVM cannot measure is left out
+				rather than shown as zero.
+
 				Discovery scans the project's own output folders, not the
 				whole classpath: a classpath scan would walk every jar and
 				could report a dependency's tests as the project's.
@@ -50,9 +66,9 @@ public class RunTestsCommand extends Command {
 				reported as "path:line: name".
 
 			ERRORS
-				<filter> must be exactly "all" or "failures" - anything
-				else, including a typo, is rejected (INVALID_ENUM_VALUE)
-				rather than silently treated as "all".
+				<filter> must be exactly "all", "failures", "slowest" or
+				"heaviest" - anything else, including a typo, is rejected
+				(INVALID_ENUM_VALUE) rather than silently treated as "all".
 
 				run_tests does NOT recompile first - it reports the state of
 				the last build. Run rebuild after editing.
@@ -63,7 +79,7 @@ public class RunTestsCommand extends Command {
 				holding several modules is refused, with the modules listed.
 
 			SEE ALSO
-				run_test(1), rebuild(1)
+				run_test(1), rebuild(1), set_test_jvm_options(1)
 			""")
 	public RunTestsCommand() {
 
@@ -71,11 +87,17 @@ public class RunTestsCommand extends Command {
 
 	@Override
 	public CommandResult executeCommand(final ClideContext context, final String... params) {
-		final CommandResult rejected = CommandResults.rejectUnlessOneOf("filter", params[0], "all", "failures");
+		final CommandResult rejected = CommandResults.rejectUnlessOneOf("filter", params[0], "all", "failures",
+				"slowest", "heaviest");
 		if (rejected != null)
 			return rejected;
 
-		return ProjectTests.runEverything(context, params[0].equals("failures"));
+		return ProjectTests.runEverything(context, switch (params[0]) {
+		case "failures" -> ProjectTests.View.FAILURES;
+		case "slowest" -> ProjectTests.View.SLOWEST;
+		case "heaviest" -> ProjectTests.View.HEAVIEST;
+		default -> ProjectTests.View.ALL;
+		});
 	}
 
 	@Override

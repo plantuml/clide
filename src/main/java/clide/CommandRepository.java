@@ -10,6 +10,7 @@ import clide.command.ResetTestSettingsCommand;
 import clide.command.SetMaxResultsCommand;
 import clide.command.SetTestClasspathPrefixCommand;
 import clide.command.SetTestEnvCommand;
+import clide.command.SetTestJvmOptionsCommand;
 import clide.command.diagnostics.CheckJavadocCommand;
 import clide.command.diagnostics.PrintDiagnosticsCommand;
 import clide.command.diagnostics.RebuildCommand;
@@ -96,6 +97,7 @@ public final class CommandRepository {
 		registered.add(new SetMaxResultsCommand());
 		registered.add(new SetTestEnvCommand());
 		registered.add(new SetTestClasspathPrefixCommand());
+		registered.add(new SetTestJvmOptionsCommand());
 		registered.add(new ResetTestSettingsCommand());
 
 		registered.add(new RenameCommand());

@@ -108,9 +108,17 @@ public sealed interface CommandPayload {
 	 * A test run - run_test, run_tests. The counts are of the whole run; tests is
 	 * the (capped, and possibly failures-only) listing of individual outcomes, so
 	 * "12 test(s), 9 passed" stays true even when only the 3 failures are listed.
+	 * order says how the listing is sorted: "" for the order the tests ran in,
+	 * "time" slowest first, "allocation" heaviest first - see run_tests.
 	 */
 	record TestRun(String subject, int passed, int failed, int skipped, long elapsedMillis,
-			Listing<TestOutcome> tests, boolean failuresOnly) implements CommandPayload {
+			Listing<TestOutcome> tests, boolean failuresOnly, String order) implements CommandPayload {
+
+		/** A run listed in the order the tests ran in. */
+		public TestRun(final String subject, final int passed, final int failed, final int skipped,
+				final long elapsedMillis, final Listing<TestOutcome> tests, final boolean failuresOnly) {
+			this(subject, passed, failed, skipped, elapsedMillis, tests, failuresOnly, "");
+		}
 
 		public int total() {
 			return passed + failed + skipped;

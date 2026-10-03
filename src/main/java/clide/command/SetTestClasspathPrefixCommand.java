@@ -69,7 +69,7 @@ public class SetTestClasspathPrefixCommand extends Command {
 				word, and the run would report on the project's own classes.
 
 			SEE ALSO
-				set_test_env(1), reset_test_settings(1), run_test(1)
+				set_test_env(1), set_test_jvm_options(1), reset_test_settings(1), run_test(1)
 			""")
 	public SetTestClasspathPrefixCommand() {
 

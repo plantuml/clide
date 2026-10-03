@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,8 +58,50 @@ public final class ProjectTests {
 	/** A whole suite legitimately takes minutes on a project the size of PlantUML. */
 	public static final long SUITE_TIMEOUT_SECONDS = 600;
 
+	/** Where the measure starts in a PASS record: after kind, class, method, display name. */
+	private static final int PASS_MEASURE_AT = 4;
+
+	/** Where it starts in a FAIL record: after the same four plus message, test frame and origin frame. */
+	private static final int FAIL_MEASURE_AT = 7;
+
 	/** "at demo.Calc.div(Calc.java:9)" - the line number is the part clide needs. */
 	private static final Pattern FRAME = Pattern.compile("^at .*\\(([^:()]*):(\\d+)\\)$");
+
+	/**
+	 * What run_tests lists. The totals are the whole run's in every case; this only
+	 * chooses which tests are listed, and in what order.
+	 */
+	public enum View {
+
+		/** Every test, in the order they ran. */
+		ALL(false, ""),
+
+		/** Only the failures. */
+		FAILURES(true, ""),
+
+		/** Every test that ran, the slowest (wall-clock) first. */
+		SLOWEST(false, "time"),
+
+		/** Every test that ran, the one that allocated the most first. */
+		HEAVIEST(false, "allocation");
+
+		private final boolean failuresOnly;
+		private final String order;
+
+		View(final boolean failuresOnly, final String order) {
+			this.failuresOnly = failuresOnly;
+			this.order = order;
+		}
+
+		public boolean failuresOnly() {
+			return failuresOnly;
+		}
+
+		/** "" for the order the tests ran in, otherwise what they are sorted by. */
+		public String order() {
+			return order;
+		}
+	}
 
 	private ProjectTests() {
 	}
@@ -69,11 +112,11 @@ public final class ProjectTests {
 		if (wrongShape != null)
 			return wrongShape;
 
-		return run(context, selector, SINGLE_TIMEOUT_SECONDS, false, "run_test", what);
+		return run(context, selector, SINGLE_TIMEOUT_SECONDS, View.ALL, "run_test", what);
 	}
 
 	/** run_tests: everything discoverable in the project's test output folders. */
-	public static CommandResult runEverything(final ClideContext context, final boolean failuresOnly) {
+	public static CommandResult runEverything(final ClideContext context, final View view) {
 		final CommandResult wrongShape = onlyOneProject(context);
 		if (wrongShape != null)
 			return wrongShape;
@@ -110,11 +153,11 @@ public final class ProjectTests {
 			millis += outcome.millis;
 		}
 
-		return report(context, "run_tests", records, millis, failuresOnly, String.join(", ", roots));
+		return report(context, "run_tests", records, millis, view, String.join(", ", roots));
 	}
 
 	private static CommandResult run(final ClideContext context, final String[] selector, final long timeoutSeconds,
-			final boolean failuresOnly, final String label, final String what) {
+			final View view, final String label, final String what) {
 		final List<String> classpath;
 		try {
 			classpath = context.getCurrentSession().testClasspath();
@@ -127,7 +170,7 @@ public final class ProjectTests {
 		if (outcome.failure != null)
 			return CommandResult.error(outcome.failureCode, outcome.failure);
 
-		return report(context, label, outcome.records, outcome.millis, failuresOnly, what);
+		return report(context, label, outcome.records, outcome.millis, view, what);
 	}
 
 	// ------------------------------------------------------------------
@@ -138,12 +181,18 @@ public final class ProjectTests {
 	 * The test JVM's command line. Package-private so that what it holds - -ea
 	 * above all, whose absence no test failure would ever reveal - is checked
 	 * without starting a JVM.
+	 *
+	 * jvmOptions (set_test_jvm_options) go right after -ea: still options of the
+	 * JVM, never arguments of TestRunnerMain, and a later one wins over -ea
+	 * itself (-da).
 	 */
-	static List<String> command(final String javaExecutable, final List<String> classpath, final String[] selector) {
+	static List<String> command(final String javaExecutable, final List<String> jvmOptions,
+			final List<String> classpath, final String[] selector) {
 		final List<String> command = new ArrayList<>();
 		command.add(javaExecutable);
 		// Same default as Gradle and Maven Surefire: see the class comment.
 		command.add("-ea");
+		command.addAll(jvmOptions);
 		command.add("-cp");
 		command.add(String.join(java.io.File.pathSeparator, classpath));
 		command.add(TestRunnerMain.class.getName());
@@ -185,7 +234,8 @@ public final class ProjectTests {
 
 		final List<String> full = assembleClasspath(context.getTestClasspathPrefix(), classpath, own);
 
-		final List<String> command = command(JdtlsLauncher.javaExecutable(), full, selector);
+		final List<String> command = command(JdtlsLauncher.javaExecutable(), context.getTestJvmOptions(), full,
+				selector);
 
 		final Process process;
 		try {
@@ -284,8 +334,8 @@ public final class ProjectTests {
 	// Reporting
 	// ------------------------------------------------------------------
 
-	private static CommandResult report(final ClideContext context, final String label, final List<String> records,
-			final long millis, final boolean failuresOnly, final String what) {
+	static CommandResult report(final ClideContext context, final String label, final List<String> records,
+			final long millis, final View view, final String what) {
 		for (final String record : records) {
 			final List<String> fields = TestRunnerMain.parseRecord(record);
 			if (fields.get(0).equals(TestRunnerMain.NOCLASS))
@@ -304,9 +354,9 @@ public final class ProjectTests {
 					"an empty run is far more often a wrong selector or a missing rebuild than a project "
 							+ "with no tests");
 
-		final List<TestOutcome> outcomes = outcomes(context, records, failuresOnly);
+		final List<TestOutcome> outcomes = outcomes(context, records, view);
 		final CommandPayload payload = new CommandPayload.TestRun(what, passed, failed, skipped, millis,
-				Listing.of(outcomes, context.getMaxResults()), failuresOnly);
+				Listing.of(outcomes, context.getMaxResults()), view.failuresOnly(), view.order());
 
 		// A run that completed with failures is still reported as an ERROR, as it
 		// always has been - "did my tests pass" is the question, and a client that
@@ -321,13 +371,18 @@ public final class ProjectTests {
 	}
 
 	/**
-	 * One TestOutcome per record, minus the ones failuresOnly filters out. The
-	 * counts above are tallied from the full record list before this runs, so
-	 * "12 test(s), 9 passed" stays a statement about the run even when only the 3
-	 * failures are listed.
+	 * One TestOutcome per record, minus the ones the view filters out, in the order
+	 * the view asks for. The counts above are tallied from the full record list
+	 * before this runs, so "12 test(s), 9 passed" stays a statement about the run
+	 * even when only the 3 failures are listed.
+	 *
+	 * The two sorted views list the tests that ran - a skipped one has no cost to
+	 * rank - biggest first, a test whose cost is unknown last, and the name
+	 * settling a tie so that two runs of the same suite print the same order.
 	 */
 	private static List<TestOutcome> outcomes(final ClideContext context, final List<String> records,
-			final boolean failuresOnly) {
+			final View view) {
+		final boolean failuresOnly = view.failuresOnly();
 		final Map<String, String> resolved = new HashMap<>();
 		final List<TestOutcome> outcomes = new ArrayList<>();
 		for (final String record : records) {
@@ -345,10 +400,18 @@ public final class ProjectTests {
 				continue;
 
 			if (kind.equals(TestRunnerMain.PASS))
-				outcomes.add(TestOutcome.passed(name(fields)));
-			else if (kind.equals(TestRunnerMain.SKIP))
+				outcomes.add(TestOutcome.passed(name(fields), TestMeter.parse(fields, PASS_MEASURE_AT)));
+			else if (kind.equals(TestRunnerMain.SKIP) && view.order().isEmpty())
 				outcomes.add(TestOutcome.skipped(name(fields), fields.get(4)));
 		}
+
+		if (view == View.SLOWEST)
+			outcomes.sort(Comparator.comparingLong((TestOutcome outcome) -> outcome.measure().wallNanos())
+					.reversed().thenComparing(TestOutcome::name));
+		else if (view == View.HEAVIEST)
+			outcomes.sort(Comparator.comparingLong((TestOutcome outcome) -> outcome.measure().allocatedBytes())
+					.reversed().thenComparing(TestOutcome::name));
+
 		return outcomes;
 	}
 
@@ -380,7 +443,8 @@ public final class ProjectTests {
 		}
 
 		return new TestOutcome(TestOutcome.Status.FAILED, className + "." + label,
-				where.isEmpty() ? className : where, List.of(message.split("\n")), origin);
+				where.isEmpty() ? className : where, List.of(message.split("\n")), origin,
+				TestMeter.parse(fields, FAIL_MEASURE_AT));
 	}
 
 	/**

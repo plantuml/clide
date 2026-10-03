@@ -68,6 +68,7 @@ public class ClideContext {
 	private int maxResults = DEFAULT_MAX_RESULTS;
 	private final Map<String, String> testEnvironment = new LinkedHashMap<>();
 	private final List<String> testClasspathPrefix = new ArrayList<>();
+	private final List<String> testJvmOptions = new ArrayList<>();
 
 	/** What set_test_env accepts as a variable name - what a shell would call one. */
 	private static final Pattern ENVIRONMENT_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
@@ -244,17 +245,66 @@ public class ClideContext {
 		return previous;
 	}
 
-	/** Forgets every set_test_env and set_test_classpath_prefix of this connection. */
+	/**
+	 * Options of the JVM that run_test and run_tests fork, one per element -
+	 * -Xmx512m, -XX:+UseSerialGC, -Xlog:gc... - see set_test_jvm_options. Read-only
+	 * view.
+	 *
+	 * They land after -ea and before -cp, so a later option wins over an earlier
+	 * one (-da turns -ea off) and none of them can be mistaken for an argument of
+	 * the test runner. Per connection, for the reason getTestEnvironment() gives: a
+	 * -Xint inherited from an earlier session would make every test crawl without
+	 * anyone having asked for it.
+	 */
+	public List<String> getTestJvmOptions() {
+		return Collections.unmodifiableList(testJvmOptions);
+	}
+
+	/**
+	 * Replaces the whole list, returning the previous one. Nothing changes when an
+	 * option is refused.
+	 *
+	 * What is refused is what the test JVM's command line already decides for
+	 * itself: the classpath (-cp, -classpath, --class-path, which would silently
+	 * replace the one clide assembles - set_test_classpath_prefix is the way in) and
+	 * -jar (which would run something other than the tests). Anything not starting
+	 * with '-' is refused too: it would end the JVM's options and be read as the
+	 * main class.
+	 *
+	 * @throws IllegalArgumentException naming the first option that is refused
+	 */
+	public List<String> setTestJvmOptions(final List<String> options) {
+		for (final String option : options) {
+			if (option.isEmpty() || option.startsWith("-") == false)
+				throw new IllegalArgumentException("'" + option
+						+ "' is not a JVM option - every option starts with '-' (a bare word would be read as the main class)");
+
+			if (option.equals("-cp") || option.equals("-classpath") || option.startsWith("--class-path"))
+				throw new IllegalArgumentException("'" + option
+						+ "' is refused: clide assembles the test classpath itself - use set_test_classpath_prefix to put entries in front of it");
+
+			if (option.equals("-jar"))
+				throw new IllegalArgumentException("'-jar' is refused: the test JVM runs clide's test runner, not a jar");
+		}
+
+		final List<String> previous = List.copyOf(testJvmOptions);
+		testJvmOptions.clear();
+		testJvmOptions.addAll(options);
+		return previous;
+	}
+
+	/** Forgets every set_test_env, set_test_classpath_prefix and set_test_jvm_options of this connection. */
 	public void resetTestSettings() {
 		testEnvironment.clear();
 		testClasspathPrefix.clear();
+		testJvmOptions.clear();
 	}
 
 	/**
 	 * Puts back everything a connection is allowed to change for itself alone -
 	 * called by ClideDaemon.serveOneClient() before a new client is served. Today:
 	 * the disconnect flag an earlier exit/quit may have left set, maxResults, and
-	 * the test environment and classpath prefix.
+	 * the test environment, classpath prefix and JVM options.
 	 */
 	public void resetPerConnectionSettings() {
 		disconnectRequested = false;

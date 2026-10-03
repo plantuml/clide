@@ -3,7 +3,12 @@ package clide.command.testrun;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ResultEnvelope;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
 import clide.model.Listing;
+import clide.model.TestMeasure;
 import clide.model.TestOutcome;
 
 /**
@@ -12,7 +17,10 @@ import clide.model.TestOutcome;
  *
  * The totals line first, then one entry per test - failures with their message
  * indented under them, and the place the exception actually came from when that
- * is not the test's own line.
+ * is not the test's own line. A test that ran carries what it cost in
+ * parentheses after its name: time, CPU time, bytes allocated and, only when
+ * there were some, the collections. A cost that was not measured is left out
+ * rather than printed as zero, which would read as "free".
  */
 final class TestRunRendering {
 
@@ -29,6 +37,10 @@ final class TestRunRendering {
 				out.append(", ").append(run.skipped()).append(" skipped");
 
 			out.append(" in ").append(run.elapsedMillis()).append(" ms");
+			if (run.order().equals("time"))
+				out.append(", listed slowest first");
+			else if (run.order().equals("allocation"))
+				out.append(", listed by allocation, heaviest first");
 
 			final Listing<TestOutcome> tests = run.tests();
 			for (final TestOutcome test : tests.items())
@@ -48,16 +60,65 @@ final class TestRunRendering {
 
 	private static String entry(final TestOutcome test) {
 		return switch (test.status()) {
-		case PASSED -> "[passed] " + test.name();
+		case PASSED -> "[passed] " + test.name() + cost(test.measure());
 		case SKIPPED -> "[skipped] " + test.name() + ": " + String.join(" ", test.messageLines());
 		case FAILED -> failure(test);
 		};
 	}
 
+	/**
+	 * " (12 ms, cpu 11 ms, alloc 3.2 MB, gc 2 x 8 ms)", or "" when nothing was
+	 * measured. Each part is left out when its reading is missing, and gc when no
+	 * collection happened during the test, which is the usual case.
+	 */
+	static String cost(final TestMeasure measure) {
+		final List<String> parts = new ArrayList<>();
+		if (measure.wallNanos() >= 0)
+			parts.add(duration(measure.wallNanos()));
+
+		if (measure.cpuNanos() >= 0)
+			parts.add("cpu " + duration(measure.cpuNanos()));
+
+		if (measure.allocatedBytes() >= 0)
+			parts.add("alloc " + size(measure.allocatedBytes()));
+
+		if (measure.gcCount() > 0)
+			parts.add("gc " + measure.gcCount() + " x " + measure.gcMillis() + " ms");
+
+		return parts.isEmpty() ? "" : " (" + String.join(", ", parts) + ")";
+	}
+
+	/** "0.4 ms", "12 ms", "3.2 s": the unit that keeps two significant figures at least. */
+	static String duration(final long nanos) {
+		final double millis = nanos / 1_000_000.0;
+		if (millis >= 10_000)
+			return String.format(Locale.ROOT, "%.1f s", millis / 1000);
+
+		if (millis >= 10)
+			return Math.round(millis) + " ms";
+
+		return String.format(Locale.ROOT, "%.1f ms", millis);
+	}
+
+	/** "812 B", "3.2 KB", "41.0 MB": binary multiples, one decimal. */
+	static String size(final long bytes) {
+		if (bytes < 1024)
+			return bytes + " B";
+
+		final String[] units = { "KB", "MB", "GB", "TB" };
+		double value = bytes;
+		int unit = -1;
+		while (value >= 1024 && unit < units.length - 1) {
+			value /= 1024;
+			unit++;
+		}
+		return String.format(Locale.ROOT, "%.1f %s", value, units[unit]);
+	}
+
 	private static String failure(final TestOutcome test) {
 		final StringBuilder out = new StringBuilder();
 		out.append("[failed] ").append(test.location().isEmpty() ? test.name() : test.location()).append(": ")
-				.append(test.name());
+				.append(test.name()).append(cost(test.measure()));
 		for (final String line : test.messageLines())
 			out.append("\n    ").append(line);
 

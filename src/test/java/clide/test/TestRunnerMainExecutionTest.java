@@ -15,6 +15,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import clide.jdtls.JdtlsLauncher;
+import clide.model.TestMeasure;
 
 /**
  * Fait tourner TestRunnerMain pour de vrai, dans un JVM forké, exactement comme
@@ -50,6 +51,32 @@ class TestRunnerMainExecutionTest {
 		assertEquals(TestRunnerMain.EXIT_OK, run.exit, run.toString());
 		run.assertSummary(1, 1, 0, 0);
 		assertEquals(1, run.countOf(TestRunnerMain.PASS));
+	}
+
+	@Test
+	@DisplayName("un PASS porte, après ses quatre champs, les cinq mesures du test")
+	void passCarriesTheMeasure() {
+		final List<String> fields = TestRunnerMain.parseRecord(runClass("PlainPassing").recordsOf(TestRunnerMain.PASS).get(0));
+
+		assertEquals(9, fields.size(), fields.toString());
+		final TestMeasure measure = TestMeter.parse(fields, 4);
+		assertTrue(measure.known(), "mesure : " + measure);
+		assertTrue(measure.wallNanos() >= 0 && measure.wallNanos() < 60_000_000_000L, "mur : " + measure.wallNanos());
+	}
+
+	@Test
+	@DisplayName("un FAIL porte les mesures à la suite de ses sept champs, un SKIP n'en porte pas")
+	void failCarriesTheMeasureAndSkipDoesNot() {
+		final List<String> failed = TestRunnerMain
+				.parseRecord(runClass("ParameterizedFailing").recordsOf(TestRunnerMain.FAIL).get(0));
+		assertEquals(12, failed.size(), failed.toString());
+		assertTrue(TestMeter.parse(failed, 7).known(), failed.toString());
+
+		// Un test écarté par une hypothèse a bien tourné un instant, mais il est
+		// rapporté comme ignoré : rien à classer, donc rien à mesurer.
+		final List<String> skipped = TestRunnerMain
+				.parseRecord(runClass("AssumptionFailing").recordsOf(TestRunnerMain.SKIP).get(0));
+		assertEquals(5, skipped.size(), skipped.toString());
 	}
 
 	@Test

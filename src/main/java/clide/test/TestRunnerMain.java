@@ -6,8 +6,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+import clide.model.TestMeasure;
 
 import org.junit.platform.engine.FilterResult;
 import org.junit.platform.engine.TestExecutionResult;
@@ -38,9 +42,15 @@ import org.junit.platform.launcher.core.LauncherFactory;
  * <pre>
  * SUMMARY &lt;found&gt; &lt;succeeded&gt; &lt;failed&gt; &lt;skipped&gt; &lt;millis&gt;
  * FAIL    &lt;class&gt; &lt;method&gt; &lt;displayName&gt; &lt;message&gt; &lt;testFrame&gt; &lt;originFrame&gt;
- * PASS    &lt;class&gt; &lt;method&gt; &lt;displayName&gt;
+ * PASS    &lt;class&gt; &lt;method&gt; &lt;displayName&gt; &lt;measure&gt;
  * SKIP    &lt;class&gt; &lt;method&gt; &lt;displayName&gt; &lt;reason&gt;
  * </pre>
+ *
+ * &lt;measure&gt; is five more fields, appended at the end of a PASS and of a FAIL
+ * record: wall-clock nanoseconds, CPU nanoseconds of the test's thread, bytes it
+ * allocated, and the JVM's GC count and GC milliseconds - see TestMeter. A reading
+ * the JVM could not give is -1. They come last so that a reader that stops at the
+ * fields it knows keeps working; a SKIP has none, since a skipped test never ran.
  *
  * Exit codes, which are how clide tells apart the three outcomes that all look
  * alike from the outside: 0 every test passed, 1 at least one failed, 2 no test
@@ -216,6 +226,13 @@ public final class TestRunnerMain {
 		private final PrintStream out;
 
 		private TestPlan plan;
+
+		/**
+		 * What the counters read when each running test started, by unique id - a
+		 * map rather than a field because a project may enable parallel execution,
+		 * and several tests are then in flight at once on as many threads.
+		 */
+		private final Map<String, TestMeter.Reading> started = new ConcurrentHashMap<>();
 		private int succeeded;
 		private int failed;
 		private int skipped;
@@ -238,6 +255,22 @@ public final class TestRunnerMain {
 		@Override
 		public void testPlanExecutionStarted(final TestPlan started) {
 			plan = started;
+		}
+
+		@Override
+		public void executionStarted(final TestIdentifier identifier) {
+			if (identifier.isTest())
+				started.put(identifier.getUniqueId(), TestMeter.start());
+		}
+
+		/**
+		 * Stops the clock of a test that just finished, on the thread that ran it.
+		 * Always removes the reading, so a test that never finishes normally cannot
+		 * leave one behind; UNKNOWN when there is none to stop.
+		 */
+		private TestMeasure stopped(final TestIdentifier identifier) {
+			final TestMeter.Reading reading = started.remove(identifier.getUniqueId());
+			return reading == null ? TestMeasure.UNKNOWN : TestMeter.stop(reading);
 		}
 
 		@Override
@@ -274,10 +307,16 @@ public final class TestRunnerMain {
 			if (identifier.isTest() == false)
 				return;
 
+			// Read before anything is formatted or printed: the cost of reporting a test
+			// is not the cost of the test.
+			final TestMeasure measure = stopped(identifier);
+
 			if (result.getStatus() == TestExecutionResult.Status.SUCCESSFUL) {
 				succeeded++;
-				out.println(String.join("\t", PASS, className(identifier), methodName(identifier),
-						escape(displayName(identifier))));
+				final List<String> record = new ArrayList<>(List.of(PASS, className(identifier),
+						methodName(identifier), escape(displayName(identifier))));
+				record.addAll(TestMeter.fields(measure));
+				out.println(String.join("\t", record));
 				return;
 			}
 
@@ -298,9 +337,11 @@ public final class TestRunnerMain {
 
 			failed++;
 			final Throwable thrown = result.getThrowable().orElse(null);
-			out.println(String.join("\t", FAIL, className(identifier), methodName(identifier),
+			final List<String> record = new ArrayList<>(List.of(FAIL, className(identifier), methodName(identifier),
 					escape(displayName(identifier)), escape(describe(thrown)),
 					escape(frameIn(thrown, className(identifier))), escape(originFrame(thrown))));
+			record.addAll(TestMeter.fields(measure));
+			out.println(String.join("\t", record));
 		}
 
 		/**

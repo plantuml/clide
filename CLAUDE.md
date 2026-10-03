@@ -575,10 +575,25 @@ when they do; `set_max_results <count>` changes it for the session.
 | Command | Role |
 |---|---|
 | `run_test <position>` | Runs the test that `<position>` designates: the whole class if `<position>` names the test class, that single method otherwise. Takes the `<position>` notation, not a fully-qualified class name — a `find_symbol` result pastes in unchanged. |
-| `run_tests <all\|failures>` | Runs all tests in the project. `failures` lists only the failing ones (the only readable output on a suite of real size); totals are always shown either way. |
+| `run_tests <all\|failures\|slowest\|heaviest>` | Runs all tests in the project. `failures` lists only the failing ones (the only readable output on a suite of real size); `slowest` and `heaviest` list the tests that ran ranked by wall-clock time or by bytes allocated, biggest first (skipped ones left out). Totals are always shown either way. |
 | `set_test_env <name> <value>` | Adds an environment variable to the JVM `run_test`/`run_tests` start, for this session only. Prints the previous value (`(unset)` if none). For tests that read `System.getenv()` — the daemon's own environment is the only other way in. |
 | `set_test_classpath_prefix <entries>` | Puts jars or class folders (separated by `:`/`;`) in front of the project's test classpath, for this session only, so the tests run against that build instead of what jdtls compiled — e.g. an older jar, to see whether a test already failed before your change. Every entry must exist. Replaces any earlier prefix. |
-| `reset_test_settings` | Drops both settings above without ending the session. |
+| `set_test_jvm_options <options>` | Sets the options of the JVM `run_test`/`run_tests` start (`-Xmx512m -XX:+UseSerialGC -Xlog:gc`…), for this session only. Separated by spaces, a double-quoted stretch is one token. Replaces any earlier options and prints the previous ones; a blank line clears them. They go after `-ea` and before `-cp`. `-cp`/`-classpath`/`--class-path`, `-jar` and anything not starting with `-` are refused. |
+| `reset_test_settings` | Drops the three settings above without ending the session. |
+
+Every test that ran is printed with what it cost, measured in the test JVM
+around the test and its `@BeforeEach`/`@AfterEach`:
+`[passed] demo.CalcTest.addWorks (12 ms, cpu 11 ms, alloc 3.2 MB)`, plus
+`gc 2 x 8 ms` when a collection happened meanwhile. CPU time and allocation are
+those of the thread that ran the test, so work a test hands to threads of its
+own is not in them; the collection count and time are the whole JVM's, so a
+neighbour's garbage can be charged to a test. A cost the JVM cannot measure is
+left out rather than shown as zero. A script gets the same numbers as
+`wallNanos`, `cpuNanos`, `allocatedBytes`, `gcCount` and `gcMillis` on each
+entry of `tests.items` (absent when not measured). This is not a profiler — it
+says which tests are expensive, not where — and a suite of different tests on a
+cold JVM mostly measures class loading and the interpreter; see `PROFILING.md`
+for what comes next.
 
 `run_test`/`run_tests` work even if the target project has no JUnit jar of
 its own — clide provides whatever is missing. Concretely, the daemon extracts

@@ -3,6 +3,7 @@ package clide.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -14,7 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Tests des réglages de la JVM de test portés par ClideContext : variables
- * d'environnement et préfixe de classpath.
+ * d'environnement, préfixe de classpath et options de la JVM.
  *
  * Même enjeu que pour max_results : le seul point visible d'un client est qu'un
  * réglage posé par une session ne survive jamais à cette session. Une variable
@@ -34,6 +35,7 @@ class TestSettingsTest {
 
 		assertEquals(Map.of(), context.getTestEnvironment());
 		assertEquals(List.of(), context.getTestClasspathPrefix());
+		assertEquals(List.of(), context.getTestJvmOptions());
 	}
 
 	@Test
@@ -68,16 +70,48 @@ class TestSettingsTest {
 	}
 
 	@Test
-	@DisplayName("resetTestSettings vide les deux")
-	void resetClearsBoth(@TempDir final Path root) {
+	@DisplayName("resetTestSettings vide les trois")
+	void resetClearsAll(@TempDir final Path root) {
 		final ClideContext context = contextOn(root);
 		context.setTestEnvironment("A", "1");
 		context.setTestClasspathPrefix(List.of("a.jar"));
+		context.setTestJvmOptions(List.of("-Xint"));
 
 		context.resetTestSettings();
 
 		assertEquals(Map.of(), context.getTestEnvironment());
 		assertEquals(List.of(), context.getTestClasspathPrefix());
+		assertEquals(List.of(), context.getTestJvmOptions());
+	}
+
+	@Test
+	@DisplayName("les options de la JVM sont remplacées d'un bloc, et les anciennes sont rendues")
+	void jvmOptionsAreReplacedNotAppended(@TempDir final Path root) {
+		final ClideContext context = contextOn(root);
+
+		assertEquals(List.of(), context.setTestJvmOptions(List.of("-Xmx64m", "-Xint")));
+		assertEquals(List.of("-Xmx64m", "-Xint"), context.setTestJvmOptions(List.of("-XX:+UseSerialGC")));
+		assertEquals(List.of("-XX:+UseSerialGC"), context.getTestJvmOptions());
+		assertEquals(List.of("-XX:+UseSerialGC"), context.setTestJvmOptions(List.of()));
+		assertEquals(List.of(), context.getTestJvmOptions());
+	}
+
+	@Test
+	@DisplayName("une option refusée ne change rien, et le refus nomme la fautive")
+	void refusedJvmOptionChangesNothing(@TempDir final Path root) {
+		final ClideContext context = contextOn(root);
+		context.setTestJvmOptions(List.of("-Xmx64m"));
+
+		// Un mot nu serait lu comme la classe principale ; -cp, -classpath et
+		// --class-path écraseraient en silence le classpath que clide assemble ;
+		// -jar lancerait autre chose que les tests.
+		for (final String bad : List.of("Xmx64m", "", "-cp", "-classpath", "--class-path", "--class-path=a.jar", "-jar")) {
+			final IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
+					() -> context.setTestJvmOptions(List.of("-Xint", bad)), bad);
+			assertTrue(refused.getMessage().contains("'" + bad + "'"), refused.getMessage());
+		}
+
+		assertEquals(List.of("-Xmx64m"), context.getTestJvmOptions());
 	}
 
 	@Test
@@ -86,11 +120,13 @@ class TestSettingsTest {
 		final ClideContext context = contextOn(root);
 		context.setTestEnvironment("VEGA_FORCE_WRITE", "true");
 		context.setTestClasspathPrefix(List.of("before.jar"));
+		context.setTestJvmOptions(List.of("-Xint"));
 
 		context.resetPerConnectionSettings();
 
 		assertEquals(Map.of(), context.getTestEnvironment());
 		assertEquals(List.of(), context.getTestClasspathPrefix());
+		assertEquals(List.of(), context.getTestJvmOptions());
 	}
 
 	@Test
@@ -100,6 +136,7 @@ class TestSettingsTest {
 
 		assertThrows(UnsupportedOperationException.class, () -> context.getTestEnvironment().put("A", "1"));
 		assertThrows(UnsupportedOperationException.class, () -> context.getTestClasspathPrefix().add("a.jar"));
+		assertThrows(UnsupportedOperationException.class, () -> context.getTestJvmOptions().add("-Xint"));
 	}
 
 }

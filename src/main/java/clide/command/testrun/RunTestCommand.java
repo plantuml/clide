@@ -72,6 +72,16 @@ public class RunTestCommand extends Command {
 				find_reference. When the exception came from somewhere
 				other than the test's own line, that place is named too.
 
+				Every test that ran is followed by what it cost, measured in
+				the test JVM around the test and its @BeforeEach/@AfterEach:
+				wall-clock time, CPU time, bytes allocated, and garbage
+				collections (count and time) when there were any. CPU time and
+				allocation are those of the thread that ran the test - a test
+				that starts threads of its own does not count their work - and
+				the collections are the whole JVM's. A cost the JVM cannot
+				measure is left out. set_test_jvm_options changes the test
+				JVM's own options (heap, collector, GC log...).
+
 			ERRORS
 				run_test does NOT recompile first - it reports the state of
 				the last build. Run rebuild after editing, or the answer
@@ -95,7 +105,7 @@ public class RunTestCommand extends Command {
 				carries the check with it.
 
 			SEE ALSO
-				run_tests(1), rebuild(1), find_symbol(1)
+				run_tests(1), rebuild(1), find_symbol(1), set_test_jvm_options(1)
 			""")
 	public RunTestCommand() {
 

@@ -64,7 +64,7 @@ public class SetTestEnvCommand extends Command {
 				send an empty line.
 
 			SEE ALSO
-				set_test_classpath_prefix(1), reset_test_settings(1), run_test(1)
+				set_test_classpath_prefix(1), set_test_jvm_options(1), reset_test_settings(1), run_test(1)
 			""")
 	public SetTestEnvCommand() {
 
