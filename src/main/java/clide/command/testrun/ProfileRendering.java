@@ -46,6 +46,11 @@ final class ProfileRendering {
 		};
 	}
 
+	/** The profile alone, as short as profile_test prints it - profile_bench puts its benchmark in front. */
+	static String summary(final CommandPayload.Profile profile) {
+		return profile(profile, true);
+	}
+
 	/** profile_report. */
 	static String renderReport(final String label, final CommandResult result) {
 		return switch (result.payload()) {

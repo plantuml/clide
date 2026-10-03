@@ -34,6 +34,15 @@ class TestMeterTest {
 	}
 
 	@Test
+	@DisplayName("deux mesures s'additionnent, et une lecture inconnue d'un côté reste inconnue dans la somme")
+	void measuresAddUp() {
+		final TestMeasure sum = new TestMeasure(10, 4, 100, 1, 2).plus(new TestMeasure(5, 3, 50, 0, 1));
+
+		assertEquals(new TestMeasure(15, 7, 150, 1, 3), sum);
+		assertEquals(-1, new TestMeasure(10, -1, 100, 0, 0).plus(new TestMeasure(5, 3, 50, 0, 0)).cpuNanos());
+	}
+
+	@Test
 	@DisplayName("un enregistrement trop court ou illisible donne UNKNOWN plutôt qu'une exception")
 	void shortOrGarbledRecordIsUnknown() {
 		assertEquals(TestMeasure.UNKNOWN, TestMeter.parse(List.of("PASS", "demo.T", "a", "a()"), 4));

@@ -739,6 +739,44 @@ exceptions    0 thrown
 contention    0 ms blocked or parked in project frames
 ```
 
+### `Bench`, `BenchProfiled` et `Compared`
+
+`Bench` est ce que rend `bench_test` : un `BenchReport` (`subject`, `warmup`,
+`iterations`, trois `BenchStat(min, median, p90, max)` — `wall` et `cpu` en
+nanosecondes, `allocated` en octets —, `gcCount` et `gcMillis` sommés sur les
+itérations mesurées). Une mesure que le JVM n'a pas pu prendre est une
+`BenchStat.UNKNOWN` (quatre `-1`), dite « not measurable » au rendu et omise en
+Lua. `BenchProfiled`, de `profile_bench`, y ajoute le `Profile` de
+`profile_test`. `Compared`, de `compare_test`, porte une `Comparison` : la
+référence (son libellé et son `BenchReport`), le `BenchReport` courant, les
+trois deltas des médianes en pourcentage de la référence (négatif : le build
+courant est plus bas ; `NaN` quand une des deux mesures manque, donc absent en
+Lua), le bruit (le plus grand écart des deux runs, jamais moins de 2 %) et le
+verdict `slower`, `faster`, `same` ou `unknown`, rendu sur le delta du temps
+mural contre le bruit.
+
+```
+bench_test: demo.CalcTest#add - 5 warmup, 20 measured iteration(s)
+wall    min 1.2 ms   median 1.3 ms   p90 1.5 ms   max 2.2 ms
+cpu     min 1.0 ms   median 1.1 ms   p90 1.3 ms   max 2.0 ms
+alloc   min 40.0 KB   median 40.0 KB   p90 40.0 KB   max 40.0 KB
+gc      3 collection(s), 12 ms, over the measured iterations
+spread  23.1% between the best and the p90 wall-clock time: a difference below that between two runs means little
+```
+
+```
+compare_test: demo.CalcTest#add - 5 warmup, 20 measured iteration(s), reference ref.jar
+median  reference     current       delta
+wall    2.0 ms        1.0 ms        -50.0%
+cpu     1.1 ms        1.1 ms        +0.0%
+alloc   40.0 KB       40.0 KB       +0.0%
+noise   23.1% (the larger spread of the two runs, never less than 2%)
+verdict faster - the wall-clock median shrank by more than the noise
+```
+
+Un test qui échoue arrête le benchmark : la réponse est alors celle de
+`run_test` (`TEST_FAILURES`, avec ses échecs), pas un `Bench`.
+
 ### `Transaction`
 
 | Champ | Type | Rôle |
@@ -1085,6 +1123,9 @@ set_test_jvm_options: test_jvm_options '' -> '-Xmx256m -XX:+UseSerialGC'
 | `profile_test` | `Profiled` | oui (10 lignes par vue) |
 | `profile_tests` | `Profiled` | oui (10 lignes par vue) |
 | `profile_report` | `Profile` | oui |
+| `bench_test` | `Bench` | non |
+| `profile_bench` | `BenchProfiled` | oui (10 lignes par vue) |
+| `compare_test` | `Compared` | non |
 | `set_profile_scope` | `Setting` | non |
 | `list_modified_files` | `ModifiedFiles` | oui |
 | `diff_transaction` | `Diff` | non |

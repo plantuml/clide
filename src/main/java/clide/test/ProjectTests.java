@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import clide.bench.BenchStats;
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
 import clide.command.answer.ErrorCode;
@@ -25,6 +26,7 @@ import clide.jdtls.JdtlsLauncher;
 import clide.jdtls.JdtlsSession;
 import clide.profile.ProfileViews;
 import clide.profile.Recording;
+import clide.model.BenchReport;
 import clide.model.Listing;
 import clide.model.ProfileTable;
 import clide.model.TestOutcome;
@@ -251,12 +253,20 @@ public final class ProjectTests {
 
 	private static Outcome fork(final ClideContext context, final List<String> classpath, final String[] selector,
 			final long timeoutSeconds, final Recording recording) {
+		return fork(context, classpath, selector, timeoutSeconds, recording, List.of());
+	}
+
+	/** inFront goes before the connection's own classpath prefix: compare_test's reference build. */
+	private static Outcome fork(final ClideContext context, final List<String> classpath, final String[] selector,
+			final long timeoutSeconds, final Recording recording, final List<String> inFront) {
 		final List<String> own = ownClasspath();
 		if (own.isEmpty())
 			return Outcome.broken(ErrorCode.TEST_RUNNER_BROKEN,
 					"clide cannot locate its own classpath, so it cannot hand the JUnit platform to the test JVM");
 
-		final List<String> full = assembleClasspath(context.getTestClasspathPrefix(), classpath, own);
+		final List<String> prefix = new ArrayList<>(inFront);
+		prefix.addAll(context.getTestClasspathPrefix());
+		final List<String> full = assembleClasspath(prefix, classpath, own);
 
 		// The recording's options come after the connection's own, so that a recording
 		// the connection asked for by hand does not silence the one profile_test needs.
@@ -593,13 +603,7 @@ public final class ProjectTests {
 
 		final CommandPayload.Profile profile;
 		try {
-			final var scope = context.getProfileScope();
-			final int rows = Math.min(PROFILE_SUMMARY_ROWS, context.getMaxResults());
-			final List<ProfileTable> tables = new ArrayList<>();
-			for (final String view : PROFILE_SUMMARY_VIEWS)
-				tables.add(recording.table(scope, view, ProfileViews.NO_FILTER, rows));
-
-			profile = new CommandPayload.Profile(recording.overview(scope), tables);
+			profile = readProfile(context, recording);
 		} catch (final IOException e) {
 			return CommandResult.error(ErrorCode.PROFILE_UNAVAILABLE, "the tests ran (" + run.passed() + " passed, "
 					+ run.failed() + " failed) but their profile cannot be read: " + e.getMessage());
@@ -610,6 +614,155 @@ public final class ProjectTests {
 			return CommandResult.ok(payload);
 
 		return CommandResult.error(result.code(), result.message(), result.hint(), payload);
+	}
+
+	/** The summary a profile_test / profile_bench answer carries, read through the current scope. */
+	private static CommandPayload.Profile readProfile(final ClideContext context, final Recording recording)
+			throws IOException {
+		final var scope = context.getProfileScope();
+		final int rows = Math.min(PROFILE_SUMMARY_ROWS, context.getMaxResults());
+		final List<ProfileTable> tables = new ArrayList<>();
+		for (final String view : PROFILE_SUMMARY_VIEWS)
+			tables.add(recording.table(scope, view, ProfileViews.NO_FILTER, rows));
+
+		return new CommandPayload.Profile(recording.overview(scope), tables);
+	}
+
+	// ------------------------------------------------------------------
+	// Benchmarks
+	// ------------------------------------------------------------------
+
+	/** bench_test: the selection run warmup + iterations times in one JVM - see TestRunnerMain. */
+	public static CommandResult benchSelection(final ClideContext context, final String[] selector, final String what,
+			final int warmup, final int iterations) {
+		final CommandResult wrongShape = onlyOneProject(context);
+		if (wrongShape != null)
+			return wrongShape;
+
+		final Measured measured = measure(context, "bench_test", selector, what, warmup, iterations, Recording.none(),
+				List.of());
+		return measured.failure != null ? measured.failure : CommandResult.ok(new CommandPayload.Bench(measured.report));
+	}
+
+	/**
+	 * profile_bench: bench_test with the JVM recorded. The warmup iterations are in the
+	 * recording too - a JFR cannot tell them apart - which is what a profile of a hot
+	 * loop wants anyway: it is the loop that shows, the first iteration's class
+	 * loading being a few samples among thousands.
+	 */
+	public static CommandResult profileBenchSelection(final ClideContext context, final String[] selector,
+			final String what, final int warmup, final int iterations) {
+		final CommandResult wrongShape = onlyOneProject(context);
+		if (wrongShape != null)
+			return wrongShape;
+
+		final Recording recording;
+		try {
+			recording = Recording.start(context.getProjectRoot());
+		} catch (final IOException e) {
+			return CommandResult.error(ErrorCode.IO_FAILED,
+					"could not prepare the recordings folder " + Recording.DIRECTORY + ": " + e.getMessage());
+		}
+
+		final Measured measured = measure(context, "profile_bench", selector, what, warmup, iterations, recording,
+				List.of());
+		if (measured.failure != null)
+			return measured.failure;
+
+		context.setLastRecording(recording);
+		try {
+			return CommandResult.ok(new CommandPayload.BenchProfiled(measured.report, readProfile(context, recording)));
+		} catch (final IOException e) {
+			return CommandResult.error(ErrorCode.PROFILE_UNAVAILABLE,
+					"the benchmark ran but its profile cannot be read: " + e.getMessage());
+		}
+	}
+
+	/**
+	 * compare_test: the same benchmark twice, in two JVMs, the reference build first -
+	 * reference are classpath entries put in front of everything, the way
+	 * set_test_classpath_prefix does - then the current setting of the connection.
+	 * label is how the reference is named in the answer.
+	 */
+	public static CommandResult compareSelection(final ClideContext context, final String[] selector,
+			final String what, final int warmup, final int iterations, final List<String> reference,
+			final String label) {
+		final CommandResult wrongShape = onlyOneProject(context);
+		if (wrongShape != null)
+			return wrongShape;
+
+		final Measured before = measure(context, "compare_test", selector, what, warmup, iterations,
+				Recording.none(), reference);
+		if (before.failure != null)
+			return CommandResult.error(before.failure.code(), "in the reference run: " + before.failure.message(),
+					before.failure.hint(), before.failure.payload());
+
+		final Measured now = measure(context, "compare_test", selector, what, warmup, iterations, Recording.none(),
+				List.of());
+		if (now.failure != null)
+			return CommandResult.error(now.failure.code(), "in the current run: " + now.failure.message(),
+					now.failure.hint(), now.failure.payload());
+
+		return CommandResult.ok(new CommandPayload.Compared(BenchStats.compare(label, before.report, now.report)));
+	}
+
+	/** What one benchmark JVM came to: a report, or the error that says why there is none. */
+	private static final class Measured {
+
+		private final BenchReport report;
+		private final CommandResult failure;
+
+		private Measured(final BenchReport report, final CommandResult failure) {
+			this.report = report;
+			this.failure = failure;
+		}
+
+		private static Measured failed(final CommandResult failure) {
+			return new Measured(null, failure);
+		}
+	}
+
+	private static Measured measure(final ClideContext context, final String label, final String[] selector,
+			final String what, final int warmup, final int iterations, final Recording recording,
+			final List<String> inFront) {
+		final List<String> classpath;
+		try {
+			classpath = context.getCurrentSession().testClasspath();
+		} catch (final Exception e) {
+			return Measured.failed(CommandResult.error(ErrorCode.CLASSPATH_UNAVAILABLE,
+					"could not read the project classpath from jdtls: " + e.getMessage()));
+		}
+
+		final List<String> bench = new ArrayList<>(
+				List.of("--bench", Integer.toString(warmup), Integer.toString(iterations)));
+		bench.addAll(List.of(selector));
+
+		// A benchmark is many runs of one test: the suite's allowance, not a single run's.
+		final Outcome outcome = fork(context, classpath, bench.toArray(String[]::new), SUITE_TIMEOUT_SECONDS,
+				recording, inFront);
+		if (outcome.failure != null)
+			return Measured.failed(CommandResult.error(outcome.failureCode, outcome.failure));
+
+		final List<BenchStats.Iteration> done = BenchStats.iterations(outcome.records);
+		final boolean notCompiled = outcome.records.stream()
+				.anyMatch(r -> TestRunnerMain.parseRecord(r).get(0).equals(TestRunnerMain.NOCLASS));
+		if (notCompiled || tally(outcome.records)[1] > 0 || done.isEmpty()) {
+			// A test that failed, a class that is not compiled, a selection that found
+			// nothing: said the way run_test says it. Nothing is left to measure.
+			final CommandResult reported = report(context, label, outcome.records, outcome.millis, View.FAILURES,
+					what);
+			if (reported.isError())
+				return Measured.failed(reported);
+
+			return Measured.failed(CommandResult.error(ErrorCode.NO_TEST_FOUND,
+					"every test of " + what + " was skipped - there is nothing to measure"));
+		}
+
+		if (done.size() < warmup + iterations)
+			return Measured.failed(CommandResult.error(ErrorCode.TEST_RUNNER_BROKEN,
+					"the benchmark stopped after " + done.size() + " of " + (warmup + iterations) + " iterations"));
+
+		return new Measured(BenchStats.report(what, warmup, done), null);
 	}
 
 	// ------------------------------------------------------------------

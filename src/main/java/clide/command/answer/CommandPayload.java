@@ -2,7 +2,9 @@ package clide.command.answer;
 
 import java.util.List;
 
+import clide.model.BenchReport;
 import clide.model.CodeLocation;
+import clide.model.Comparison;
 import clide.model.Diagnostic;
 import clide.model.DiagnosticsReport;
 import clide.model.ChangedFile;
@@ -140,6 +142,18 @@ public sealed interface CommandPayload {
 
 	/** profile_test, profile_tests: the verdict of the tests, then what the run cost. */
 	record Profiled(TestRun run, Profile profile) implements CommandPayload {
+	}
+
+	/** bench_test: one test measured over many iterations of the same JVM. */
+	record Bench(BenchReport report) implements CommandPayload {
+	}
+
+	/** profile_bench: the benchmark, then the profile of the JVM that ran it - warmup iterations included. */
+	record BenchProfiled(BenchReport report, Profile profile) implements CommandPayload {
+	}
+
+	/** compare_test: the same benchmark against a reference build and against the current one. */
+	record Compared(Comparison comparison) implements CommandPayload {
 	}
 
 	/** A transaction changed state - open, commit, rollback, restore_file. */

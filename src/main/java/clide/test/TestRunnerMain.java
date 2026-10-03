@@ -40,6 +40,7 @@ import org.junit.platform.launcher.core.LauncherFactory;
  * record.
  *
  * <pre>
+ * ITER    &lt;index&gt; &lt;W|M&gt; &lt;measure&gt;
  * SUMMARY &lt;found&gt; &lt;succeeded&gt; &lt;failed&gt; &lt;skipped&gt; &lt;millis&gt;
  * FAIL    &lt;class&gt; &lt;method&gt; &lt;displayName&gt; &lt;message&gt; &lt;testFrame&gt; &lt;originFrame&gt;
  * PASS    &lt;class&gt; &lt;method&gt; &lt;displayName&gt; &lt;measure&gt;
@@ -51,6 +52,15 @@ import org.junit.platform.launcher.core.LauncherFactory;
  * allocated, and the JVM's GC count and GC milliseconds - see TestMeter. A reading
  * the JVM could not give is -1. They come last so that a reader that stops at the
  * fields it knows keeps working; a SKIP has none, since a skipped test never ran.
+ *
+ * A run started with "--bench &lt;warmup&gt; &lt;iterations&gt;" in front of its selector
+ * (bench_test) executes the same selection warmup + iterations times in this one
+ * JVM, and writes no PASS record: one ITER record per iteration instead, whose
+ * index counts from 0, whose second field is W for a warmup and M for a measured
+ * iteration, and whose measure is the sum of the tests the iteration ran. The loop
+ * stops at the first iteration in which a test fails - a benchmark of a broken
+ * test measures nothing - and that FAIL record is written as usual. SUMMARY counts
+ * the last iteration's tests and the time of the whole loop.
  *
  * Exit codes, which are how clide tells apart the three outcomes that all look
  * alike from the outside: 0 every test passed, 1 at least one failed, 2 no test
@@ -68,6 +78,13 @@ public final class TestRunnerMain {
 	public static final String FAIL = "FAIL";
 	public static final String PASS = "PASS";
 	public static final String SKIP = "SKIP";
+	public static final String ITER = "ITER";
+
+	/** Second field of an ITER record: the iteration is thrown away / measured. */
+	public static final String WARMUP = "W";
+	public static final String MEASURED = "M";
+
+	private static final String BENCH = "--bench";
 
 	/**
 	 * Frames from these packages are never the interesting one: they are the
@@ -93,7 +110,12 @@ public final class TestRunnerMain {
 		}
 	}
 
-	private static int run(final String[] args, final PrintStream out) {
+	private static int run(final String[] all, final PrintStream out) {
+		final boolean bench = all.length > 0 && all[0].equals(BENCH);
+		if (bench && all.length < 4)
+			throw new IllegalArgumentException("Usage: TestRunnerMain --bench <warmup> <iterations> <selector>");
+
+		final String[] args = bench ? java.util.Arrays.copyOfRange(all, 3, all.length) : all;
 		final String missing = classThatIsNotThere(args);
 		if (missing != null) {
 			// Reported on its own rather than left to blow up inside discovery,
@@ -107,7 +129,10 @@ public final class TestRunnerMain {
 
 		final LauncherDiscoveryRequest request = buildRequest(args);
 		final Launcher launcher = LauncherFactory.create();
-		final Recorder recorder = new Recorder(out);
+		if (bench)
+			return runBench(launcher, request, Integer.parseInt(all[1]), Integer.parseInt(all[2]), out);
+
+		final Recorder recorder = new Recorder(out, false, true);
 
 		final long startedAt = System.currentTimeMillis();
 		launcher.execute(request, recorder);
@@ -120,6 +145,35 @@ public final class TestRunnerMain {
 			return EXIT_NO_TEST;
 
 		return recorder.failed == 0 ? EXIT_OK : EXIT_FAILURES;
+	}
+
+	/**
+	 * The loop of a benchmark: the same request executed again and again on the
+	 * same launcher, so that what the JIT and the caches learn on the way is what
+	 * the later iterations are measured on.
+	 */
+	private static int runBench(final Launcher launcher, final LauncherDiscoveryRequest request, final int warmup,
+			final int iterations, final PrintStream out) {
+		final long startedAt = System.currentTimeMillis();
+		Recorder last = null;
+		for (int i = 0; i < warmup + iterations; i++) {
+			last = new Recorder(out, true, i == 0);
+			launcher.execute(request, last);
+			if (last.failed > 0 || last.measured == null)
+				break;
+
+			out.println(String.join("\t", ITER, Integer.toString(i), i < warmup ? WARMUP : MEASURED,
+					String.join("\t", TestMeter.fields(last.measured))));
+		}
+
+		final long elapsed = System.currentTimeMillis() - startedAt;
+		out.println(String.join("\t", SUMMARY, Integer.toString(last.ran()), Integer.toString(last.succeeded),
+				Integer.toString(last.failed), Integer.toString(last.skipped), Long.toString(elapsed)));
+
+		if (last.ran() == 0)
+			return EXIT_NO_TEST;
+
+		return last.failed == 0 ? EXIT_OK : EXIT_FAILURES;
 	}
 
 	/**
@@ -225,6 +279,15 @@ public final class TestRunnerMain {
 
 		private final PrintStream out;
 
+		/** A benchmark iteration: nothing is written for a passing test, its cost is added up instead. */
+		private final boolean quiet;
+
+		/** Whether a skipped test is written - once per benchmark, not once per iteration. */
+		private final boolean reportSkips;
+
+		/** The summed cost of the tests that passed, null while there are none - only kept when quiet. */
+		private TestMeasure measured;
+
 		private TestPlan plan;
 
 		/**
@@ -237,8 +300,14 @@ public final class TestRunnerMain {
 		private int failed;
 		private int skipped;
 
-		private Recorder(final PrintStream out) {
+		private Recorder(final PrintStream out, final boolean quiet, final boolean reportSkips) {
 			this.out = out;
+			this.quiet = quiet;
+			this.reportSkips = reportSkips;
+		}
+
+		private synchronized void add(final TestMeasure measure) {
+			measured = measured == null ? measure : measured.plus(measure);
 		}
 
 		/**
@@ -298,8 +367,9 @@ public final class TestRunnerMain {
 
 		private void recordSkip(final TestIdentifier identifier, final String reason) {
 			skipped++;
-			out.println(String.join("\t", SKIP, className(identifier), methodName(identifier),
-					escape(displayName(identifier)), escape(reason)));
+			if (reportSkips)
+				out.println(String.join("\t", SKIP, className(identifier), methodName(identifier),
+						escape(displayName(identifier)), escape(reason)));
 		}
 
 		@Override
@@ -313,6 +383,11 @@ public final class TestRunnerMain {
 
 			if (result.getStatus() == TestExecutionResult.Status.SUCCESSFUL) {
 				succeeded++;
+				if (quiet) {
+					add(measure);
+					return;
+				}
+
 				final List<String> record = new ArrayList<>(List.of(PASS, className(identifier),
 						methodName(identifier), escape(displayName(identifier))));
 				record.addAll(TestMeter.fields(measure));

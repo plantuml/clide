@@ -122,23 +122,47 @@ public class RunTestCommand extends Command {
 	 */
 	static CommandResult execute(final ClideContext context, final String token, final String label,
 			final boolean profiled) {
+		final Target target = target(context, token, label);
+		if (target.error != null)
+			return target.error;
+
+		return profiled ? ProjectTests.profileSelection(context, target.selector, target.what)
+				: ProjectTests.runSelection(context, target.selector, target.what);
+	}
+
+	/** What a position designates as a test: the selector TestRunnerMain takes, and how to name it - or why not. */
+	static final class Target {
+
+		final String[] selector;
+		final String what;
+		final CommandResult error;
+
+		private Target(final String[] selector, final String what, final CommandResult error) {
+			this.selector = selector;
+			this.what = what;
+			this.error = error;
+		}
+	}
+
+	static Target target(final ClideContext context, final String token, final String label) {
 		final JdtlsSession session = context.getCurrentSession();
 
 		final Position position;
 		try {
 			position = PositionParser.parse(context.getFilesRepository(), session, token);
 		} catch (final IllegalArgumentException e) {
-			return CommandResults.positionFailure(e);
+			return new Target(null, null, CommandResults.positionFailure(e));
 		} catch (final IOException | InterruptedException | LspClient.TimeoutException e) {
-			return CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, label + " failed: " + e.getMessage());
+			return new Target(null, null,
+					CommandResult.error(ErrorCode.JDTLS_REQUEST_FAILED, label + " failed: " + e.getMessage()));
 		}
 
 		final String[] selector;
 		try {
 			selector = TestSelector.forFile(position.fileIn(context.getProjectRoot()), position.name());
 		} catch (final IOException e) {
-			return CommandResult.error(ErrorCode.FILE_UNREADABLE,
-					"could not read " + position.path() + ": " + e.getMessage());
+			return new Target(null, null, CommandResult.error(ErrorCode.FILE_UNREADABLE,
+					"could not read " + position.path() + ": " + e.getMessage()));
 		}
 
 		// selector[1] is the class either way; selector[2], when present, is the
@@ -146,8 +170,7 @@ public class RunTestCommand extends Command {
 		// rather than read straight off selector[1] so "no test found in ..." still
 		// names the full target, not just the class it was searched in.
 		final String what = selector.length > 2 ? selector[1] + "#" + selector[2] : selector[1];
-		return profiled ? ProjectTests.profileSelection(context, selector, what)
-				: ProjectTests.runSelection(context, selector, what);
+		return new Target(selector, what, null);
 	}
 
 	@Override

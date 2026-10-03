@@ -249,7 +249,23 @@ Vues : `overview`, `hot`, `inclusive`, `self`, `lines`, `jdk`, `alloc`,
 `alloc_types`, `contention`, plus `callers`/`callees <méthode>`. Les vues `gc`
 et `exceptions` sont dans `overview` (compteurs). Point 5 (portée) : `main` par
 défaut, `set_profile_scope all` pour inclure les tests ; classes cachées
-(lambdas) exclues. Les phases 2 et 3 restent à faire ;
+(lambdas) exclues.
+
+**Phase 2 : faite.** `bench_test <position> <warmup> <iterations>` : la boucle
+est dans `TestRunnerMain` (`--bench <warmup> <iterations>` devant le sélecteur),
+qui rejoue la même requête JUnit dans la même JVM et écrit un enregistrement
+`ITER <n> <W|M> <mesure>` par itération (somme des mesures des tests de
+l'itération) au lieu des `PASS` ; un échec arrête la boucle. `clide.bench.BenchStats`
+en tire min / médiane / p90 / max (`BenchStat`, `BenchReport`) et l'écart
+(p90 − min) / médiane. `profile_bench` ajoute le JFR (échauffement compris, un
+JFR ne sait pas les distinguer) et `compare_test <position> <warmup>
+<iterations> <référence>` lance deux JVM, la référence d'abord (entrées mises
+devant le classpath, comme `set_test_classpath_prefix`), puis le build courant :
+delta des médianes, bruit (le plus grand écart des deux, plancher 2 %) et
+verdict `slower`/`faster`/`same`. Délai : 600 s par JVM (le délai d'une suite),
+bornes 1000 / 1000 (point 3 ci-dessous). Le point 6 (`run_tests all` sur
+plusieurs racines) reste ouvert : un benchmark vise un test, donc une seule
+racine. La phase 3 reste à faire ;
 les points ci-dessous qui ne concernent que la phase 0 sont réglés (point 2 en
 partie : seule la partie « options JVM » de `command()` est faite).
 

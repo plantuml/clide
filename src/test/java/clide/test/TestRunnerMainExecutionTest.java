@@ -249,6 +249,53 @@ class TestRunnerMainExecutionTest {
 
 	// ------------------------------------------------------------------
 
+	@Test
+	@DisplayName("--bench rejoue la sélection dans le même JVM : un ITER par itération, W puis M, et pas de PASS")
+	void benchLoops() {
+		final Run run = run("--bench", "2", "3", "--class", FIXTURES + "PlainPassing");
+
+		assertEquals(TestRunnerMain.EXIT_OK, run.exit, run.toString());
+		assertEquals(0, run.countOf(TestRunnerMain.PASS));
+		final List<String> iterations = run.recordsOf(TestRunnerMain.ITER);
+		assertEquals(5, iterations.size(), iterations.toString());
+		for (int i = 0; i < 5; i++) {
+			final List<String> fields = TestRunnerMain.parseRecord(iterations.get(i));
+			assertEquals(Integer.toString(i), fields.get(1));
+			assertEquals(i < 2 ? TestRunnerMain.WARMUP : TestRunnerMain.MEASURED, fields.get(2));
+			assertTrue(TestMeter.parse(fields, 3).known(), fields.toString());
+		}
+		run.assertSummary(1, 1, 0, 0);
+	}
+
+	@Test
+	@DisplayName("--bench s'arrête à la première itération où un test échoue, sans ITER, avec son FAIL")
+	void benchStopsAtTheFirstFailure() {
+		final Run run = run("--bench", "1", "4", "--class", FIXTURES + "ParameterizedFailing");
+
+		assertEquals(TestRunnerMain.EXIT_FAILURES, run.exit, run.toString());
+		assertEquals(0, run.countOf(TestRunnerMain.ITER));
+		assertTrue(run.countOf(TestRunnerMain.FAIL) >= 1, run.toString());
+	}
+
+	@Test
+	@DisplayName("--bench n'écrit un test ignoré qu'une fois, pas à chaque itération")
+	void benchReportsASkipOnce() {
+		final Run run = run("--bench", "1", "2", "--class", FIXTURES + "AssumptionFailing");
+
+		assertEquals(TestRunnerMain.EXIT_OK, run.exit, run.toString());
+		assertEquals(1, run.countOf(TestRunnerMain.SKIP), run.toString());
+		assertEquals(3, run.countOf(TestRunnerMain.ITER), run.toString());
+	}
+
+	@Test
+	@DisplayName("--bench sur une classe absente dit NOCLASS comme sans --bench")
+	void benchOnAMissingClass() {
+		final Run run = run("--bench", "0", "1", "--class", FIXTURES + "NoSuchClass");
+
+		assertEquals(TestRunnerMain.EXIT_NO_TEST, run.exit, run.toString());
+		assertEquals(1, run.countOf(TestRunnerMain.NOCLASS));
+	}
+
 	private static Run runClass(final String simpleName) {
 		return run("--class", FIXTURES + simpleName);
 	}

@@ -21,7 +21,7 @@ import clide.model.TestMeasure;
  * (no thread CPU time, no allocation counter) reports -1 for it - see
  * TestMeasure - and the other four still come through.
  */
-final class TestMeter {
+public final class TestMeter {
 
 	/** How many fields a measure takes on a record: wall, cpu, allocated, gcCount, gcMillis. */
 	static final int FIELDS = 5;
@@ -57,7 +57,7 @@ final class TestMeter {
 	}
 
 	/** The fields to append to a PASS or FAIL record. */
-	static List<String> fields(final TestMeasure measure) {
+	public static List<String> fields(final TestMeasure measure) {
 		return List.of(Long.toString(measure.wallNanos()), Long.toString(measure.cpuNanos()),
 				Long.toString(measure.allocatedBytes()), Long.toString(measure.gcCount()),
 				Long.toString(measure.gcMillis()));
@@ -68,7 +68,7 @@ final class TestMeter {
 	 * UNKNOWN when the record is too short or the fields are not numbers - a
 	 * record written by a clide that did not measure yet is still a valid record.
 	 */
-	static TestMeasure parse(final List<String> record, final int from) {
+	public static TestMeasure parse(final List<String> record, final int from) {
 		if (record.size() < from + FIELDS)
 			return TestMeasure.UNKNOWN;
 

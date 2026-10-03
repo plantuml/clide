@@ -17,6 +17,9 @@ import clide.model.NarrowableMethod;
 import clide.model.Position;
 import clide.model.SearchMatch;
 import clide.model.SymbolHit;
+import clide.model.BenchReport;
+import clide.model.BenchStat;
+import clide.model.Comparison;
 import clide.model.ProfileOverview;
 import clide.model.ProfileRow;
 import clide.model.ProfileTable;
@@ -77,6 +80,10 @@ public final class LuaPayloads {
 		case CommandPayload.Profile profile -> profile(profile);
 		case CommandPayload.Profiled profiled -> map("run", testRun(profiled.run()), "profile",
 				profile(profiled.profile()));
+		case CommandPayload.Bench bench -> map("report", benchReport(bench.report()));
+		case CommandPayload.BenchProfiled bench -> map("report", benchReport(bench.report()), "profile",
+				profile(bench.profile()));
+		case CommandPayload.Compared compared -> comparison(compared.comparison());
 		case CommandPayload.Transaction transaction -> map("id", transaction.id(), "action",
 				name(transaction.action()), "path", transaction.path());
 		case CommandPayload.ModifiedFiles modified -> map("transactionId", modified.transactionId(), "files",
@@ -252,6 +259,43 @@ public final class LuaPayloads {
 						"allocatedBytes", overview.allocatedBytes(), "exceptions", overview.exceptions(),
 						"contentionMillis", overview.contentionMillis()),
 				"tables", tables);
+	}
+
+	private static Object benchReport(final BenchReport report) {
+		final Map<String, Object> out = new LinkedHashMap<>();
+		out.put("subject", report.subject());
+		out.put("warmup", (long) report.warmup());
+		out.put("iterations", (long) report.iterations());
+		putIfKnown(out, "wall", report.wall());
+		putIfKnown(out, "cpu", report.cpu());
+		putIfKnown(out, "allocated", report.allocated());
+		out.put("gcCount", report.gcCount());
+		out.put("gcMillis", report.gcMillis());
+		return out;
+	}
+
+	/** A stat the JVM could not take is left out, like an unknown measure - see putIfKnown. */
+	private static void putIfKnown(final Map<String, Object> out, final String key, final BenchStat stat) {
+		if (stat.known())
+			out.put(key, map("min", stat.min(), "median", stat.median(), "p90", stat.p90(), "max", stat.max()));
+	}
+
+	private static Object comparison(final Comparison comparison) {
+		final Map<String, Object> out = new LinkedHashMap<>();
+		out.put("reference", comparison.reference());
+		out.put("referenceReport", benchReport(comparison.referenceReport()));
+		out.put("current", benchReport(comparison.current()));
+		putIfNumber(out, "wallDeltaPercent", comparison.wallDeltaPercent());
+		putIfNumber(out, "cpuDeltaPercent", comparison.cpuDeltaPercent());
+		putIfNumber(out, "allocatedDeltaPercent", comparison.allocatedDeltaPercent());
+		out.put("noisePercent", comparison.noisePercent());
+		out.put("verdict", comparison.verdict());
+		return out;
+	}
+
+	private static void putIfNumber(final Map<String, Object> out, final String key, final double value) {
+		if (Double.isNaN(value) == false)
+			out.put(key, value);
 	}
 
 	private static Object profileRow(final ProfileRow row) {
