@@ -1,7 +1,7 @@
 # Ajout de mesures de performance (profilage JFR) à clide
 
 Ce document résume l'exploration et le prototypage faits pour que **clide**
-(`C:\github\clide`, https://github.com/plantuml/clide) mesure les performances
+(https://github.com/plantuml/clide) mesure les performances
 **du projet ouvert** — pas celles de clide lui-même — lors d'un `run_test` /
 `run_tests`, et en tire des hotspots exploitables par un agent. Point de départ
 pour reprendre le travail dans une nouvelle conversation, sur le modèle de
@@ -261,37 +261,93 @@ en tire min / médiane / p90 / max (`BenchStat`, `BenchReport`) et l'écart
 JFR ne sait pas les distinguer) et `compare_test <position> <warmup>
 <iterations> <référence>` lance deux JVM, la référence d'abord (entrées mises
 devant le classpath, comme `set_test_classpath_prefix`), puis le build courant :
-delta des médianes, bruit (le plus grand écart des deux, plancher 2 %) et
-verdict `slower`/`faster`/`same`. Délai : 600 s par JVM (le délai d'une suite),
-bornes 1000 / 1000 (point 3 ci-dessous). Le point 6 (`run_tests all` sur
-plusieurs racines) reste ouvert : un benchmark vise un test, donc une seule
-racine. La phase 3 reste à faire ;
-les points ci-dessous qui ne concernent que la phase 0 sont réglés (point 2 en
-partie : seule la partie « options JVM » de `command()` est faite).
+delta des médianes, bruit et verdict `slower`/`faster`/`same` (voir la suite
+ci-dessous pour leur forme actuelle). Délai : 600 s par JVM (le délai d'une suite),
+bornes 1000 / 1000. `run_tests all` sur plusieurs racines reste ouvert (voir
+la fin) : un benchmark vise un test, donc une seule racine. La phase 3 reste à faire.
 
-## Ce qui reste à concevoir/implémenter (pas encore fait)
+**Phase 2, suite (premier retour d'usage, voir plus bas).** Quatre corrections
+issues de l'emploi réel sur PlantUML :
 
-1. **Noms des commandes** : `profile_test`/`profile_report`/`bench_test`
-   séparées, ou des options sur `run_test` ? Le style du repo (un mot-clé,
-   un token par ligne) plaide pour des commandes séparées.
-2. **Modifier `ProjectTests.command()`/`fork()`** pour accepter une liste
-   d'options JVM (phase 0), puis les options JFR (phase 1). Le test unitaire
-   existant sur `command()` (qui vérifie `-ea`) est le modèle à suivre.
-3. **Timeout** : `profile_tests all` ralentit la suite de 10 à 20 %, donc
-   vérifier `SUITE_TIMEOUT_SECONDS`.
-4. **Taille et nettoyage des `.jfr`** : ~6 Mo pour 8 s à 1 ms. Garder
-   uniquement le dernier `.jfr` par session, ou les N derniers ?
-5. **Forme du résultat** dans l'esprit de `RESULTS.md`/`TestOutcome` :
-   positions relatives au projet (voir la règle « jamais de chemin absolu »
-   dans `TODO.md`) et des tables Lua pour les scripts.
-6. **Vérifier `run_tests all`** (mode `--scan`, plusieurs racines, donc
-   plusieurs JVM forkées : un `.jfr` par racine à fusionner, ou un nom de
-   fichier par racine).
-7. **Racines « main » vs « test »** : les obtenir de jdtls (les attributs
-   `test` du `.classpath` Eclipse) plutôt que de deviner à partir de
-   `src/main/java`.
-8. **Documentation** : `CLAUDE.md` (tableau des commandes de test),
-   `RESULTS.md`, `TESTS.md`, `TODO.md`, selon les conventions du repo.
+- **`-da` pour toute mesure.** `profile_test`, `profile_tests`,
+  `profile_bench`, `bench_test` et `compare_test` ajoutent `-da` juste après le
+  `-ea` de la ligne de commande (`ProjectTests.jvmOptions`), avant les options
+  de la connexion : `set_test_jvm_options -ea` les rétablit, la dernière option
+  gagnant. `run_test`/`run_tests` gardent `-ea`.
+- **Verdict par mesure.** `Comparison` porte trois `Metric(deltaPercent,
+  noisePercent, verdict)` : `wall`, `cpu`, `allocated`. Le verdict de
+  `compare_test` n'est plus celui du seul temps mural.
+- **Bruit robuste.** Le bruit n'est plus (p90 − min) / médiane, que n'importe
+  quelle itération gâchée fait exploser et qui ne diminue jamais avec le nombre
+  d'itérations. `BenchStat` porte maintenant les quartiles (`q1`, `q3`), et le
+  seuil est le double de l'erreur standard de la différence des deux médianes
+  (`0,929 × IQR / √n` par run), plancher 2 % pour un temps et 1 % pour une
+  allocation. Au-delà de 10 % de bruit sur le temps mural, `compare_test` dit
+  que plus d'itérations le resserreraient. `bench_test` affiche en plus
+  `error`, ce que vaut la médiane de chaque mesure.
+- `bench_test`/`compare_test`/`profile_bench` rendent maintenant un échec de
+  test comme `run_test` (c'était une erreur interne de rendu).
+
+## Premier retour d'usage : optimiser PlantUML avec clide
+
+Une session complète a suivi la chaîne `profile_test` → patch → `compare_test`,
+sur des diagrammes SVG répétés (2400, puis 400 par itération).
+
+- **Ce qui a marché tel quel.** Le profil de la suite Vega était plat, comme
+  prévu ; une charge ciblée et répétée a fait ressortir des coûts par
+  diagramme : un tampon de 16 Ko par lecteur de source
+  (`ReadLineReader.<init>`), un cache de clés de skinparam par instance, des
+  `TextLayout` reconstruits pour chaque descente de police, et surtout la
+  construction du registre de fonctions du préprocesseur — celle que le
+  prototype avait repérée (`TContext.<init>`, ~3 % du CPU, ~11 % de
+  l'allocation). Un registre partagé en lecture seule l'a supprimée.
+- **Résultat mesuré** (`compare_test`, 15 itérations de chauffe, 30 mesurées,
+  contre le commit précédent) : environ −20 % d'allocation, −10 % de CPU,
+  −10 % de temps mural. L'allocation est stable à ±1 % d'une mesure à l'autre ;
+  le temps mural, lui, varie de −9 à −17 % selon les passes.
+- **Ce que le premier `compare_test` ne disait pas bien.** Il répondait `same`
+  partout : son bruit (p90 − min) valait 35 à 45 %, avec un allocation à ±1 %
+  qu'il ignorait. D'où le verdict par mesure et le bruit fondé sur les
+  quartiles, ci-dessus.
+- **Pièges rencontrés.**
+  - Les assertions (`-ea`) ont fabriqué un faux point chaud
+    (`Pattern2.compileInternal`, un `assert` qui recompile une regex pour la
+    vérifier) : d'où `-da`.
+  - Avec `set_max_results 0`, toutes les lignes des vues de profil disparaissent.
+  - Avec 3 itérations de chauffe, le bruit mesuré atteignait 116 % : une
+    chauffe courte rend n'importe quel comparatif inutilisable.
+  - Il faut écrire un test JUnit (jetable) qui est la charge ; une référence
+    est un jar ou un dossier de classes qu'il faut construire soi-même.
+
+## Ce qui reste à faire
+
+Fait depuis la première rédaction de ce document : les noms de commandes
+(commandes séparées), `ProjectTests.command()`/`fork()` pour les options JVM
+et JFR, le délai d'une suite pour `bench_test`, un seul `.jfr` gardé par
+démon, la portée `main` par défaut, les tables Lua, la documentation.
+
+Ouvert :
+
+1. **Charge sans fichier de test** : `compare_test` et `bench_test` demandent un
+   test JUnit ; une charge « méthode statique » ou un petit script Lua éviterait
+   d'ajouter un fichier au projet pour mesurer.
+2. **Référence par commit** : accepter un commit git (checkout dans un dossier
+   à part, build, jar) au lieu d'un jar ou d'un dossier de classes construit à
+   la main.
+3. **Alternance A/B/A/B** : les deux JVM tournent l'une après l'autre, donc la
+   dérive de la machine (thermique, voisins) se lit comme un écart. Alterner
+   plusieurs paires de JVM courtes la répartirait.
+4. **Avertissement de chauffe** : dire quand la dispersion reste haute après la
+   chauffe (la médiane des premières itérations contre celle des dernières).
+5. **`run_tests all`** (mode `--scan`, plusieurs racines, donc plusieurs JVM et
+   plusieurs `.jfr`) : à vérifier sous `profile_tests`.
+6. **Racines « main » vs « test »** : les obtenir de jdtls (attributs `test` du
+   `.classpath`) plutôt que de deviner à partir de `src/main/java`.
+7. **Phase 3** : l'histogramme de classes en fin de run (comparer des
+   allocations avant/après) est le plus utile ; l'agent de comptage d'appels
+   l'est moins, `profile_report callers` répondant déjà à « qui appelle ça ? ».
+8. **`JACOCO.md`** cite encore le chemin local d'un poste (`C:\github\clide`)
+   comme ce document le faisait : à nettoyer de la même façon.
 
 ## Détails d'environnement utiles pour reprendre
 

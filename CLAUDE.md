@@ -585,7 +585,7 @@ when they do; `set_max_results <count>` changes it for the session.
 | `profile_report <view> [filter]` | Re-queries the last recording without re-running anything. Views: `overview`, `hot`, `inclusive`, `self`, `lines`, `jdk`, `alloc`, `alloc_types`, `contention`, `callers`, `callees`. `filter` is a case-insensitive substring of the method (`*` = all); `callers`/`callees` need a real method name. Rows are capped by `max_results`. |
 | `bench_test <position> <warmup> <iterations>` | Runs the test `<position>` designates `<warmup>` times, then `<iterations>` times, all in one JVM (an iteration is the test, or the sum of the class's tests), and prints min / median / p90 / max of wall time, CPU time and allocation per iteration, the GCs, and the spread (p90 vs best, in percent of the median). A failing test stops it (`TEST_FAILURES`). Bounds: warmup ≤ 1000, 1 ≤ iterations ≤ 1000, 600 s overall. |
 | `profile_bench <position> <warmup> <iterations>` | `bench_test` with the JVM recorded: the benchmark, then the overview and top `hot`/`alloc` rows. The recording (warmup included) becomes the one `profile_report` reads. The way to get a readable profile of warm code. |
-| `compare_test <position> <warmup> <iterations> <reference>` | `bench_test` twice, in two JVMs: with `<reference>` (jars or class folders, `:`/`;`-separated, put in front of the classpath like `set_test_classpath_prefix`) then with the current build. Prints both medians, the delta in percent of the reference, the noise (larger spread of the two, at least 2%) and a verdict `slower`/`faster`/`same`. In Lua, numeric deltas for guards. |
+| `compare_test <position> <warmup> <iterations> <reference>` | `bench_test` twice, in two JVMs: with `<reference>` (jars or class folders, `:`/`;`-separated, put in front of the classpath like `set_test_classpath_prefix`) then with the current build. Prints both medians and, for wall-clock time, CPU time and allocation separately, the delta in percent of the reference, the noise (twice the standard error of the two medians read off the interquartile ranges, at least 2% for a time and 1% for an allocation) and a verdict `slower`/`faster`/`same`. In Lua, numeric deltas and `verdict`/`cpuVerdict`/`allocatedVerdict` for guards. |
 | `set_profile_scope <main\|all>` | What the profile attributes to: the project's main source roots (default) or the test roots too. |
 | `reset_test_settings` | Drops the test settings above, and the profile scope, without ending the session. |
 
@@ -614,7 +614,11 @@ sources to compile, and adding one only shadows what clide already brings.
 (This is also why clide has to be run from the jar — see "Getting started".)
 The test JVM runs with assertions enabled (`-ea`), as Gradle and Maven
 Surefire do by default: an `assert` in the code under test fails the test
-instead of being silently skipped.
+instead of being silently skipped. The commands that *measure*
+(`profile_test`, `profile_tests`, `profile_bench`, `bench_test`,
+`compare_test`) add `-da` right after it: an assertion is code that production
+does not run, and it can be the hottest thing of a profile. A measure that
+wants them says `set_test_jvm_options -ea`, whose options come after `-da`.
 On a very large suite with
 missing external dependencies (e.g. a system tool some tests call out to),
 `run_tests` may never finish in a reasonable time; prefer a targeted

@@ -25,7 +25,7 @@ public class ProfileTestsCommand extends Command {
 				run_tests with the flight recorder on - see profile_test for
 				what is recorded and how the answer reads. Only the failing
 				tests are listed, as run_tests failures does; the totals are
-				always given.
+				always given. Assertions are disabled (-da), as in profile_test.
 
 				Discovery scans the project's test output folders, one JVM per
 				folder, each writing its own recording; they are read together

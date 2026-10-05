@@ -18,8 +18,14 @@ import clide.test.TestRunnerMain;
  */
 public final class BenchStats {
 
-	/** A delta smaller than this is never reported as a change, however quiet the runs were. */
+	/** A time delta smaller than this is never reported as a change, however quiet the runs were. */
 	public static final double NOISE_FLOOR_PERCENT = 2.0;
+
+	/** The same for an allocation, which is counted exactly and moves much less from run to run. */
+	public static final double ALLOCATION_NOISE_FLOOR_PERCENT = 1.0;
+
+	/** How many standard errors of the difference a delta must exceed: about 95 % of confidence. */
+	private static final double SIGNIFICANCE = 2.0;
 
 	private BenchStats() {
 	}
@@ -90,8 +96,13 @@ public final class BenchStats {
 		Arrays.sort(sorted);
 		final int n = sorted.length;
 		final long median = n % 2 == 1 ? sorted[n / 2] : sorted[n / 2 - 1] + (sorted[n / 2] - sorted[n / 2 - 1]) / 2;
-		final int p90Rank = (int) Math.ceil(0.9 * n);
-		return new BenchStat(sorted[0], median, sorted[Math.max(1, p90Rank) - 1], sorted[n - 1]);
+		return new BenchStat(sorted[0], nearestRank(sorted, 0.25), median, nearestRank(sorted, 0.75),
+				nearestRank(sorted, 0.9), sorted[n - 1]);
+	}
+
+	private static long nearestRank(final long[] sorted, final double fraction) {
+		final int rank = (int) Math.ceil(fraction * sorted.length);
+		return sorted[Math.max(1, rank) - 1];
 	}
 
 	/** (current - reference) / reference, in percent; NaN when either is unknown or the reference is 0. */
@@ -103,27 +114,38 @@ public final class BenchStats {
 	}
 
 	/**
-	 * The verdict on the wall-clock medians: "slower" or "faster" only when the
-	 * delta beats both runs' own spread and the noise floor, "same" otherwise - a
-	 * delta inside the noise is not a finding. "unknown" when the wall-clock delta
-	 * cannot be computed.
+	 * The comparison of two reports, a verdict per measure: "slower" or "faster"
+	 * only when the delta of the medians beats the noise, "same" otherwise - a
+	 * delta inside the noise is not a finding. "unknown" when the delta cannot be
+	 * computed.
+	 *
+	 * The noise of a measure is twice the standard error of the difference of the
+	 * two medians (see BenchStat.medianError), in percent of the reference median,
+	 * and never less than the floor of the measure. It shrinks with the number of
+	 * iterations, which the old spread between the best and the p90 never did.
 	 */
 	public static Comparison compare(final String reference, final BenchReport referenceReport,
 			final BenchReport current) {
-		final double wall = delta(referenceReport.wall(), current.wall());
-		final double noise = Math.max(Math.max(referenceReport.wall().spreadPercent(), current.wall().spreadPercent()),
-				NOISE_FLOOR_PERCENT);
-		final String verdict;
-		if (Double.isNaN(wall))
-			verdict = "unknown";
-		else if (Math.abs(wall) <= noise)
-			verdict = "same";
-		else
-			verdict = wall > 0 ? "slower" : "faster";
+		return new Comparison(reference, referenceReport, current,
+				metric(referenceReport.wall(), referenceReport.iterations(), current.wall(), current.iterations(),
+						NOISE_FLOOR_PERCENT),
+				metric(referenceReport.cpu(), referenceReport.iterations(), current.cpu(), current.iterations(),
+						NOISE_FLOOR_PERCENT),
+				metric(referenceReport.allocated(), referenceReport.iterations(), current.allocated(),
+						current.iterations(), ALLOCATION_NOISE_FLOOR_PERCENT));
+	}
 
-		return new Comparison(reference, referenceReport, current, wall,
-				delta(referenceReport.cpu(), current.cpu()), delta(referenceReport.allocated(), current.allocated()),
-				noise, verdict);
+	private static Comparison.Metric metric(final BenchStat reference, final int referenceIterations,
+			final BenchStat current, final int currentIterations, final double floorPercent) {
+		final double delta = delta(reference, current);
+		if (Double.isNaN(delta))
+			return new Comparison.Metric(delta, floorPercent, "unknown");
+
+		final double error = Math.hypot(reference.medianError(referenceIterations),
+				current.medianError(currentIterations));
+		final double noise = Math.max(SIGNIFICANCE * 100.0 * error / reference.median(), floorPercent);
+		final String verdict = Math.abs(delta) <= noise ? "same" : delta > 0 ? "slower" : "faster";
+		return new Comparison.Metric(delta, noise, verdict);
 	}
 
 }

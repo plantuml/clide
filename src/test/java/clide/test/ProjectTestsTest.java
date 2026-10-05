@@ -144,6 +144,20 @@ class ProjectTestsTest {
 	}
 
 	@Test
+	@DisplayName("une mesure coupe les assertions du projet avant les options de la connexion, qui peuvent les rétablir")
+	void measuresRunWithoutAssertions() {
+		assertEquals(List.of("-da", "-Xmx1g", "-XX:Foo"),
+				ProjectTests.jvmOptions(false, List.of("-Xmx1g"), List.of("-XX:Foo")));
+		assertEquals(List.of("-Xmx1g", "-XX:Foo"), ProjectTests.jvmOptions(true, List.of("-Xmx1g"), List.of("-XX:Foo")));
+
+		// -ea demandé par la connexion vient après -da : la dernière option gagne.
+		final List<String> command = ProjectTests.command("java", ProjectTests.jvmOptions(false, List.of("-ea"), List.of()),
+				List.of("a.jar"), new String[] { "--class", "demo.T" });
+		assertEquals(List.of("java", "-ea", "-da", "-ea", "-cp", "a.jar", TestRunnerMain.class.getName(), "--class",
+				"demo.T"), command);
+	}
+
+	@Test
 	@DisplayName("run_tests slowest : les tests qui ont tourné, du plus lent au plus rapide, sans les ignorés")
 	void slowestListsTheLongestFirst(@TempDir final Path root) {
 		final List<String> records = List.of(measured("a", 5_000_000, 100), measured("b", 90_000_000, 100),

@@ -27,7 +27,8 @@ public class ProfileBenchCommand extends Command {
 				profile_bench <position> <warmup> <iterations>
 
 			DESCRIPTION
-				bench_test and profile_test in one JVM. A single run of a test
+				bench_test and profile_test in one JVM (assertions disabled, -da,
+				as in both). A single run of a test
 				is a flat profile - class loading, the interpreter, the harness -
 				whatever the code does; the same test repeated hundreds of times
 				is the profile of the code once the JIT has compiled it, where a

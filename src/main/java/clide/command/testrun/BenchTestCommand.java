@@ -45,8 +45,11 @@ public class BenchTestCommand extends Command {
 				answer gives, for each, the minimum, the median, the p90 and the
 				maximum over the measured iterations, then the garbage
 				collections they provoked, then the spread: how far the p90 is
-				from the best case, in percent of the median. Two runs that
-				differ by less than their spread do not differ.
+				from the best case, in percent of the median, and how well the
+				median itself is known: twice its standard error, per measure,
+				which shrinks as <iterations> grows. Two runs whose medians
+				differ by less than that do not differ - compare_test does
+				this arithmetic for you.
 
 				The same state is reused from one iteration to the next: a test
 				that leaves something behind (a cache, a static) is measured on
@@ -56,6 +59,10 @@ public class BenchTestCommand extends Command {
 				<warmup> is at most 1000 and may be 0; <iterations> is between
 				1 and 1000. The whole benchmark must finish within 600 seconds,
 				which is also what caps it.
+
+				Assertions are disabled (-da), unlike run_test: they are checked
+				code that production does not run, and measuring them measures
+				the wrong program. set_test_jvm_options -ea brings them back.
 
 				It sees the same classpath and settings as run_test:
 				set_test_env, set_test_classpath_prefix and set_test_jvm_options

@@ -22,7 +22,7 @@ class BenchStatsTest {
 	void oddCount() {
 		final BenchStat stat = BenchStats.of(new long[] { 50, 10, 30, 20, 40 });
 
-		assertEquals(new BenchStat(10, 30, 50, 50), stat);
+		assertEquals(new BenchStat(10, 20, 30, 40, 50, 50), stat);
 	}
 
 	@Test
@@ -45,7 +45,7 @@ class BenchStatsTest {
 	void singleValue() {
 		final BenchStat stat = BenchStats.of(new long[] { 7 });
 
-		assertEquals(new BenchStat(7, 7, 7, 7), stat);
+		assertEquals(new BenchStat(7, 7, 7, 7, 7, 7), stat);
 		assertEquals(0, stat.spreadPercent());
 	}
 
@@ -88,7 +88,7 @@ class BenchStatsTest {
 
 		assertEquals(3, report.iterations());
 		assertEquals(1, report.warmup());
-		assertEquals(new BenchStat(10, 20, 30, 30), report.wall());
+		assertEquals(new BenchStat(10, 10, 20, 30, 30, 30), report.wall());
 		assertEquals(200, report.allocated().median());
 		assertEquals(3, report.gcCount());
 		assertEquals(6, report.gcMillis());
@@ -135,6 +135,73 @@ class BenchStatsTest {
 
 		assertEquals(10.0, comparison.wallDeltaPercent(), 1e-9);
 		assertEquals(BenchStats.NOISE_FLOOR_PERCENT, comparison.noisePercent(), 1e-9);
+	}
+
+	@Test
+	@DisplayName("les quartiles : rang le plus proche, sur dix valeurs le troisième et le huitième")
+	void quartiles() {
+		final BenchStat stat = BenchStats.of(new long[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 100 });
+
+		assertEquals(3, stat.q1());
+		assertEquals(8, stat.q3());
+	}
+
+	@Test
+	@DisplayName("l'erreur de la médiane vaut 0,929 x IQR / racine(n), et diminue avec le nombre d'itérations")
+	void medianError() {
+		final BenchStat stat = new BenchStat(0, 80, 100, 120, 150, 200);
+
+		assertEquals(0.929 * 40 / Math.sqrt(16), stat.medianError(16), 1e-9);
+		assertTrue(stat.medianError(64) < stat.medianError(16));
+		assertEquals(0, BenchStat.UNKNOWN.medianError(10));
+	}
+
+	@Test
+	@DisplayName("une itération gâchée en queue de distribution ne relève pas le seuil de bruit")
+	void aSpoiledIterationDoesNotMakeTheRunNoisy() {
+		// 29 itérations à ~1000, une à 3000 : l'ancien écart (p90 - min) / médiane restait petit
+		// ici, mais un seul pic en queue de p90 le faisait exploser ; les quartiles l'ignorent.
+		final long[] steady = new long[30];
+		for (int i = 0; i < 30; i++)
+			steady[i] = 1000 + i % 5;
+		final long[] spoiled = steady.clone();
+		spoiled[29] = 3000;
+
+		assertEquals(BenchStats.of(steady).medianError(30), BenchStats.of(spoiled).medianError(30), 1e-9);
+	}
+
+	@Test
+	@DisplayName("le verdict est donné mesure par mesure : l'allocation, exacte, bouge sous le seuil du temps")
+	void verdictPerMetric() {
+		final BenchStat wallRef = new BenchStat(900, 950, 1000, 1050, 1100, 1200);
+		final BenchStat wallNow = new BenchStat(880, 940, 990, 1040, 1090, 1190);
+		final BenchStat allocRef = new BenchStat(1000, 1000, 1000, 1000, 1000, 1000);
+		final BenchStat allocNow = new BenchStat(980, 980, 980, 980, 980, 980);
+		final BenchReport reference = new BenchReport("demo.T#a", 3, 20, wallRef, wallRef, allocRef, 0, 0);
+		final BenchReport current = new BenchReport("demo.T#a", 3, 20, wallNow, wallNow, allocNow, 0, 0);
+
+		final Comparison comparison = BenchStats.compare("ref.jar", reference, current);
+
+		assertEquals("same", comparison.wall().verdict());
+		assertEquals("same", comparison.cpu().verdict());
+		assertEquals("faster", comparison.allocated().verdict());
+		assertEquals(-2.0, comparison.allocatedDeltaPercent(), 1e-9);
+		assertEquals(BenchStats.ALLOCATION_NOISE_FLOOR_PERCENT, comparison.allocated().noisePercent(), 1e-9);
+	}
+
+	@Test
+	@DisplayName("plus d'itérations resserrent le seuil : le même delta passe de 'same' à 'faster'")
+	void moreIterationsNarrowTheNoise() {
+		final BenchStat ref = new BenchStat(800, 950, 1000, 1050, 1200, 1400);
+		final BenchStat now = new BenchStat(780, 900, 950, 1000, 1150, 1350);
+
+		final String few = BenchStats.compare("r", new BenchReport("t", 3, 6, ref, ref, ref, 0, 0),
+				new BenchReport("t", 3, 6, now, now, now, 0, 0)).verdict();
+		final String many = BenchStats.compare("r", new BenchReport("t", 3, 200, ref, ref, ref, 0, 0),
+				new BenchReport("t", 3, 200, now, now, now, 0, 0)).verdict();
+
+		assertEquals("same", few);
+		assertEquals("faster", many);
 	}
 
 	@Test

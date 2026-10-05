@@ -35,6 +35,11 @@ public class ProfileTestCommand extends Command {
 				each thread, the allocations, the garbage collections, the
 				exceptions and the time spent blocked.
 
+				Assertions are disabled (-da), unlike run_test: they are
+				checked code that production does not run, and one of them can
+				be the hottest thing in the profile without being the code
+				anybody ships. set_test_jvm_options -ea brings them back.
+
 				The answer starts with the verdict of the tests, failures
 				listed as run_test lists them (use run_test for the line of
 				every test), then:

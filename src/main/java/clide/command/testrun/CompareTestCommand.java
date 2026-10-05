@@ -23,7 +23,7 @@ import clide.test.ProjectTests;
 public class CompareTestCommand extends Command {
 
 	@Keyword("compare_test")
-	@Help("Runs bench_test twice - against the reference jars or class folders <reference>, then against the current build - and reports both medians, the delta and whether it beats the noise.")
+	@Help("Runs bench_test twice - against the reference jars or class folders <reference>, then against the current build - and reports both medians, the delta, and for wall-clock time, CPU time and allocation separately whether the delta beats the noise.")
 	@Param(type = ParamType.POSITION, description = "Test position")
 	@Param(type = ParamType.NON_NEGATIVE_INTEGER, description = "Warmup iterations")
 	@Param(type = ParamType.NON_NEGATIVE_INTEGER, description = "Measured iterations")
@@ -47,11 +47,24 @@ public class CompareTestCommand extends Command {
 
 				The answer puts the two medians side by side for wall-clock
 				time, CPU time and allocation, with the delta in percent of the
-				reference (negative: the current build is lower), then the
-				noise: the larger of the two runs' spreads, never less than 2%.
-				The verdict is "slower" or "faster" when the wall-clock delta
-				goes beyond the noise, and "same" when it does not - a
-				difference inside the noise is not a finding.
+				reference (negative: the current build is lower), then, for
+				each of the three, its own noise and verdict. The noise is the
+				smallest delta that means something: twice the standard error
+				of the two medians (read off the interquartile range of each
+				run, so it shrinks with the number of iterations and one spoiled
+				iteration does not move it), never less than 2% for a time and
+				1% for an allocation, which is counted exactly. The verdict is
+				"slower" or "faster" when the delta goes beyond the noise, and
+				"same" when it does not - a difference inside the noise is not
+				a finding. A quiet allocation can be "faster" while the
+				wall-clock time is still "same": say so, do not average them.
+				When the wall-clock noise is above 10% the answer says that
+				more iterations (and warmup) would narrow it.
+
+				Assertions are disabled in both runs (-da): they are checked
+				code that production does not run, and a benchmark of them
+				measures the wrong program. set_test_jvm_options -ea brings
+				them back.
 
 				In Lua the same numbers are a table, which is what a guard is
 				made of: "no test more than 10% slower than the reference".

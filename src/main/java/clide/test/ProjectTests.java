@@ -229,6 +229,28 @@ public final class ProjectTests {
 	}
 
 	/**
+	 * The options that follow -ea on the test JVM's command line: -da first when
+	 * the run is a measure, then the connection's own (set_test_jvm_options), then
+	 * the recording's.
+	 *
+	 * A project's assertions are code that production does not run: they can be
+	 * the hottest thing in a profile (a regex compiled again only to check it, say)
+	 * and they move every benchmark. -da comes before the connection's options, so
+	 * a measure that really wants them says -ea with set_test_jvm_options, the last
+	 * option on the line winning.
+	 */
+	static List<String> jvmOptions(final boolean assertions, final List<String> connection,
+			final List<String> recording) {
+		final List<String> options = new ArrayList<>();
+		if (assertions == false)
+			options.add("-da");
+
+		options.addAll(connection);
+		options.addAll(recording);
+		return options;
+	}
+
+	/**
 	 * The test JVM's classpath, in the order that decides which class wins:
 	 * whatever the connection asked to put in front (set_test_classpath_prefix),
 	 * then the project's own, then clide's - so a project shipping its own JUnit
@@ -253,12 +275,18 @@ public final class ProjectTests {
 
 	private static Outcome fork(final ClideContext context, final List<String> classpath, final String[] selector,
 			final long timeoutSeconds, final Recording recording) {
-		return fork(context, classpath, selector, timeoutSeconds, recording, List.of());
+		// A recorded run is a measuring run: see measuringOptions().
+		return fork(context, classpath, selector, timeoutSeconds, recording, List.of(), recording == Recording.none());
 	}
 
-	/** inFront goes before the connection's own classpath prefix: compare_test's reference build. */
+	/**
+	 * inFront goes before the connection's own classpath prefix: compare_test's reference build.
+	 * assertions: whether the project's own assertions stay enabled - they do for a test run,
+	 * not for a measure.
+	 */
 	private static Outcome fork(final ClideContext context, final List<String> classpath, final String[] selector,
-			final long timeoutSeconds, final Recording recording, final List<String> inFront) {
+			final long timeoutSeconds, final Recording recording, final List<String> inFront,
+			final boolean assertions) {
 		final List<String> own = ownClasspath();
 		if (own.isEmpty())
 			return Outcome.broken(ErrorCode.TEST_RUNNER_BROKEN,
@@ -270,8 +298,7 @@ public final class ProjectTests {
 
 		// The recording's options come after the connection's own, so that a recording
 		// the connection asked for by hand does not silence the one profile_test needs.
-		final List<String> jvmOptions = new ArrayList<>(context.getTestJvmOptions());
-		jvmOptions.addAll(recording.nextOptions());
+		final List<String> jvmOptions = jvmOptions(assertions, context.getTestJvmOptions(), recording.nextOptions());
 
 		final List<String> command = command(JdtlsLauncher.javaExecutable(), jvmOptions, full, selector);
 
@@ -739,7 +766,7 @@ public final class ProjectTests {
 
 		// A benchmark is many runs of one test: the suite's allowance, not a single run's.
 		final Outcome outcome = fork(context, classpath, bench.toArray(String[]::new), SUITE_TIMEOUT_SECONDS,
-				recording, inFront);
+				recording, inFront, false);
 		if (outcome.failure != null)
 			return Measured.failed(CommandResult.error(outcome.failureCode, outcome.failure));
 

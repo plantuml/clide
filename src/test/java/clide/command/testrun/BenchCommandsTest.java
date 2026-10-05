@@ -46,6 +46,7 @@ class BenchCommandsTest {
 		assertTrue(text.contains("alloc   min 40.0 KB   median 40.0 KB   p90 40.0 KB   max 40.0 KB\n"), text);
 		assertTrue(text.contains("gc      3 collection(s), 12 ms, over the measured iterations\n"), text);
 		assertTrue(text.contains("spread  23.1% between the best and the p90 wall-clock time"), text);
+		assertTrue(text.contains("error   the median is known to wall \u00b1"), text);
 	}
 
 	@Test
@@ -71,10 +72,25 @@ class BenchCommandsTest {
 
 		assertTrue(text.startsWith("compare_test: demo.CalcTest#add - 5 warmup, 20 measured iteration(s), reference ref.jar\n"),
 				text);
-		assertTrue(text.contains("median  reference     current       delta\n"), text);
-		assertTrue(text.contains("wall    2.0 ms        1.0 ms        -50.0%\n"), text);
-		assertTrue(text.contains("alloc   40.0 KB       40.0 KB       +0.0%\n"), text);
-		assertTrue(text.contains("verdict faster - the wall-clock median shrank by more than the noise"), text);
+		assertTrue(text.contains("median  reference     current       delta    noise    verdict\n"), text);
+		assertTrue(text.contains("wall    2.0 ms        1.0 ms        -50.0%   \u00b1"), text);
+		assertTrue(text.contains("faster\n"), text);
+		assertTrue(text.contains("alloc   40.0 KB       40.0 KB       +0.0%    \u00b11.0%    same"), text);
+	}
+
+	@Test
+	@DisplayName("un test qui échoue arrête le benchmark, et c'est dit comme run_test le dit, pas une erreur interne")
+	void failedTestEndsTheBenchmark() {
+		final CommandPayload.TestRun run = new CommandPayload.TestRun("demo.CalcTest", 0, 1, 0, 42, Listing.of(
+				List.of(new clide.model.TestOutcome(clide.model.TestOutcome.Status.FAILED, "demo.CalcTest.add",
+						"src/test/java/demo/CalcTest.java:4", List.of("boom"), "", clide.model.TestMeasure.UNKNOWN)),
+				1), true, "");
+
+		final String text = new BenchTestCommand().render(
+				CommandResult.error(clide.command.answer.ErrorCode.TEST_FAILURES, "1 test(s) failed out of 1", "", run), PrintMode.AI);
+
+		assertTrue(text.contains("bench_test: 1 test(s), 0 passed, 1 failed"), text);
+		assertTrue(text.contains("boom"), text);
 	}
 
 	@Test
@@ -136,6 +152,8 @@ class BenchCommandsTest {
 		assertEquals("same", compared.get("verdict"));
 		assertNotNull(compared.get("wallDeltaPercent"));
 		assertNull(compared.get("cpuDeltaPercent"));
+		assertEquals("unknown", compared.get("cpuVerdict"));
+		assertEquals("unknown", compared.get("allocatedVerdict"));
 	}
 
 }

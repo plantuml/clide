@@ -5,6 +5,7 @@ import java.util.function.LongFunction;
 
 import clide.command.answer.CommandPayload;
 import clide.command.answer.CommandResult;
+import clide.bench.BenchStats;
 import clide.command.answer.ResultEnvelope;
 import clide.model.BenchReport;
 import clide.model.BenchStat;
@@ -18,6 +19,9 @@ import clide.util.Units;
  */
 final class BenchRendering {
 
+	/** Above this wall-clock noise a comparison is told that more iterations would help. */
+	private static final double NOISY_PERCENT = 10.0;
+
 	private BenchRendering() {
 	}
 
@@ -25,6 +29,8 @@ final class BenchRendering {
 	static String renderBench(final String label, final CommandResult result) {
 		return switch (result.payload()) {
 		case CommandPayload.Bench bench -> report(label, bench.report());
+		// A test that failed ends the benchmark: said the way run_test says it.
+		case CommandPayload.TestRun run -> TestRunRendering.render(label, result);
 		default -> ResultEnvelope.unexpectedPayload(label, result.payload());
 		};
 	}
@@ -34,6 +40,7 @@ final class BenchRendering {
 		return switch (result.payload()) {
 		case CommandPayload.BenchProfiled bench -> report(label, bench.report()) + "\n\n"
 				+ ProfileRendering.summary(bench.profile());
+		case CommandPayload.TestRun run -> TestRunRendering.render(label, result);
 		default -> ResultEnvelope.unexpectedPayload(label, result.payload());
 		};
 	}
@@ -42,6 +49,7 @@ final class BenchRendering {
 	static String renderCompared(final String label, final CommandResult result) {
 		return switch (result.payload()) {
 		case CommandPayload.Compared compared -> comparison(label, compared.comparison());
+		case CommandPayload.TestRun run -> TestRunRendering.render(label, result);
 		default -> ResultEnvelope.unexpectedPayload(label, result.payload());
 		};
 	}
@@ -54,7 +62,26 @@ final class BenchRendering {
 				+ "gc      " + report.gcCount() + " collection(s), " + report.gcMillis()
 				+ " ms, over the measured iterations\n" //
 				+ "spread  " + percent(report.wall().spreadPercent())
-				+ " between the best and the p90 wall-clock time: a difference below that between two runs means little";
+				+ " between the best and the p90 wall-clock time: a difference below that between two runs means little\n" //
+				+ "error   the median is known to " + errors(report);
+	}
+
+	/** What the median of each measure is worth: twice its standard error, in percent of itself. */
+	private static String errors(final BenchReport report) {
+		final StringBuilder out = new StringBuilder();
+		append(out, "wall", report.wall(), report.iterations());
+		append(out, "cpu", report.cpu(), report.iterations());
+		append(out, "alloc", report.allocated(), report.iterations());
+		return out.append(" (twice the standard error, ").append(report.iterations()).append(" iterations)").toString();
+	}
+
+	private static void append(final StringBuilder out, final String name, final BenchStat stat, final int n) {
+		if (stat.known() == false || stat.median() == 0)
+			return;
+
+		if (out.length() > 0)
+			out.append(", ");
+		out.append(name).append(String.format(Locale.ROOT, " \u00b1%.1f%%", 200.0 * stat.medianError(n) / stat.median()));
 	}
 
 	private static String iterations(final BenchReport report) {
@@ -73,34 +100,34 @@ final class BenchRendering {
 	private static String comparison(final String label, final Comparison comparison) {
 		final BenchReport reference = comparison.referenceReport();
 		final BenchReport current = comparison.current();
-		return label + ": " + current.subject() + " - " + iterations(current) + ", reference " + comparison.reference()
-				+ "\n" //
-				+ String.format(Locale.ROOT, "%-8s%-14s%-14s%s", "median", "reference", "current", "delta") + "\n" //
-				+ row("wall", reference.wall(), current.wall(), comparison.wallDeltaPercent(), Units::duration) + "\n" //
-				+ row("cpu", reference.cpu(), current.cpu(), comparison.cpuDeltaPercent(), Units::duration) + "\n" //
-				+ row("alloc", reference.allocated(), current.allocated(), comparison.allocatedDeltaPercent(),
-						Units::size)
-				+ "\n" //
-				+ "noise   " + percent(comparison.noisePercent())
-				+ " (the larger spread of the two runs, never less than 2%)\n" //
-				+ "verdict " + verdict(comparison);
+		final StringBuilder out = new StringBuilder();
+		out.append(label).append(": ").append(current.subject()).append(" - ").append(iterations(current))
+				.append(", reference ").append(comparison.reference()).append('\n');
+		out.append(String.format(Locale.ROOT, "%-8s%-14s%-14s%-9s%-9s%s", "median", "reference", "current", "delta",
+				"noise", "verdict")).append('\n');
+		out.append(row("wall", reference.wall(), current.wall(), comparison.wall(), Units::duration)).append('\n');
+		out.append(row("cpu", reference.cpu(), current.cpu(), comparison.cpu(), Units::duration)).append('\n');
+		out.append(row("alloc", reference.allocated(), current.allocated(), comparison.allocated(), Units::size))
+				.append('\n');
+		out.append("noise   the smallest delta that is not noise: twice the standard error of the two medians, ")
+				.append("never less than ").append(percent(BenchStats.NOISE_FLOOR_PERCENT)).append(" (alloc ")
+				.append(percent(BenchStats.ALLOCATION_NOISE_FLOOR_PERCENT)).append(")\n");
+		if (comparison.wall().noisePercent() > NOISY_PERCENT)
+			out.append("hint    the wall-clock noise is ").append(percent(comparison.wall().noisePercent()))
+					.append(": more iterations (and warmup) narrow it; the alloc verdict does not depend on it\n");
+
+		return out.toString().stripTrailing();
 	}
 
 	private static String row(final String name, final BenchStat reference, final BenchStat current,
-			final double delta, final LongFunction<String> unit) {
-		return String.format(Locale.ROOT, "%-8s%-14s%-14s%s", name,
+			final Comparison.Metric metric, final LongFunction<String> unit) {
+		final double delta = metric.deltaPercent();
+		return String.format(Locale.ROOT, "%-8s%-14s%-14s%-9s%-9s%s", name,
 				reference.known() ? unit.apply(reference.median()) : "-",
 				current.known() ? unit.apply(current.median()) : "-",
-				Double.isNaN(delta) ? "n/a" : String.format(Locale.ROOT, "%+.1f%%", delta));
-	}
-
-	private static String verdict(final Comparison comparison) {
-		return switch (comparison.verdict()) {
-		case "slower" -> "slower - the wall-clock median grew by more than the noise";
-		case "faster" -> "faster - the wall-clock median shrank by more than the noise";
-		case "same" -> "same - the wall-clock median moved by no more than the noise";
-		default -> "unknown - the wall-clock times cannot be compared";
-		};
+				Double.isNaN(delta) ? "n/a" : String.format(Locale.ROOT, "%+.1f%%", delta),
+				Double.isNaN(delta) ? "-" : String.format(Locale.ROOT, "\u00b1%.1f%%", metric.noisePercent()),
+				metric.verdict());
 	}
 
 	private static String percent(final double value) {

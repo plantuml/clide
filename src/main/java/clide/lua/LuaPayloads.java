@@ -277,7 +277,8 @@ public final class LuaPayloads {
 	/** A stat the JVM could not take is left out, like an unknown measure - see putIfKnown. */
 	private static void putIfKnown(final Map<String, Object> out, final String key, final BenchStat stat) {
 		if (stat.known())
-			out.put(key, map("min", stat.min(), "median", stat.median(), "p90", stat.p90(), "max", stat.max()));
+			out.put(key, map("min", stat.min(), "q1", stat.q1(), "median", stat.median(), "q3", stat.q3(), "p90",
+					stat.p90(), "max", stat.max()));
 	}
 
 	private static Object comparison(final Comparison comparison) {
@@ -290,6 +291,10 @@ public final class LuaPayloads {
 		putIfNumber(out, "allocatedDeltaPercent", comparison.allocatedDeltaPercent());
 		out.put("noisePercent", comparison.noisePercent());
 		out.put("verdict", comparison.verdict());
+		out.put("cpuNoisePercent", comparison.cpu().noisePercent());
+		out.put("cpuVerdict", comparison.cpu().verdict());
+		out.put("allocatedNoisePercent", comparison.allocated().noisePercent());
+		out.put("allocatedVerdict", comparison.allocated().verdict());
 		return out;
 	}
 
