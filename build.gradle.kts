@@ -52,6 +52,14 @@ dependencies {
 	// peut passer d'un côté et pas de l'autre.
 	testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.1")
 	testImplementation("org.junit.jupiter:junit-jupiter-params:5.10.1")
+	// flatDir ne lit aucun .pom : les dépendances que junit-jupiter-api déclarerait
+	// n'arrivent donc pas toutes seules, contrairement à Maven Central. Les tests
+	// qui appellent Assumptions (fixture/AssumptionFailing) ont besoin de
+	// TestAbortedException (opentest4j) pour compiler, et apiguardian-api évite
+	// les avertissements "unknown enum constant Status.STABLE". Mêmes versions
+	// que les .jar de lib/ qu'utilise build.xml.
+	testImplementation("org.opentest4j:opentest4j:1.3.0")
+	testImplementation("org.apiguardian:apiguardian-api:1.1.2")
 	testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.1")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.1")
 	// Le lanceur en ligne de commande, pour que le fat jar sache aussi exécuter
