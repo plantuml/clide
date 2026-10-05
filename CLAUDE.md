@@ -111,6 +111,21 @@ backgrounding it yourself however fits (`nohup ... &`, a systemd unit, a
 screen/tmux session): clide itself no longer forks or detaches on its own,
 which is exactly why `start_clide.py` exists for everyone else.
 
+**Killing the daemons: `python3 stop_clide.py`.** Kills every clide daemon
+running on the machine, whichever project it serves, together with the
+processes each one launched (jdtls, forked test JVMs). It exists for the
+daemon the `terminate` command cannot reach: `terminate` goes through a client
+connection, and a daemon stuck on a looping script or a hung test answers every
+new connection `?ERROR BUSY`, `terminate` included (it also refuses while a
+transaction is open). `stop_clide.py` does not talk to the daemon: it finds the
+`java -jar ...clide.jar` processes by their command line and kills them
+(SIGTERM then SIGKILL after 3 s on POSIX, `taskkill /T /F` on Windows).
+`python3 stop_clide.py --list` only lists them. A transaction left open dies
+with the daemon, and the next daemon start refuses to start until the
+transactions directory it left behind is inspected and removed by hand (the
+"leftover transaction state" check of the boot trace). The lock file
+a killed daemon leaves behind is harmless: `clide.py` reports it as stale.
+
 **If the daemon is not already running, nothing starts it automatically —
 not the client, not anything else.** A client finding no daemon for a
 project fails with a message naming the `start_clide.py` command to run
