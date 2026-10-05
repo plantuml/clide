@@ -223,6 +223,12 @@ class CheckJavadocCommandTest {
 
 	private static JavaFileObject fakeSource(final Path file) {
 		return new SimpleJavaFileObject(file.toUri(), JavaFileObject.Kind.SOURCE) {
+			// javac's own file objects name themselves with the path as the platform
+			// spells it; SimpleJavaFileObject gives the URI's path, "/C:/..." on Windows.
+			@Override
+			public String getName() {
+				return file.toString();
+			}
 		};
 	}
 

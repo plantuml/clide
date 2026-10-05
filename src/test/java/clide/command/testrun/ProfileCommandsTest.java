@@ -186,4 +186,22 @@ class ProfileCommandsTest {
 		assertEquals(CommandStatus.OK, CommandResult.ok(profiled).status());
 	}
 
+	@Test
+	@DisplayName("les pourcentages gardent le point décimal quelle que soit la locale de la JVM")
+	void percentagesDoNotDependOnTheLocale() {
+		final java.util.Locale saved = java.util.Locale.getDefault();
+		java.util.Locale.setDefault(java.util.Locale.FRANCE);
+		try {
+			final ProfileTable hot = new ProfileTable("hot", "samples", 200,
+					Listing.of(List.of(new ProfileRow(60, 30.0, "src/main/java/demo/Calc.java", "Calc.add")), 1));
+
+			final String text = ProfileRendering.summary(new CommandPayload.Profile(
+					new ProfileOverview(500, 200, 20, 2, 9, 5, 3 * 1024 * 1024, 4, 0), List.of(hot)));
+
+			assertTrue(text.contains("30.0%"), text);
+		} finally {
+			java.util.Locale.setDefault(saved);
+		}
+	}
+
 }

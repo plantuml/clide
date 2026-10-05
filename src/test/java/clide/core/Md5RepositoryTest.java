@@ -44,6 +44,27 @@ class Md5RepositoryTest {
 	private static final String EMPTY_MD5 = "d41d8cd98f00b204e9800998ecf8427e";
 
 	@Test
+	@DisplayName("le même contenu rangé en même temps par plusieurs threads : tous réussissent, un seul blob")
+	void concurrentRegistersOfTheSameContent(@TempDir final Path projectRoot) throws Exception {
+		final Path source = projectRoot.resolve("A.java");
+		Files.writeString(source, "class A {}", StandardCharsets.UTF_8);
+		final Md5Repository repository = new Md5Repository(projectRoot);
+		final java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+		try {
+			final List<java.util.concurrent.Future<String>> results = new java.util.ArrayList<>();
+			for (int i = 0; i < 64; i++)
+				results.add(pool.submit(() -> repository.register(source)));
+
+			final String expected = Md5Repository.md5Of(source);
+			for (final java.util.concurrent.Future<String> result : results)
+				assertEquals(expected, result.get());
+		} finally {
+			pool.shutdown();
+		}
+		assertTrue(Files.exists(repository.blobPath(Md5Repository.md5Of(source))));
+	}
+
+	@Test
 	@DisplayName("register() rend le md5 du contenu, comme md5Of()")
 	void registerReturnsTheMd5OfTheContent(@TempDir final Path projectRoot) throws IOException {
 		final Path source = write(projectRoot, "Alpha.java", "class Alpha {}");

@@ -90,7 +90,7 @@ final class ProfileRendering {
 			out.append("\n   (nothing)");
 
 		for (final ProfileRow row : rows.items())
-			out.append('\n').append(String.format("%10s %5.1f%%  ", value(table.unit(), row.value()), row.percent()))
+			out.append('\n').append(String.format(java.util.Locale.ROOT, "%10s %5.1f%%  ", value(table.unit(), row.value()), row.percent()))
 					.append(row.location().isEmpty() ? "" : row.location() + "  ").append(row.name());
 
 		if (rows.truncated())

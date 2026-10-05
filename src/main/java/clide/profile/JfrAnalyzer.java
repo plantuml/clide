@@ -66,12 +66,30 @@ final class JfrAnalyzer {
 		return analyzer.data;
 	}
 
+	/**
+	 * RecordingFile opens the file in its constructor and, on a file that is not a
+	 * recording, fails without closing it: the handle lives until a garbage
+	 * collection, which on Windows keeps the file from being deleted (and, for a
+	 * temporary directory, the directory with it). The four magic bytes are checked
+	 * first, with a stream that is closed.
+	 */
+	private static void requireFlightRecording(final Path recording) throws IOException {
+		final byte[] magic = new byte[4];
+		try (java.io.InputStream in = java.nio.file.Files.newInputStream(recording)) {
+			if (in.readNBytes(magic, 0, 4) != 4 || magic[0] != 'F' || magic[1] != 'L' || magic[2] != 'R'
+					|| magic[3] != 0)
+				throw new IOException("cannot read the recording " + recording.getFileName()
+						+ ": not a Flight Recorder file");
+		}
+	}
+
 	private void read(final Path recording) throws IOException {
 		Instant first = null;
 		Instant last = null;
 		long minThrowables = Long.MAX_VALUE;
 		long maxThrowables = Long.MIN_VALUE;
 
+		requireFlightRecording(recording);
 		try (RecordingFile file = new RecordingFile(recording)) {
 			while (file.hasMoreEvents()) {
 				final RecordedEvent event = file.readEvent();

@@ -129,6 +129,13 @@ public class Md5Repository {
 			Files.deleteIfExists(temporary);
 		} catch (final IOException e) {
 			Files.deleteIfExists(temporary);
+			// On Windows, an atomic move onto a blob that another thread has just
+			// filed fails with an AccessDeniedException rather than a
+			// FileAlreadyExistsException. Same md5, same bytes: if the blob is there,
+			// somebody else filed it, and that is all this call wanted.
+			if (Files.exists(target))
+				return;
+
 			throw e;
 		}
 	}
