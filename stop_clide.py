@@ -19,6 +19,16 @@ could lead to. A daemon is any `java` process started with `-jar <...>clide.jar`
 touched: a `java` process that merely mentions clide.jar elsewhere in its
 command line, or this script itself, is not a daemon.
 
+A daemon that is killed does not get to run its own clean-up, and refuses to
+start again while that clean-up is missing (EclipseProjectFiles.refuseIfDirty()):
+while it runs, a project's own .project/.classpath are moved aside to
+.clide/tmp/ and clide's replace them at the project root. So after killing a
+daemon this script puts that right for its project - the original moved back,
+or clide's own file removed when there was no original - exactly what the
+daemon's shutdown would have done (see recover_project_files()). A transaction
+left open is not recovered: it is reported, and the daemon's next start will
+refuse until it is dealt with by hand.
+
 How it kills them: the daemon's descendants first, then the daemon, so that no
 jdtls is left orphaned (on Windows, taskkill /T does the whole tree at once).
 POSIX: SIGTERM, then SIGKILL for whatever is still alive after
@@ -174,6 +184,64 @@ def kill_windows(daemon_pid: int) -> List[int]:
 	return [] if result.returncode == 0 else [daemon_pid]
 
 
+# Must keep matching EclipseProjectFiles.STAGING_DIR/MANAGED_FILES and
+# TransactionStack.TRANSACTIONS_DIR on the Java side.
+STAGING_DIR = os.path.join(".clide", "tmp")
+MANAGED_FILES = (".project", ".classpath")
+TRANSACTIONS_DIR = os.path.join(".clide", "transactions")
+
+# What tells a .project/.classpath at the project root that it is clide's (or
+# jdtls') and not the project's own: jdtls writes this marker itself into the
+# .project it manages; clide's .classpath puts its output under .clide/tmp/bin.
+CLIDE_MARKERS = ("__CREATED_BY_JAVA_LANGUAGE_SERVER__", ".clide/tmp/bin")
+
+
+def read_bytes(path: str) -> Optional[bytes]:
+	try:
+		with open(path, "rb") as handle:
+			return handle.read()
+	except OSError:
+		return None
+
+
+def recover_project_files(project_root: str) -> List[str]:
+	"""What the daemon's shutdown (EclipseProjectFiles.unstage()) would have
+	done, for a daemon that was killed instead: for each of .project and
+	.classpath, the original moved aside into .clide/tmp/ goes back to the
+	project root; when nothing was moved aside there never was an original, so
+	clide's own file at the root is removed - but only if it is recognizably
+	clide's (equal to the debug copy .clide/tmp/<name>.clide, or carrying one
+	of CLIDE_MARKERS), never a file of the project's own. Returns what was
+	done and what was left alone, one sentence each.
+	"""
+	notes = []
+	staging = os.path.join(project_root, STAGING_DIR)
+	for name in MANAGED_FILES:
+		stranded = os.path.join(staging, name)
+		live = os.path.join(project_root, name)
+		if os.path.exists(stranded):
+			os.replace(stranded, live)
+			notes.append(f"{name}: the project's own file moved back to the project root")
+			continue
+
+		content = read_bytes(live)
+		if content is None:
+			continue
+		debug_copy = read_bytes(os.path.join(staging, name + ".clide"))
+		is_clides = content == debug_copy or any(marker.encode() in content for marker in CLIDE_MARKERS)
+		if is_clides:
+			os.remove(live)
+			notes.append(f"{name}: clide's own file removed from the project root (the project had none)")
+		else:
+			notes.append(f"{name}: left alone - it is the project's own file, not clide's")
+
+	transactions = os.path.join(project_root, TRANSACTIONS_DIR)
+	if os.path.isdir(transactions) and os.listdir(transactions):
+		notes.append(f"{transactions} is not empty: a transaction was open. Inspect it, then remove it "
+				f"by hand - the next daemon start refuses until then")
+	return notes
+
+
 def main() -> None:
 	args = sys.argv[1:]
 	if any(arg != LIST_FLAG for arg in args):
@@ -202,8 +270,19 @@ def main() -> None:
 		if left:
 			failed += 1
 			print(f"stop_clide.py: could not kill the daemon {target} (still alive: {', '.join(map(str, left))})")
-		else:
-			print(f"stop_clide.py: killed the daemon {target}")
+			continue
+
+		print(f"stop_clide.py: killed the daemon {target}")
+		root = project_of(daemon)
+		if root == "?" or not os.path.isdir(root):
+			print(f"stop_clide.py:   project path not recognized ({root}): its .project/.classpath were not "
+					f"put back - see {STAGING_DIR} in the project if the next start refuses")
+			continue
+		try:
+			for note in recover_project_files(root):
+				print(f"stop_clide.py:   {note}")
+		except OSError as error:
+			print(f"stop_clide.py:   could not clean up {root}: {error}")
 
 	if failed:
 		sys.exit(1)

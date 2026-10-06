@@ -120,11 +120,17 @@ new connection `?ERROR BUSY`, `terminate` included (it also refuses while a
 transaction is open). `stop_clide.py` does not talk to the daemon: it finds the
 `java -jar ...clide.jar` processes by their command line and kills them
 (SIGTERM then SIGKILL after 3 s on POSIX, `taskkill /T /F` on Windows).
-`python3 stop_clide.py --list` only lists them. A transaction left open dies
-with the daemon, and the next daemon start refuses to start until the
-transactions directory it left behind is inspected and removed by hand (the
-"leftover transaction state" check of the boot trace). The lock file
-a killed daemon leaves behind is harmless: `clide.py` reports it as stale.
+`python3 stop_clide.py --list` only lists them. A killed daemon does not run
+its own clean-up, and the next daemon start refuses while that clean-up is
+missing: the project's own `.project`/`.classpath` are moved aside to
+`.clide/tmp/` while a daemon runs, clide's own taking their place at the
+project root. So after each kill `stop_clide.py` does what the daemon's shutdown
+would have done: the original goes back, or clide's own file is removed when
+the project had none (a file that does not look like clide's is never
+touched). A transaction left open is not recovered, only reported: the next
+start refuses until its directory under `.clide/transactions` is inspected and
+removed by hand. The lock file a killed daemon leaves behind is harmless:
+`clide.py` reports it as stale.
 
 **If the daemon is not already running, nothing starts it automatically —
 not the client, not anything else.** A client finding no daemon for a
