@@ -1291,11 +1291,35 @@ public class JdtlsSession {
 		}
 	}
 
-	/** Whether uri names a file inside the project root (or the root itself). */
+	/**
+	 * Whether uri names a file inside the project root (or the root itself) - by
+	 * what the URI stands for, not by its text: see ProjectUris. A file: URI that
+	 * is not inside the project is reported once per distinct location, up to a few,
+	 * on the daemon's own output: such a location is dropped from every answer
+	 * (see locationOf()), and a project whose every location is dropped must not
+	 * look the same as a project with no usages.
+	 */
 	private boolean isInProject(final String uri) {
-		final String prefix = filesRepository.projectUri();
-		return uri.equals(prefix) || uri.startsWith(prefix);
+		if (ProjectUris.isInside(filesRepository.projectUri(), uri))
+			return true;
+
+		reportIgnoredLocation(uri);
+		return false;
 	}
+
+	private static final int IGNORED_LOCATIONS_REPORTED = 5;
+	private final Set<String> ignoredLocationsReported = new HashSet<>();
+
+	private synchronized void reportIgnoredLocation(final String uri) {
+		if (uri == null || uri.startsWith("file:") == false
+				|| ignoredLocationsReported.size() >= IGNORED_LOCATIONS_REPORTED)
+			return;
+
+		if (ignoredLocationsReported.add(uri))
+			System.out.println("clide: ignored a location outside the project: " + uri + "  (project: "
+					+ filesRepository.projectUri() + ")");
+	}
+
 
 	/**
 	 * What the last build() found, as data - the counts over every diagnostic it
@@ -1366,7 +1390,8 @@ public class JdtlsSession {
 		if (uri.startsWith(prefix))
 			return uri.substring(prefix.length() + 1);
 
-		return uri;
+		final String relative = ProjectUris.relativePath(prefix, uri);
+		return relative == null ? uri : relative;
 	}
 
 	/**

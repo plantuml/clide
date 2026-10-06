@@ -957,6 +957,15 @@ one. `--lua` and `--human` cannot be combined.
   does not: a usage from the *enclosing* type of a nested type actually being
   inspected, which nest-based access control permits but sits outside that
   nested type's own range.
+- **Locations jdtls sends are matched to the project by path, not by text.**
+  The same Windows file is spelled `file:///C:/x`, `file:///c:/x`,
+  `file:///c%3A/x` or `file:/C:/x`; a location that does not match the project is
+  dropped from every answer (a method then looks never called, `find_symbol`
+  returns a symbol "(no location)"). `ProjectUris` reduces both sides to one form
+  first. A `file:` location still judged outside the project is printed once, up
+  to five of them per daemon, on the daemon's own output
+  (`.clide/tmp/.clide-daemon.log`): `clide: ignored a location outside the
+  project: <uri>  (project: <uri>)`. Look there when every reference is missing.
 - **`find_symbol`** never finds a field by its name (types and methods
   only) — a jdtls limitation, not clide's. An empty `find_symbol` result now
   says so in place, so "no symbol found" on a field is not mistaken for "that
