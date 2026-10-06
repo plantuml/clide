@@ -70,6 +70,7 @@ run it separately once this one has returned.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -102,6 +103,12 @@ POLL_INTERVAL_SECONDS = 0.3
 # without dumping an entire boot trace back at whoever is reading this
 # script's own error message.
 LOG_TAIL_LINES = 20
+
+# Printed by the daemon (ClideDaemon.INDEXING_COMPLETE_MESSAGE, which this must
+# keep matching the start of) once jdtls has finished indexing the project.
+# "Daemon ready" can come before that on a big project: the daemon answers, but
+# find_reference and everything built on it can miss usages until this line.
+INDEXING_COMPLETE_MARKER = "jdtls indexing complete"
 
 # Must keep matching PrintMode.HUMAN_FLAG on the Java side, and HUMAN_FLAG in
 # clide.py - the same flag, just forwarded here instead of rejected.
@@ -247,7 +254,7 @@ def open_log_tail(log_path: Path) -> Optional[IO[bytes]]:
 		return None
 
 
-def echo_new_log_output(tail: Optional[IO[bytes]]) -> None:
+def echo_new_log_output(tail: Optional[IO[bytes]], seen: bytearray) -> None:
 	"""Copies whatever log bytes have appeared since the last call straight to
 	this script's own stdout, unprocessed - the same bytes the daemon itself
 	would have printed here without this script in between (see the module
@@ -263,11 +270,24 @@ def echo_new_log_output(tail: Optional[IO[bytes]]) -> None:
 
 	chunk = tail.read()
 	if chunk:
+		seen.extend(chunk)  # kept for indexing_complete(): the marker may arrive split across two reads
 		sys.stdout.buffer.write(chunk)
 		sys.stdout.buffer.flush()
 
 
-def wait_for_ready(process: "subprocess.Popen[bytes]", project_root: str, log_path: Path) -> WaitOutcome:
+def indexing_complete(seen: bytearray) -> bool:
+	"""Whether the daemon's log, as echoed so far, says jdtls finished indexing."""
+	return log_says_indexed(bytes(seen))
+
+
+def log_says_indexed(log: bytes) -> bool:
+	"""True if some line of the log starts with INDEXING_COMPLETE_MARKER - at the
+	start of a line, so a message that merely mentions it does not count."""
+	return re.search(rb"(?m)^" + re.escape(INDEXING_COMPLETE_MARKER.encode()), log) is not None
+
+
+def wait_for_ready(process: "subprocess.Popen[bytes]", project_root: str, tail: Optional[IO[bytes]],
+		seen: bytearray) -> WaitOutcome:
 	"""Blocks until either the daemon this script just launched answers on the
 	port it wrote to its own lock file (see clide.probe(), imported rather
 	than re-implemented so the two scripts can never disagree on what counts
@@ -287,24 +307,38 @@ def wait_for_ready(process: "subprocess.Popen[bytes]", project_root: str, log_pa
 	small project and PlantUML itself is not a number this script can pick
 	honestly - see the module docstring.
 	"""
-	tail = open_log_tail(log_path)
-	try:
-		while True:
-			echo_new_log_output(tail)
+	while True:
+		echo_new_log_output(tail, seen)
 
-			exit_code = process.poll()
-			if exit_code is not None:
-				echo_new_log_output(tail)  # whatever landed between the read above and this exit becoming visible
-				return WaitOutcome(ready=None, exited_with=exit_code)
+		exit_code = process.poll()
+		if exit_code is not None:
+			echo_new_log_output(tail, seen)  # whatever landed between the read above and this exit becoming visible
+			return WaitOutcome(ready=None, exited_with=exit_code)
 
-			state = clide.probe(project_root)
-			if state.live:
-				return WaitOutcome(ready=state, exited_with=None)
+		state = clide.probe(project_root)
+		if state.live:
+			echo_new_log_output(tail, seen)  # "Daemon ready" and what follows it are written before the lock is
+			return WaitOutcome(ready=state, exited_with=None)
 
-			time.sleep(POLL_INTERVAL_SECONDS)
-	finally:
-		if tail is not None:
-			tail.close()
+		time.sleep(POLL_INTERVAL_SECONDS)
+
+
+def wait_for_indexing(process: "subprocess.Popen[bytes]", tail: Optional[IO[bytes]], seen: bytearray) -> bool:
+	"""Blocks until the daemon's log says jdtls finished indexing (True), or the
+	daemon's process exits first (False). Like wait_for_ready(), no timeout: the
+	first indexing of a big project takes minutes and there is no honest number
+	to give up at. Keeps echoing the log meanwhile.
+	"""
+	while True:
+		echo_new_log_output(tail, seen)
+		if indexing_complete(seen):
+			return True
+
+		if process.poll() is not None:
+			echo_new_log_output(tail, seen)
+			return indexing_complete(seen)
+
+		time.sleep(POLL_INTERVAL_SECONDS)
 
 
 def main() -> None:
@@ -318,10 +352,19 @@ def main() -> None:
 	# that writes it, never clide.py itself.
 	clide.write_last_project(project_root)
 
+	log_path = Path(project_root) / clide.STAGING_DIR / LOG_FILE_NAME
+
 	already = clide.probe(project_root)
 	if already.live:
+		try:
+			indexed = log_says_indexed(log_path.read_bytes())
+		except OSError:
+			indexed = False
 		print(f"start_clide.py: daemon already running on port {already.port} (pid {already.pid}) "
-				f"for {project_root} - ready to use, nothing started.")
+				f"for {project_root} - nothing started."
+				+ (" Ready to use." if indexed else
+				f" Its log does not say jdtls finished indexing yet: queries can miss usages until it does "
+				f"(see {log_path})."))
 		return
 
 	command = [find_java(), "-jar", find_jar()]
@@ -329,29 +372,52 @@ def main() -> None:
 		command.append(HUMAN_FLAG)
 	command.append(project_root)
 
-	log_path = Path(project_root) / clide.STAGING_DIR / LOG_FILE_NAME
 	process = spawn_detached(command, log_path)
 
 	print(f"start_clide.py: daemon starting for {project_root} (pid {process.pid}, detached) - "
 			f"waiting for it to be ready (see {log_path} for its own progress) ...")
 
+	tail = open_log_tail(log_path)
+	seen = bytearray()
 	try:
-		outcome = wait_for_ready(process, project_root, log_path)
-	except KeyboardInterrupt:
-		sys.exit(f"start_clide.py: stopped waiting, not the daemon - pid {process.pid} keeps starting in the "
-				f"background (it was launched detached before this wait began). Check {log_path}, or just run "
-				f"start_clide.py again shortly: it will report the same daemon as ready once it is, without "
-				f"starting a second one.")
+		try:
+			outcome = wait_for_ready(process, project_root, tail, seen)
+		except KeyboardInterrupt:
+			sys.exit(f"start_clide.py: stopped waiting, not the daemon - pid {process.pid} keeps starting in the "
+					f"background (it was launched detached before this wait began). Check {log_path}, or just run "
+					f"start_clide.py again shortly: it will report the same daemon as ready once it is, without "
+					f"starting a second one.")
 
-	if outcome.exited_with is not None:
-		sys.exit(f"start_clide.py: the daemon for {project_root} exited before becoming ready "
-				f"(exit code {outcome.exited_with}) - see {log_path}, last {LOG_TAIL_LINES} line(s):\n"
-				f"{log_tail(log_path)}")
+		if outcome.exited_with is not None:
+			sys.exit(f"start_clide.py: the daemon for {project_root} exited before becoming ready "
+					f"(exit code {outcome.exited_with}) - see {log_path}, last {LOG_TAIL_LINES} line(s):\n"
+					f"{log_tail(log_path)}")
 
-	state = outcome.ready
-	print(f"start_clide.py: daemon ready on port {state.port} (pid {state.pid}) for {project_root} - "
-			f"python3 clide.py {project_root} is ready to use.")
+		state = outcome.ready
+		if indexing_complete(seen):
+			print(f"start_clide.py: daemon ready on port {state.port} (pid {state.pid}) for {project_root} - "
+					f"python3 clide.py {project_root} is ready to use.")
+			return
 
+		# The daemon answers, but jdtls is still indexing: find_reference and everything
+		# built on it can miss usages (a "never called" that is not true, for one).
+		print(f"start_clide.py: daemon accepting connections on port {state.port} (pid {state.pid}) for "
+				f"{project_root}, but jdtls is still indexing - waiting for it to finish before saying it is "
+				f"ready to use (Ctrl+C stops this wait only, not the daemon).")
+		try:
+			finished = wait_for_indexing(process, tail, seen)
+		except KeyboardInterrupt:
+			sys.exit(f"start_clide.py: stopped waiting, not the daemon - it keeps indexing in the background. "
+					f"Queries can miss usages until its log ({log_path}) prints \"{INDEXING_COMPLETE_MARKER}\".")
+
+		if not finished:
+			sys.exit(f"start_clide.py: the daemon exited while jdtls was still indexing - see {log_path}, "
+					f"last {LOG_TAIL_LINES} line(s):\n{log_tail(log_path)}")
+
+		print(f"start_clide.py: indexing complete - python3 clide.py {project_root} is ready to use.")
+	finally:
+		if tail is not None:
+			tail.close()
 
 if __name__ == "__main__":
 	main()

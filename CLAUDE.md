@@ -88,7 +88,16 @@ large
 project's first build can take minutes, so it waits for either readiness or
 the daemon's own process exiting on its own (reported as an error, with the
 end of its boot log inline — the full log is `.clide/tmp/.clide-daemon.log`
-under the project). Running `start_clide.py` again for a project that
+under the project). **"Daemon ready" is not "indexing finished".** The daemon answers as soon as
+jdtls is up, after a bounded wait for its first indexing, which a big project
+can outlast; until jdtls is done, `find_reference` and everything built on it
+(`list_could_be_private` saying "never called" about a method that is called)
+can miss usages. The daemon therefore prints
+`jdtls indexing complete - find_reference and the other queries now see the
+whole project.` the moment jdtls is done, and `start_clide.py` keeps waiting
+for that line (echoing the log meanwhile) before it says "ready to use";
+Ctrl+C there stops the wait, not the daemon. Run again on a daemon already
+up, it says whether that line is in the log yet. Running `start_clide.py` again for a project that
 already has a daemon up is safe and does nothing but say so — it never
 starts a second one. Interrupting `start_clide.py` itself (Ctrl+C) only ever
 stops *it* from waiting; the daemon, already detached before the wait began,

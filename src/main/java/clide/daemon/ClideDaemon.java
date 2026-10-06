@@ -160,6 +160,17 @@ public final class ClideDaemon {
 	 */
 	private volatile JdtlsSession session;
 
+	/**
+	 * Printed, on a line of its own, once jdtls has finished indexing the
+	 * project - clide.py's sibling start_clide.py waits for it (it must keep
+	 * matching INDEXING_COMPLETE_MARKER there). Until then the daemon already
+	 * answers, but find_reference and everything built on it can miss usages:
+	 * "Daemon ready" is printed after a bounded wait for jdtls (see
+	 * JdtlsSession.start()), which a big project can outlast.
+	 */
+	public static final String INDEXING_COMPLETE_MESSAGE = "jdtls indexing complete - "
+			+ "find_reference and the other queries now see the whole project.";
+
 	public ClideDaemon(final Path projectRoot, final PrintMode printMode, final Collection<Command> commands) {
 		this.projectRoot = projectRoot;
 		this.printMode = printMode;
@@ -241,11 +252,40 @@ public final class ClideDaemon {
 		Runtime.getRuntime()
 				.addShutdownHook(new Thread(() -> shutdown(session, serverSocket), "clide-daemon-shutdown"));
 		System.out.println("Daemon ready on port " + serverSocket.getLocalPort());
+		announceIndexingComplete(session);
 
 		while (context.isShutdownRequested() == false)
 			acceptClient(serverSocket, context);
 
 		shutdown(session, serverSocket);
+	}
+
+	/**
+	 * Says, right after "Daemon ready", whether jdtls has finished indexing: it
+	 * has, most of the time, and INDEXING_COMPLETE_MESSAGE is printed at once. If
+	 * not, a line says so and a watcher thread prints that message the moment it
+	 * happens. Printed from a thread of its own, but only ever after the boot
+	 * trace ended on a complete line, so it cannot land in the middle of one.
+	 */
+	private void announceIndexingComplete(final JdtlsSession current) {
+		if (current.isIndexingComplete()) {
+			System.out.println(INDEXING_COMPLETE_MESSAGE);
+			return;
+		}
+
+		final String status = current.lastStatus();
+		System.out.println("jdtls is still indexing" + (status == null ? "" : " (" + status + ")")
+				+ " - queries can miss usages until it has finished; a line saying so will follow.");
+		final Thread watcher = new Thread(() -> {
+			try {
+				current.awaitIndexingComplete();
+				System.out.println(INDEXING_COMPLETE_MESSAGE);
+			} catch (final InterruptedException e) {
+				Thread.currentThread().interrupt();
+			}
+		}, "clide-indexing-watch");
+		watcher.setDaemon(true);
+		watcher.start();
 	}
 
 	/**

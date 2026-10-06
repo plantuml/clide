@@ -1599,6 +1599,16 @@ public class JdtlsSession {
 	}
 
 	/**
+	 * Blocks, with no time limit, until jdtls has finished indexing (see
+	 * isIndexingComplete()). For the watcher thread ClideDaemon starts when
+	 * start() gave up waiting (its own budget is bounded) before that happened:
+	 * it is the one place that wants to know the exact moment, to say so.
+	 */
+	public void awaitIndexingComplete() throws InterruptedException {
+		serviceReady.await();
+	}
+
+	/**
 	 * Blocks until jdtls reports ServiceReady (see handleStatus()) or
 	 * timeoutSeconds elapses, whichever comes first - best-effort, not a hard
 	 * requirement: a caller that times out here is not wrong to go on, since
