@@ -82,6 +82,16 @@ public final class EclipseProjectFiles {
 	public static final String STAGING_DIR = ".clide/tmp";
 
 	private static final String DEBUG_SUFFIX = ".clide";
+
+	/**
+	 * What an original .project/.classpath is renamed to while it waits in the
+	 * staging directory. It must NOT keep its real name: jdtls' import scans the
+	 * whole project tree for .project/.classpath files, and a ".project" left in
+	 * .clide/tmp/ is found and imported as a second Eclipse project (named like
+	 * the first plus " (2)") whose source folders - relative to .clide/tmp/ -
+	 * do not exist: "Project 'x (2)' is missing required source folder".
+	 */
+	static final String ORIGINAL_SUFFIX = ".orig";
 	private static final List<String> MANAGED_FILES = List.of(".project", ".classpath");
 
 	private final Path projectRoot;
@@ -119,12 +129,17 @@ public final class EclipseProjectFiles {
 	public static void refuseIfDirty(final Path projectRoot) throws IOException {
 		final Path staging = stagingDir(projectRoot);
 		for (final String name : MANAGED_FILES) {
-			final Path stranded = staging.resolve(name);
-			if (Files.exists(stranded))
-				throw new IOException("Refusing to start: " + stranded + " still exists - a previous clide "
-						+ "daemon likely crashed while staging " + name + ". Move it back to "
-						+ projectRoot.resolve(name) + " by hand (or remove it if " + name
-						+ " did not exist before clide ran) before starting again.");
+			// Also the pre-".orig" spelling: a daemon of an older clide that was killed
+			// leaves its original under its real name, and that one is the dangerous
+			// kind (see ORIGINAL_SUFFIX) - it must be put back before starting.
+			for (final String strandedName : List.of(name + ORIGINAL_SUFFIX, name)) {
+				final Path stranded = staging.resolve(strandedName);
+				if (Files.exists(stranded))
+					throw new IOException("Refusing to start: " + stranded + " still exists - a previous clide "
+							+ "daemon likely crashed while staging " + name + ". Move it back to "
+							+ projectRoot.resolve(name) + " by hand (or remove it if " + name
+							+ " did not exist before clide ran) before starting again.");
+			}
 		}
 	}
 
@@ -151,7 +166,7 @@ public final class EclipseProjectFiles {
 		final boolean existed = Files.exists(live);
 		hadOriginal.put(name, existed);
 		if (existed)
-			Files.move(live, staging.resolve(name), StandardCopyOption.ATOMIC_MOVE);
+			Files.move(live, staging.resolve(name + ORIGINAL_SUFFIX), StandardCopyOption.ATOMIC_MOVE);
 
 		Files.writeString(live, content, StandardCharsets.UTF_8);
 		Files.writeString(staging.resolve(name + DEBUG_SUFFIX), content, StandardCharsets.UTF_8);
@@ -182,7 +197,7 @@ public final class EclipseProjectFiles {
 
 	private void unstageOne(final String name, final Path staging) throws IOException {
 		final Path live = projectRoot.resolve(name);
-		final Path original = staging.resolve(name);
+		final Path original = staging.resolve(name + ORIGINAL_SUFFIX);
 
 		if (Boolean.TRUE.equals(hadOriginal.get(name))) {
 			if (Files.exists(original))

@@ -217,9 +217,12 @@ def recover_project_files(project_root: str) -> List[str]:
 	notes = []
 	staging = os.path.join(project_root, STAGING_DIR)
 	for name in MANAGED_FILES:
-		stranded = os.path.join(staging, name)
+		# ".orig" is what EclipseProjectFiles stages an original as; the bare name is
+		# what older clide versions left behind.
+		stranded = next((path for path in (os.path.join(staging, name + ".orig"), os.path.join(staging, name))
+				if os.path.exists(path)), None)
 		live = os.path.join(project_root, name)
-		if os.path.exists(stranded):
+		if stranded is not None:
 			os.replace(stranded, live)
 			notes.append(f"{name}: the project's own file moved back to the project root")
 			continue

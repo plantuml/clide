@@ -50,9 +50,9 @@ class EclipseProjectFilesTest {
 
 		assertEquals(originalProject, Files.readString(projectRoot.resolve(".project")));
 		assertEquals(originalClasspath, Files.readString(projectRoot.resolve(".classpath")));
-		assertFalse(Files.exists(projectRoot.resolve(".clide/tmp/.project")),
+		assertFalse(Files.exists(projectRoot.resolve(".clide/tmp/.project.orig")),
 				"l'original ne doit plus traîner dans le staging une fois restauré");
-		assertFalse(Files.exists(projectRoot.resolve(".clide/tmp/.classpath")));
+		assertFalse(Files.exists(projectRoot.resolve(".clide/tmp/.classpath.orig")));
 	}
 
 	@Test
@@ -128,6 +128,19 @@ class EclipseProjectFilesTest {
 
 		final IOException thrown = assertThrows(IOException.class, () -> EclipseProjectFiles.refuseIfDirty(projectRoot));
 		assertTrue(thrown.getMessage().contains(".project"), "le message doit nommer le fichier concerné");
+	}
+
+	@Test
+	@DisplayName("pendant le staging, l'original n'a plus un nom que jdtls importerait comme projet")
+	void stagedOriginalIsNotNamedLikeAProjectFile(@TempDir final Path projectRoot) throws IOException {
+		Files.writeString(projectRoot.resolve(".project"), "real", StandardCharsets.UTF_8);
+		Files.writeString(projectRoot.resolve(".classpath"), "real cp", StandardCharsets.UTF_8);
+		EclipseProjectFiles.forProject(projectRoot).stage(GENERATED_PROJECT, GENERATED_CLASSPATH);
+
+		assertFalse(Files.exists(projectRoot.resolve(".clide/tmp/.project")));
+		assertFalse(Files.exists(projectRoot.resolve(".clide/tmp/.classpath")));
+		assertEquals("real", Files.readString(projectRoot.resolve(".clide/tmp/.project.orig")));
+		assertEquals("real cp", Files.readString(projectRoot.resolve(".clide/tmp/.classpath.orig")));
 	}
 
 	@Test

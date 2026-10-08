@@ -133,7 +133,7 @@ transaction is open). `stop_clide.py` does not talk to the daemon: it finds the
 its own clean-up, and the next daemon start refuses while that clean-up is
 missing: the project's own `.project`/`.classpath` are moved aside to
 `.clide/tmp/` while a daemon runs, clide's own taking their place at the
-project root. So after each kill `stop_clide.py` does what the daemon's shutdown
+project root (as `.project.orig`/`.classpath.orig`, so jdtls does not import them). So after each kill `stop_clide.py` does what the daemon's shutdown
 would have done: the original goes back, or clide's own file is removed when
 the project had none (a file that does not look like clide's is never
 touched). A transaction left open is not recovered, only reported: the next
@@ -974,16 +974,14 @@ one. `--lua` and `--human` cannot be combined.
   no shortcut to the already-known diagnostics.
 - On a very large test suite with missing system dependencies,
   `run_tests` may never finish — see above.
-- **`run_test`/`run_tests` refuse with "this repository holds N modules"**
-  when the opened project already had its own `.project`/`.classpath`
-  before clide ran (clide's own repository, self-hosted, is one such
-  case). Those original files get moved into `.clide/tmp/` while clide's
-  generated ones are used at the root (see above) — but `.clide/tmp/`
-  stays inside the workspace tree, so jdtls's own recursive project import
-  picks the moved copy back up as a second project. Only hits a target
-  project that already ships its own `.project`/`.classpath`; not fixed
-  yet (excluding `.clide/**` from jdtls's import scan would be the natural
-  fix).
+- **A project that ships its own `.project`/`.classpath`** used to get them
+  re-imported by jdtls as a second project (`plantuml (2)`: "missing
+  required source folder" errors located under `.clide/tmp/`, and
+  `run_test`/`run_tests` refusing with "this repository holds N modules").
+  Fixed: the originals wait in `.clide/tmp/` as `.project.orig` and
+  `.classpath.orig`, names jdtls's import scan ignores. A daemon killed by an
+  older clide may have left them under their real names; `refuseIfDirty()` and
+  `stop_clide.py` still recognise those.
 - **`move_class`'s `workspace/willRenameFiles` answer, and the diagnostics
   read right after applying it, can both be incomplete right after the
   underlying file changed** (a rollback, a rebuild, or simply a move into a
