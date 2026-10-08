@@ -170,7 +170,7 @@ posée, `%LOCALAPPDATA%\clide\…` sur Windows). Le daemon annonce le chemin
 qu'il a résolu :
 
 ```
-(2/4) Initializing IDE ... [OK] (jdtls: /home/foo/.cache/clide/jdtls-ba495e18)
+Initializing IDE ... [OK] (jdtls: /home/foo/.cache/clide/jdtls-ba495e18)
 ```
 
 Ni le projet ouvert ni le répertoire courant ne reçoivent quoi que ce soit —
@@ -202,8 +202,8 @@ nohup java -jar /tmp/clide/clide.jar /tmp/demo > /tmp/demo-daemon.log 2>&1 &
 printf 'help\nexit\n' | python3 /tmp/clide/clide.py /tmp/demo
 ```
 
-Le daemon (premier bloc) doit afficher les 4 étapes de démarrage (`(1/4)` …
-`(4/4) Building project … [OK]`) puis `Daemon ready on port …`. Démarrage à
+Le daemon (premier bloc) doit afficher les 4 étapes de démarrage (`Checking for a
+leftover transaction state` … `Building project … [OK]`) puis `Daemon ready on port …`. Démarrage à
 froid mesuré : ~22 s sur ce mini-projet (extraction de jdtls comprise), bien
 plus sur PlantUML — un coût payé une seule fois, pas à chaque connexion.
 Chaque appel suivant du client (`python3 clide.py /tmp/demo`) contre ce même

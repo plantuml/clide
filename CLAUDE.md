@@ -318,7 +318,7 @@ Two consequences worth knowing: the 62 MB extraction is paid **once per
 machine**, not once per directory clide is started from — and it never lands
 in the opened project, nor in the current directory, so it cannot show up in
 a `git status`. The startup trace names the exact path it resolved to
-(`(2/4) Initializing IDE ... [OK] (jdtls: …)`). A `clide.jar` rebuilt around
+(`Initializing IDE ... [OK] (jdtls: …)`). A `clide.jar` rebuilt around
 a different jdtls gets a different fingerprint and therefore a different
 directory, so an upgrade never silently reuses the previous server; the
 superseded directory is left in place, inert, and can be deleted by hand.

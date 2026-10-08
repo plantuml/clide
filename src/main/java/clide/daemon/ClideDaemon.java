@@ -181,14 +181,14 @@ public final class ClideDaemon {
 		System.out.println("*** clide daemon starting for " + projectRoot + " (mode: "
 				+ (printMode == PrintMode.HUMAN ? "--human" : "--ia") + ")");
 
-		System.out.print("(1/4) Checking for a leftover transaction state ...");
+		System.out.print("Checking for a leftover transaction state ...");
 		TransactionStack.refuseIfDirty(projectRoot);
 		EclipseProjectFiles.refuseIfDirty(projectRoot);
 		System.out.println(" [OK]");
 
 		final boolean eclipseFilesWereMissing = hasEclipseFiles() == false;
 
-		System.out.print("(2/4) Initializing IDE ...");
+		System.out.print("Initializing IDE ...");
 		final Path jdtlsHome = JdtlsHome.resolve();
 		final JdtlsLauncher launcher = new JdtlsLauncher(jdtlsHome, projectRoot);
 		final Md5Repository md5Repository = new Md5Repository(projectRoot);
@@ -200,7 +200,7 @@ public final class ClideDaemon {
 		// archive's fingerprint, not anything under this project - see JdtlsHome.
 		System.out.println(" [OK] (jdtls: " + jdtlsHome + ")");
 
-		System.out.print("(3/4) Starting session ...");
+		System.out.print("Starting session ...");
 		// start()+build() together in one try/finally, but the finally now only ever
 		// fires restoreEclipseFiles() on the FAILURE path: a daemon that fails here
 		// never reaches shutdown() (see below), so without this fallback a project's
@@ -218,7 +218,7 @@ public final class ClideDaemon {
 			session.start();
 			System.out.println(" [OK]");
 
-			System.out.print("(4/4) Building project ...");
+			System.out.print("Building project ...");
 			session.build();
 			startedAndBuilt = true;
 		} finally {
